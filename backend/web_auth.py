@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from backend.engine.activities import ACTIVITY_CONFIGS
 from backend.security import permissions, sessions
 from backend.security.deps import (
     DEVICE_COOKIE,
@@ -20,6 +21,7 @@ from backend.security.deps import (
 )
 from backend.security.login import LoginResult, attempt_login
 from backend.security.sessions import Principal
+from backend.stations import list_stations
 from backend.web import landing_url, redirect, render, set_session_cookie
 
 router = APIRouter()
@@ -119,5 +121,17 @@ def me(principal: Principal = Depends(require_user)):
 
 @router.get("/station/{activity}")
 def station_screen(request: Request, access: ActivityAccess = Depends(require_activity_access("activity"))):
-    """The shell every station screen hangs off. Scan / verify / confirm arrive in Phase 6."""
-    return render(request, "station.html", principal=access.principal, activity=access.activity)
+    """The operator screen for one activity. Its behaviour comes from the engine (backend/engine)."""
+    principal = access.principal
+    stations = []
+    if principal.is_admin:  # an Admin picks which station of this venue to act as
+        with request.app.state.engine.connect() as conn:
+            stations = [
+                s for s in list_stations(conn, request.app.state.settings.venue_id)
+                if s["active"] and s["activity"] == access.activity
+            ]
+    return render(
+        request, "station.html", principal=principal, activity=access.activity,
+        config=ACTIVITY_CONFIGS[access.activity], station_id=None if principal.is_admin else principal.station_id,
+        stations=stations,
+    )

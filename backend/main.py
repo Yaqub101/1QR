@@ -2,6 +2,7 @@ import io
 import json
 import pathlib
 import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -19,6 +20,7 @@ from backend.importer import parse_file, detect_column_mapping, validate_import,
 from backend.photos import link_photos_by_prn
 from backend.snapshot import freeze_display_data
 from backend.master_pack import export_master_pack, import_master_pack
+from backend.engine.routes import router as engine_router
 from backend.security.deps import require_admin
 from backend.security.ownership import guard_from_settings
 from backend.web_admin import router as admin_router
@@ -43,6 +45,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = engine
     app.state.venue_guard = guard_from_settings(settings)  # golden rule 4: one guard for every write path
+
+    @app.middleware("http")
+    async def _process_time(request: Request, call_next):
+        # Server-side processing time, network excluded: scan-to-confirm must stay well under a second.
+        started = time.perf_counter()
+        response = await call_next(request)
+        response.headers["X-Process-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
+        return response
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException):
@@ -69,6 +79,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # ── Sign-in, station screens, admin screens (Phase 5) ────────────────────
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
 
     # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
     @app.post("/admin/import/preview", dependencies=[Depends(require_admin)])

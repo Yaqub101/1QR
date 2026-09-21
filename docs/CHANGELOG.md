@@ -1,3 +1,23 @@
+## [0.6.0] - Phase 6 Complete
+
+### Added
+- **Station engine** (`backend/engine/`): one generic scan → verify → confirm engine for all seven activities. Each activity is configuration only (`backend/engine/activities.py`); a wrong entry stops startup (`RegistryError`).
+  - `POST /scan`, `POST /search` (manual PRN fallback, photo shown, event flagged `MANUAL`), `POST /confirm`, `GET /photo/{student_id}`.
+  - Pipeline: QR valid → student `ACTIVE` → prerequisites → already completed → card. The station decides the activity; the request never names one (extra `activity` fields are ignored).
+  - `confirm` is the only write: effects, event, outbox row, audit row and scan_log row in **one transaction**; success is returned only after COMMIT. It re-runs every check itself; the Phase 2 unique index settles concurrent confirms (the loser gets an ordinary DUPLICATE, with no gap in `venue_seq`).
+  - Same-venue prerequisites are hard blocks. **Cross-venue prerequisites go through one hook, `cross_venue.check_cross_venue_prerequisite`, which is a STUB that always allows until Phase 15.** The engine already honours a block message, the `PROVISIONAL` flag and scan-log result.
+  - Named extension points so later phases stay configuration-only: display fields, effects (`enqueue`), flag rules (`late_registration`).
+  - Plain one-sentence operator messages (SYSTEM_SPEC 14); technical detail, rule names and stack traces go to the `backend.engine` log only. Unexpected failures show "One moment, please try again." (HTTP 503).
+  - `X-Process-Time-Ms` header on every response; scan and confirm are asserted under 200 ms server-side.
+- **Operator screen** (`templates/station.html`, `static/station.js`, `static/station_logic.js`): auto-focused scan box refocused after every action, scanner Enter/newline stripped, double scans and double clicks make one request, green/amber/red banner with a short synthesised sound (offline, no assets), PRN search with photo.
+- **`docs/STATION_CONTRACT.md`**: the guide for configuring activities on the engine, with a worked example.
+- `audit_log` rows for every confirmed activity (`ACTIVITY_CONFIRMED`); `backend/audit.py` accepts the event columns.
+- Setting `EVENT_UTC_OFFSET_MINUTES` (default 330) for the clock operators read.
+- `tests/test_station_engine.py` and `tests/js/station.test.js`.
+
+### Notes
+- `scan_log` gets one row per attempt that reaches an outcome (INVALID, REJECTED, DUPLICATE, SUCCESS, MANUAL, PROVISIONAL). A preview that shows a card and is never confirmed writes nothing.
+
 ## [0.5.0] - Phase 5 Complete
 
 ### Added

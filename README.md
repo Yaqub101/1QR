@@ -4,7 +4,9 @@ The system tracks each university student through seven activities (Registration
 
 ## Status
 
-Phase 2 complete (database schema and migrations: every table from `docs/TODO.md` Phase 2, with duplicate prevention, venue ownership and append-only history enforced by PostgreSQL itself). Phase 1 (repository, environment validation, Docker skeleton, health check) is also in place. Next: Phase 3.
+Phases 1, 2, 3, 5 and 6 are complete: environment and Docker skeleton, the database schema (duplicate prevention, venue ownership and append-only history enforced by PostgreSQL itself), student import, auth / roles / stations / venue ownership, and the **station engine** (scan → verify → confirm, all seven activities). Phase 4 (QR tokens and passes) has not been built yet. Next: Phase 7 (see `docs/TODO.md`).
+
+New to the engine? Read [`docs/STATION_CONTRACT.md`](docs/STATION_CONTRACT.md): each activity is one configuration entry in `backend/engine/activities.py`, not new code.
 
 ## Setup
 
@@ -95,6 +97,17 @@ uv pip install -e ".[dev]"
 # Run full test suite with one single command:
 pytest -v
 ```
+
+The operator-screen logic (scanner-suffix stripping, debounce, focus, colour and sound) is also unit-tested in JavaScript with Node's built-in runner; `pytest` runs it automatically when `node` is installed and skips it otherwise. To run it on its own: `node --test tests/js/station.test.js`.
+
+---
+
+### 3b. First-time event setup
+
+1. Create the Admin and Deputy accounts (credentials come from the environment or a prompt, never from a file): `python -m backend.seed`
+2. Sign in as Admin, open **Stations**, and create the stations for this venue (an activity is fixed to its venue: College = Registration; Stadium = Thobe Allocation, Seating, Queue, Stage; Hall = Thobe Return, Lunch).
+3. On each operator laptop, sign in as Admin, open **Set up this laptop**, tap its station, then sign out. The laptop now *is* that station; the operator signs in with their own login and never chooses an activity.
+4. Operators open the site; the scan box is ready. A spare laptop is rebound the same way in three steps.
 
 ---
 

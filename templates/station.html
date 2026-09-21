@@ -1,10 +1,43 @@
 {% extends "base.html" %}
 {% block title %}{{ activity_label[activity] }}{% endblock %}
 {% block body %}
-<h1>{{ activity_label[activity] }}</h1>
-<div class="card">
-  <p><strong>Station:</strong> {{ principal.station_id or "(Admin view)" }}</p>
-  <p><strong>Operator:</strong> {{ principal.full_name or principal.username }}</p>
-  <p class="muted">Ready. The scan box appears here in Phase 6.</p>
+<div id="station-root" data-station-id="{{ station_id or '' }}" data-activity="{{ activity }}">
+  <h1>{{ activity_label[activity] }}</h1>
+
+  {% if principal.is_admin %}
+  <label class="admin-station">Acting as station
+    <select id="station-select">
+      {% for s in stations %}<option value="{{ s.station_id }}">{{ s.station_id }}</option>{% endfor %}
+    </select>
+  </label>
+  {% if not stations %}<p class="flash bad">No station is set up for this activity yet.</p>{% endif %}
+  {% endif %}
+
+  <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Scan a QR to begin.</span></div>
+
+  <input id="scan" class="scan-box" type="text" autofocus autocomplete="off" autocapitalize="off"
+         autocorrect="off" spellcheck="false" placeholder="Scan QR here" aria-label="Scan the student's QR code">
+
+  <div id="card" class="student" hidden>
+    <img id="card-photo" alt="Student photo">
+    <div class="student-info">
+      <h2 id="card-name"></h2>
+      <dl id="card-fields"></dl>
+    </div>
+  </div>
+
+  <button id="confirm" class="confirm" type="button" hidden>{{ config.confirm_label }}</button>
+
+  <details class="manual">
+    <summary>QR damaged? Search by PRN</summary>
+    <div class="manual-row">
+      <input id="search-prn" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
+             placeholder="PRN" aria-label="Student PRN">
+      <button id="search-btn" type="button">Search</button>
+    </div>
+    <p class="muted">Check the photo against the student before you confirm.</p>
+  </details>
 </div>
+<script src="/static/station_logic.js"></script>
+<script src="/static/station.js"></script>
 {% endblock %}

@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     log_dir: str = "logs"
     log_level: str = "INFO"
 
+    # Clock used for the times operators read on screen ("11:21 AM"). A fixed offset in minutes from
+    # UTC, so it works offline and on any OS with no timezone database. 330 = India (no daylight saving).
+    event_utc_offset_minutes: int = 330
+
     # Sessions (Phase 5). Sized for a multi-hour event day: an operator who keeps
     # scanning is never logged out; a laptop left alone for 2 hours is; nothing
     # lives past 12 hours, so the next morning starts with a fresh login.
