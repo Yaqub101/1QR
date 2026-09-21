@@ -1011,6 +1011,9 @@ class TestStationScreen:
     def test_the_screen_has_an_autofocused_scan_box_and_the_configured_button(self, apps, world, activity):
         page = operator(apps, world, activity).get(f"/station/{slug(activity)}")
         assert page.status_code == 200
+        if activity == "STAGE":  # Phase 11: the Stage operator runs the Stage Controller, not a scan box
+            assert 'id="stage-root"' in page.text and CONFIRM_LABEL["STAGE"] in page.text
+            return
         assert 'id="scan"' in page.text and "autofocus" in page.text
         assert CONFIRM_LABEL[activity] in page.text
         assert f'data-station-id="{STATION[activity]}"' in page.text

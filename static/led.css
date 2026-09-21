@@ -1,0 +1,20 @@
+/* The audience screen. Built for a 16:9 projector / LED wall at 1920x1080 and scales with the viewport (vw/vh).
+   No controls, nothing selectable. The font stack lists Devanagari and Tamil families first so
+   Indian-language names render on a laptop that has them installed (see the report: fonts are NOT bundled). */
+:root { --bg:#0b1f3a; --ink:#ffffff; --accent:#f2c14e; --soft:#b9c7dd; }
+* { box-sizing: border-box; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); overflow:hidden; cursor:none; user-select:none; }
+body.led { font-family: "Noto Sans", "Noto Sans Devanagari", "Noto Sans Tamil", "Noto Sans Bengali", "Segoe UI", "Nirmala UI", system-ui, sans-serif; }
+[hidden] { display:none !important; }
+
+.holding { height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:6vh 6vw; }
+.holding h1 { font-size:7vw; margin:0 0 3vh; letter-spacing:.02em; }
+.holding p { font-size:3.2vw; margin:0; color:var(--soft); }
+
+.stage { height:100vh; display:grid; grid-template-columns: 36vw 1fr; gap:4vw; align-items:center; padding:6vh 5vw; }
+.stage img { width:36vw; height:84vh; object-fit:cover; border-radius:1.2vw; background:#22395c; border:.5vw solid var(--accent); }
+.info { min-width:0; }
+.info h1 { font-size:6.4vw; line-height:1.08; margin:0 0 3vh; overflow-wrap:anywhere; }
+.info p { margin:0 0 2vh; font-size:3vw; color:var(--soft); overflow-wrap:anywhere; }
+.info .award { color:var(--accent); font-weight:700; font-size:3.4vw; }
+.info .award:empty { display:none; }

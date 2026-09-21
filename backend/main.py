@@ -21,6 +21,7 @@ from backend.photos import link_photos_by_prn
 from backend.snapshot import freeze_display_data
 from backend.master_pack import export_master_pack, import_master_pack
 from backend.engine.routes import router as engine_router
+from backend.stage.routes import router as stage_router
 from backend.security.deps import require_admin
 from backend.security.ownership import guard_from_settings
 from backend.web_admin import router as admin_router
@@ -80,6 +81,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
+    app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
 
     # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
     @app.post("/admin/import/preview", dependencies=[Depends(require_admin)])

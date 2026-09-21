@@ -528,7 +528,10 @@ class TestRoleMatrix:
 
     def test_every_route_is_protected_unless_deliberately_public(self, engine, world):
         app = build_app("venue", "college")
-        public = {("GET", "/"), ("GET", "/login"), ("POST", "/login"), ("POST", "/api/login"), ("GET", "/health")}
+        public = {("GET", "/"), ("GET", "/login"), ("POST", "/login"), ("POST", "/api/login"), ("GET", "/health"),
+                  # Phase 11: the audience screen. Deliberately public; serves only the approved LED payload
+                  # and exists only at the Stadium (tests/test_stage.py::TestPublicLed).
+                  ("GET", "/led"), ("GET", "/led/state"), ("GET", "/led/events"), ("GET", "/led/photo/{key}")}
         visited = set()
         # OpenAPI lists every route however it was mounted (included routers are nested objects).
         for template, operations in app.openapi()["paths"].items():

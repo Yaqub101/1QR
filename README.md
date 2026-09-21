@@ -4,7 +4,7 @@ The system tracks each university student through seven activities (Registration
 
 ## Status
 
-Phases 1, 2, 3, 5, 6 and the Phase 7-12 station bundle are complete (all seven activity screens run on the engine): environment and Docker skeleton, the database schema (duplicate prevention, venue ownership and append-only history enforced by PostgreSQL itself), student import, auth / roles / stations / venue ownership, and the **station engine** (scan → verify → confirm, all seven activities). Phase 4 (QR tokens and passes) has not been built yet. Next: the Stage Controller and public LED (Phase 11), the Admin waiver / dashboard, then sync (Phases 14-15). See `docs/TODO.md`.
+Phases 1, 2, 3, 5, 6 and the Phase 7-12 station bundle are complete (all seven activity screens run on the engine): environment and Docker skeleton, the database schema (duplicate prevention, venue ownership and append-only history enforced by PostgreSQL itself), student import, auth / roles / stations / venue ownership, and the **station engine** (scan → verify → confirm, all seven activities). Phase 4 (QR tokens and passes) has not been built yet. The **Stage Controller and public LED** (Phase 11) are built and tested in software; they still need verifying on the real LED hardware. Next: the Admin waiver / dashboard, then sync (Phases 14-15). See `docs/TODO.md`.
 
 New to the engine? Read [`docs/STATION_CONTRACT.md`](docs/STATION_CONTRACT.md): each activity is one configuration entry in `backend/engine/activities.py`, not new code.
 

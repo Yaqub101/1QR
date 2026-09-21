@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Stage{% endblock %}
+{% block body %}
+<div id="stage-root" data-station-id="{{ station_id or '' }}">
+  <h1>Stage</h1>
+
+  {% if principal.is_admin %}
+  <label class="admin-station">Acting as station
+    <select id="station-select">
+      {% for s in stations %}<option value="{{ s.station_id }}">{{ s.station_id }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+
+  <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Connecting…</span></div>
+  <p id="led" class="led-status">Audience screen: holding screen</p>
+  <button id="take-over" class="takeover" type="button" hidden>TAKE OVER</button>
+
+  <div class="stage-grid">
+    <section class="slot slot-current">
+      <h2>CURRENT</h2>
+      <img id="current-photo" alt="">
+      <p id="current-name" class="slot-name"></p>
+    </section>
+    <section class="slot">
+      <h2>NEXT</h2>
+      <img id="next-photo" alt="">
+      <p id="next-name" class="slot-name"></p>
+    </section>
+    <section class="slot">
+      <h2>AFTER NEXT</h2>
+      <img id="after-next-photo" alt="">
+      <p id="after-next-name" class="slot-name"></p>
+    </section>
+  </div>
+
+  <div class="stage-buttons">
+    <button id="display-next" class="big-action go" type="button">DISPLAY NEXT</button>
+    <button id="complete" class="big-action done" type="button">COMPLETE</button>
+    <button id="home" class="big-action home" type="button">HOME <small>(Esc)</small></button>
+    <button id="previous" class="big-action" type="button">PREVIOUS</button>
+  </div>
+
+  <div class="stage-tools">
+    <div class="tool">
+      <input id="skip-reason" type="text" placeholder="Reason for skipping" autocomplete="off" aria-label="Reason for skipping">
+      <button id="skip" type="button">SKIP</button>
+    </div>
+    <div class="tool">
+      <input id="search-input" type="text" placeholder="Search the queue by PRN or name" autocomplete="off" aria-label="Search the queue">
+      <button id="search-btn" type="button">SEARCH</button>
+    </div>
+    <div id="results" class="results"></div>
+  </div>
+</div>
+<script src="/static/stage.js"></script>
+{% endblock %}

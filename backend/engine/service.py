@@ -98,6 +98,9 @@ def _context(conn: Connection, settings, guard, principal, station_id: str) -> E
                          config=ACTIVITY_CONFIGS[station["activity"]])
 
 
+authorize_station = _context  # public name for trusted in-process callers (the Stage Controller)
+
+
 # ------------------------------------------------------------------ helpers
 def build_card(conn: Connection, ctx: EngineContext, student: dict) -> dict:
     fields = []
@@ -202,14 +205,15 @@ def compute_flags(conn: Connection, ctx: EngineContext, student: dict, *, manual
     return flags
 
 
-def insert_event(conn: Connection, ctx: EngineContext, student: dict, *, flags: list, details: dict) -> dict:
+def insert_event(conn: Connection, ctx: EngineContext, student: dict, *, flags: list, details: dict,
+                 kind: str = "COMPLETE") -> dict:
     row = conn.execute(
         text("INSERT INTO activity_events (student_id, activity, kind, venue_id, station_id, operator_id, flags, details, "
-             "completion_cycle) VALUES (:s, :a, 'COMPLETE', :v, :st, :o, CAST(:f AS text[]), CAST(:d AS jsonb), :c) "
+             "completion_cycle) VALUES (:s, :a, :k, :v, :st, :o, CAST(:f AS text[]), CAST(:d AS jsonb), :c) "
              "RETURNING event_id, venue_seq, server_time"),
-        {"s": student["id"], "a": ctx.activity, "v": ctx.venue, "st": ctx.station["station_id"],
+        {"s": student["id"], "a": ctx.activity, "k": kind, "v": ctx.venue, "st": ctx.station["station_id"],
          "o": ctx.principal.user_id, "f": flags, "d": json.dumps(details, default=str),
-         "c": next_completion_cycle(conn, student["id"], ctx.activity)},
+         "c": next_completion_cycle(conn, student["id"], ctx.activity) if kind == "COMPLETE" else 1},
     ).mappings().one()
     return dict(row)
 
@@ -222,51 +226,82 @@ def insert_outbox(conn: Connection, event_id) -> None:
     )
 
 
-def insert_audit(conn: Connection, ctx: EngineContext, student: dict, event: dict, flags: list) -> None:
-    write_audit(conn, "ACTIVITY_CONFIRMED", operator_id=ctx.principal.user_id, station_id=ctx.station["station_id"],
+def insert_audit(conn: Connection, ctx: EngineContext, student: dict, event: dict, flags: list,
+                 action: str = "ACTIVITY_CONFIRMED", details: Optional[dict] = None) -> None:
+    write_audit(conn, action, details=details, operator_id=ctx.principal.user_id, station_id=ctx.station["station_id"],
                 venue_id=ctx.venue, student_id=student["id"], activity=ctx.activity, event_id=event["event_id"],
                 venue_seq=event["venue_seq"], flags=flags)
 
 
 # ------------------------------------------------------------------ confirm (the only write)
+def confirm_in_transaction(conn: Connection, *, settings, guard, principal, station_id: str,
+                           token: Optional[str] = None, student_id: Optional[str] = None,
+                           manual: Optional[bool] = None, started: Optional[float] = None,
+                           seen: Optional[dict] = None) -> EngineResult:
+    """The whole confirm, inside a transaction the CALLER owns and commits. The engine's own confirm() and
+    the Stage Controller (which must commit COMPLETE and its state change together) both use this, so
+    there is still exactly one place an activity is recorded.
+
+    Identify by QR `token`, or by `student_id`. A `student_id` from the HTTP API is a manual PRN search and
+    is always flagged MANUAL; only trusted in-process callers (the Stage Controller, which picked the
+    student from the queue itself) pass manual=False.
+    """
+    started = time.perf_counter() if started is None else started
+    seen = {} if seen is None else seen
+    by_id = student_id is not None
+    manual = by_id if manual is None else manual
+    token = pipeline.normalise_token(token) if token is not None else None
+    ctx = _context(conn, settings, guard, principal, station_id)
+    seen["station_id"] = station_id
+    if by_id:
+        student, refused = pipeline.identify_by_id(conn, student_id)
+    else:
+        student, refused = pipeline.identify_by_token(conn, token)
+    outcome = refused or pipeline.evaluate(conn, ctx, student)
+    if outcome.result != "READY":
+        _terminal(conn, ctx, "confirm", outcome, token=None if by_id else token)
+        return _preview_result(conn, ctx, outcome, manual=manual, started=started)
+
+    seen["student_id"] = student["id"]
+    details = {f: student[f] for f in ctx.config.record_fields}
+    details.update(run_effects(conn, ctx, student))
+    flags = compute_flags(conn, ctx, student, manual=manual, provisional=outcome.provisional)
+    event = insert_event(conn, ctx, student, flags=flags, details=details)
+    insert_outbox(conn, event["event_id"])
+    insert_audit(conn, ctx, student, event, flags)
+    log_attempt(
+        conn, ctx, student_id=student["id"], event_id=event["event_id"], message=messages.CONFIRMED,
+        result="PROVISIONAL" if outcome.provisional else "MANUAL" if manual else "SUCCESS",
+        details={"stage": "confirm", "flags": flags, "venue_seq": event["venue_seq"]},
+    )
+    return EngineResult(
+        result="CONFIRMED", message=messages.CONFIRMED, activity=ctx.activity, station_id=ctx.station["station_id"],
+        manual=manual, student=build_card(conn, ctx, student),
+        event={"event_id": str(event["event_id"]), "venue_seq": event["venue_seq"],
+               "time": clock_text(event["server_time"], settings.event_utc_offset_minutes)},
+    )
+
+
+def record_skip(conn: Connection, ctx: EngineContext, student: dict, reason: str) -> dict:
+    """A Stage SKIP (SYSTEM_SPEC 13): a SKIP event with its reason, its outbox row and its audit row, in the
+    caller's transaction. It is not a completion, so the student can still be completed later."""
+    event = insert_event(conn, ctx, student, flags=[], details={"reason": reason}, kind="SKIP")
+    insert_outbox(conn, event["event_id"])
+    insert_audit(conn, ctx, student, event, [], action="STAGE_SKIPPED", details={"reason": reason})
+    return event
+
+
 def confirm(engine, *, settings, guard, principal, station_id: str, token: Optional[str] = None,
             student_id: Optional[str] = None) -> EngineResult:
     """Identify by QR `token`, or by `student_id` from a manual search (always flagged MANUAL). Exactly one."""
     started = time.perf_counter()
     manual = student_id is not None
-    token = pipeline.normalise_token(token) if token is not None else None
     seen: dict = {}  # what we knew when a race was lost, to answer it properly
     try:
         with engine.begin() as conn:
-            ctx = _context(conn, settings, guard, principal, station_id)
-            seen["station_id"] = station_id
-            if manual:
-                student, refused = pipeline.identify_by_id(conn, student_id)
-            else:
-                student, refused = pipeline.identify_by_token(conn, token)
-            outcome = refused or pipeline.evaluate(conn, ctx, student)
-            if outcome.result != "READY":
-                _terminal(conn, ctx, "confirm", outcome, token=None if manual else token)
-                return _preview_result(conn, ctx, outcome, manual=manual, started=started)
-
-            seen["student_id"] = student["id"]
-            details = {f: student[f] for f in ctx.config.record_fields}
-            details.update(run_effects(conn, ctx, student))
-            flags = compute_flags(conn, ctx, student, manual=manual, provisional=outcome.provisional)
-            event = insert_event(conn, ctx, student, flags=flags, details=details)
-            insert_outbox(conn, event["event_id"])
-            insert_audit(conn, ctx, student, event, flags)
-            log_attempt(
-                conn, ctx, student_id=student["id"], event_id=event["event_id"], message=messages.CONFIRMED,
-                result="PROVISIONAL" if outcome.provisional else "MANUAL" if manual else "SUCCESS",
-                details={"stage": "confirm", "flags": flags, "venue_seq": event["venue_seq"]},
-            )
-            result = EngineResult(
-                result="CONFIRMED", message=messages.CONFIRMED, activity=ctx.activity, station_id=ctx.station["station_id"],
-                manual=manual, student=build_card(conn, ctx, student),
-                event={"event_id": str(event["event_id"]), "venue_seq": event["venue_seq"],
-                       "time": clock_text(event["server_time"], settings.event_utc_offset_minutes)},
-            )
+            result = confirm_in_transaction(conn, settings=settings, guard=guard, principal=principal,
+                                            station_id=station_id, token=token, student_id=student_id,
+                                            started=started, seen=seen)
         # The transaction has COMMITTED here. Only now does the operator hear "done".
         result.elapsed_ms = (time.perf_counter() - started) * 1000
         return result

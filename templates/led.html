@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ holding.title }}</title>
+  <link rel="stylesheet" href="/static/led.css">
+</head>
+<body class="led">
+  <main id="holding" class="holding">
+    <h1 id="holding-title">{{ holding.title }}</h1>
+    <p id="holding-text">{{ holding.text }}</p>
+  </main>
+  <main id="stage" class="stage" hidden>
+    <img id="photo" alt="">
+    <div class="info">
+      <h1 id="name"></h1>
+      <p id="award" class="award"></p>
+      <p id="programme"></p>
+      <p id="school"></p>
+    </div>
+  </main>
+  <script src="/static/led.js"></script>
+</body>
+</html>

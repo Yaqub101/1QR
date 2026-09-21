@@ -130,6 +130,9 @@ def station_screen(request: Request, access: ActivityAccess = Depends(require_ac
                 s for s in list_stations(conn, request.app.state.settings.venue_id)
                 if s["active"] and s["activity"] == access.activity
             ]
+    if access.activity == "STAGE":  # the Stage operator runs the Stage Controller, not a scan box
+        return render(request, "stage.html", principal=principal, activity="STAGE",
+                      station_id=None if principal.is_admin else principal.station_id, stations=stations)
     return render(
         request, "station.html", principal=principal, activity=access.activity,
         config=ACTIVITY_CONFIGS[access.activity], station_id=None if principal.is_admin else principal.station_id,

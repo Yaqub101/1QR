@@ -1,3 +1,21 @@
+## [0.8.0] - Phase 11: Stage Controller and public LED
+
+### Added
+- **Stage Controller** (`backend/stage/`, screen at `/station/stage`): CURRENT / NEXT / AFTER NEXT with photos; DISPLAY NEXT, HOME/HOLD, PREVIOUS, SEARCH, SKIP (reason required), COMPLETE, TAKE OVER; **Esc is the one-key emergency HOME** (never blocked by an in-flight request).
+  - **COMPLETE goes through the station engine** (`service.confirm_in_transaction`), so the Stage event, outbox, audit and scan_log rows commit in the SAME transaction as the state change; it is not flagged MANUAL. **SKIP** writes a `SKIP` event with its reason the same way; a skipped student can still be found by SEARCH and completed later.
+  - **One active controller**: `stage_state` is a single row; every press takes its row lock and checks the caller's session is the controller. TAKE OVER hands control to the caller (audited with who replaced whom) and the old laptop's very next press is refused. A controller whose session has ended does not block the backup. A rapid double press can never advance twice (DISPLAY NEXT is idempotent; a second COMPLETE/SKIP finds nobody on stage).
+  - PREVIOUS returns a wrongly displayed student to the front of the queue (or, with nobody on stage, replays the last student on the LED). SEARCH / PREVIOUS / HOME / DISPLAY are written to the append-only `audit_log`.
+- **Public LED** (`/led`, `/led/state`, `/led/events` SSE, `/led/photo/{key}`): approved payload only, from `display_snapshot` (`name, photo_url, programme, school, award` plus event branding); holding screen between students and before first contact; the next 5 photos are preloaded; **after 10 seconds without contact the LED shows the holding screen and recovers by itself** (server heartbeat every 2 s). The LED routes are deliberately public and exist only at the Stadium.
+- **Migration `0006`**: `stage_state` (the LED pointer and controller lock, `version` bumped by trigger so a stream can never miss a change) and `display_snapshot.led_key` (opaque public photo key, so no student id or PRN appears in anything the audience screen sees). **A trigger refuses any change to `stage_state` that does not come from the Stage Controller**, so no other endpoint (a Queue station included) can move the LED, now or in a later phase.
+- Engine: `service.confirm_in_transaction`, `service.record_skip`, `service.authorize_station`; `insert_event` takes a `kind`. Behaviour of every existing path is unchanged (Phase 6 suites unchanged and green).
+- Tests: `tests/test_stage.py` (37), `tests/js/led.test.js` (14, mocked clock), `tests/js/stage.test.js` (10).
+
+### Fixed
+- The SSE stream helper never holds a database connection across a `yield` (found by a mutation run that hung teardown).
+
+### Not proven yet (needs real hardware; see the Phase 11 report)
+- Rendering on the actual LED/projector at 1920x1080, HDMI, fonts for Indian-language names, and real-network SSE reconnect behaviour.
+
 ## [0.7.0] - Phases 7-12 bundle: remaining station screens
 
 ### Added
