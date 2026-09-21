@@ -11,6 +11,25 @@
        &middot; <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}">XLSX</a></div>
 </div>
 
+<h2>QR pass</h2>
+<div class="card">
+  {% if qr.has_active %}
+  <p>This student has an active QR{% if qr.reissued %} (reissued {{ qr.reissued }} time{{ "s" if qr.reissued != 1 }}){% endif %}.
+     <a href="/admin/api/students/{{ j.student.student_id }}/pass.pdf">Download pass (PDF)</a></p>
+  <p class="muted">Print at actual size (100%), not "fit to page".</p>
+  {% else %}
+  <p>{% if j.student.master_status == "ACTIVE" %}This student has no QR yet. Use <a href="/admin/passes">Passes and QR</a> to generate the missing ones.
+     {% else %}This student is not active, so no QR is issued.{% endif %}</p>
+  {% endif %}
+  {% if j.student.master_status == "ACTIVE" %}
+  <form method="post" action="/admin/students/{{ j.student.student_id }}/reissue-qr" class="narrow">
+    <p class="muted">Lost, damaged or shared pass? Reissuing makes the old QR stop working and creates a new one. Print the new pass afterwards. This is logged.</p>
+    <label>Reason <input name="reason" placeholder="Reason (required)" required></label>
+    <button type="submit">Reissue QR</button>
+  </form>
+  {% endif %}
+</div>
+
 <h2>Journey</h2>
 <table>
   <tr><th>Time</th><th>Activity</th><th>Record</th><th>State</th><th>Station / by</th><th>Flags</th><th>Reason</th><th>Correct</th></tr>

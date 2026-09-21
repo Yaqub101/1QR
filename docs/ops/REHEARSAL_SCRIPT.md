@@ -6,7 +6,7 @@ Real people in every role. 50 to 100 **dummy** students with dummy photos. The r
 
 This is a **walk-through with checks**, read out by a Director, watched by Observers. It proves the software and the people work together. The harsher tests (both uplinks down for 15 minutes, central down for an hour, load test with 3,000 students, clock skew) belong to **Phase 19** and are not repeated here.
 
-> **Before you can run this:** QR tokens and passes must exist for the dummy students (Master-freeze checklist, step 5). That is **Phase 4, which is not built yet**. Without it there is nothing to scan. Operators could only use the PRN search, which is the fallback and not the thing under test, so do not run the rehearsal until Phase 4 exists.
+> **Before you can run this:** QR tokens and passes must exist for the dummy students (Master-freeze checklist, step 5: Admin > Passes and QR), and the real USB scanner must already have read a printed sample pass (Exit Gate 4). Without QR codes there is nothing to scan: operators could only use the PRN search, which is the fallback and not the thing under test.
 
 ---
 

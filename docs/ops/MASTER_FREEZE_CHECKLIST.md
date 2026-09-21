@@ -19,7 +19,7 @@ For **TODO Phase 20, "Freeze and handover"** and SYSTEM_SPEC sections 22 and 25 
 
 These were found when this checklist was written against the code. Each has a step below.
 
-1. **QR tokens and passes cannot be generated yet.** Phase 4 has not been built (README "Status"). Step 5 is **BLOCKED** until it is. There is no command to run for it today, and the checklist does not pretend there is.
+1. **QR tokens and passes are built (Phase 4), but Exit Gate 4 has not been passed.** Step 5 uses the Admin screen **Passes and QR**. Nobody has yet printed a pass and read it with the real USB scanner: do that with the sample passes (`python scripts/sample_passes.py`) **before** printing the real ones. Also read the warning in step 5 about **reissuing a QR after the master pack has been copied to other places**.
 2. **The late-registration cutoff, the event name and the big-screen holding text can only be set with a database command** (step 7). The `LATE_CUTOFF` and `EVENT_NAME` lines in `.env` are **not** read into the database, so setting only those does nothing: nobody would ever be flagged LATE, and the big screen would say "Convocation Ceremony" with no text.
 3. **After the freeze there is no supported way to change a student's details.** The logged Admin "master patch" is not built (docs/CHANGELOG.md, 0.10.0, "Not built"). See "If something changes after the freeze" at the end.
 
@@ -104,11 +104,13 @@ WHERE s.status = 'ACTIVE' AND d.student_id IS NULL;
 
 - [ ] **Spelling check by the Admin.** The Admin reads the names, programmes and medals on the printed proof of the display data (or on the big screen with three sample students). Anything wrong goes back to the university **before** the freeze is declared.
 
-## Step 5: QR tokens and convocation passes  (BLOCKED until Phase 4 is built)
+## Step 5: QR tokens and convocation passes
 
-**Status today: NOT POSSIBLE.** There is no "generate tokens" command and no pass (PDF) generator in the repository. The database can hold tokens and the master pack can carry them, but nothing creates them. Do not invent tokens by hand.
+Do this at the **source place only** (the place whose master will be copied in step 6), signed in as Admin: open **Admin > Passes and QR**. Press **Generate missing QR codes**. Never create tokens by hand. Then download the passes (by school, or in files of a few hundred) and **print at 100% / "Actual size", never "Fit to page"**.
 
-When Phase 4 exists, this step is done when **all** of these are true:
+**Warning: do this BEFORE step 6, and do not reissue any QR before the copy is finished.** A QR reissued *after* the master pack has been copied to the other places is **not** carried to them (sync carries scan events only, so the other places keep accepting the old QR). Worse, **a master pack made from a database that contains a reissued QR cannot be imported at all**: the import stops with an error and changes nothing (checked with two real databases). Until that is fixed, a reissue after the copy needs the project owner. Verified in `docs/CHANGELOG.md`, 0.12.0.
+
+This step is done when **all** of these are true:
 
 - [ ] Tokens were generated **once**, at the source place only. Running "generate missing tokens" a second time creates nothing.
 - [ ] **Every active student has an active token** (must be 0):
@@ -129,10 +131,10 @@ SELECT count(*) FROM (SELECT student_id FROM qr_tokens WHERE active GROUP BY stu
 
   Answer: ______
 
-- [ ] The QR holds **only the token**: a phone scanner app shows a random-looking code with no name, PRN or other personal data.
+- [ ] The QR holds **only the token**: a phone scanner app shows 32 letters and digits (0-9, A-F) with no name, PRN or other personal data. The printed pass does **not** show the token as text.
 - [ ] **Sample passes** were printed at real size, and the **real USB scanner** read a **printed** pass and a pass **on a phone screen** (Exit Gate 4).
 - [ ] Passes were made in the agreed batches. Batch, date and number: ______________________
-- [ ] The Admin knows the rule: a **reissued** QR (Admin only, with a reason) stops the old one working everywhere **after sync**.
+- [ ] The Admin knows the rule: a **reissued** QR (Admin only, with a reason, from the student's page) stops the old one working **at the place where it was reissued**. It does **not** yet reach the other places (see the warning at the top of this step).
 
 ## Step 6: Copy the master to every other place  (IT lead)
 
