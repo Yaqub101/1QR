@@ -47,7 +47,7 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 | # | Phase | Milestone | Done |
 |---|---|---|---|
-| 1 | Repo, AGENTS.md, environment, Docker skeleton | M1 | ☑ |
+| 1 | Repo, AGENTS.md, environment, Docker skeleton | M1 | ☐ |
 | 2 | Database schema and migrations | M1 | ☐ |
 | 3 | Incremental import, photos, display snapshot | M1 | ☐ |
 | 4 | QR tokens and convocation passes | M1 | ☐ |
@@ -103,7 +103,7 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 - [x] Fresh clone + README steps starts everything on a second machine
 
 **Exit Gate 1**
-- [x] All three (college/stadium/hall) and central start from the same code and the same image with different env values
+- [ ] All three (college/stadium/hall) and central start from the same code and the same image with different env values
 
 
 ---
