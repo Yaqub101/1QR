@@ -61,9 +61,33 @@
   {% endfor %}
 </table>
 
-<h2>This server</h2>
-<div class="card">
-  <div>Sync: <b>{{ d.health.status }}</b></div>
-  <div>Pending records: <b>{{ d.health.pending_records }}</b>{% if d.health.oldest_pending_at %} (oldest {{ d.health.oldest_pending_at }}){% endif %}</div>
-  <div>Last sync: {{ d.health.last_sync_at or "never" }} &middot; Sync failures: {{ d.health.sync_failures }} &middot; Standby: {{ d.health.standby }}</div>
+<h2>Sync and freshness</h2>
+<div class="card" id="sync-health">
+  <div>{{ d.health.emoji }} <b id="sync-status">{{ d.health.status }}</b></div>
+  <div>Pending records: <b>{{ d.health.pending_records }}</b>{% if d.health.oldest_pending_at %} (oldest {{ d.health.oldest_pending_at }}){% endif %}
+    &middot; Last sync: {{ d.health.last_sync_at or "never" }} &middot; Sync failures: {{ d.health.sync_failures }}
+    &middot; Standby: {{ d.health.standby }}{% if d.health.last_backup_at %} &middot; Last backup: {{ d.health.last_backup_at }}{% endif %}</div>
+  {% if d.health.last_error %}<div class="muted">Last problem: {{ d.health.last_error }}</div>{% endif %}
+  {% if d.health.venues %}
+  <table>
+    <tr><th>Venue</th><th>Status</th><th>Waiting</th><th>Last heard from</th></tr>
+    {% for v in d.health.venues %}
+    <tr><td>{{ venue_label[v.venue] }}</td><td>{{ v.emoji }} {{ v.label }}</td><td>{{ v.pending if v.pending is not none else "?" }}</td><td>{{ v.last_sync_at or "never" }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if d.health.peers %}
+  <table>
+    <tr><th>Other venue data held here</th><th>As of</th><th></th></tr>
+    {% for p in d.health.peers if p.venue != settings.venue_id %}
+    <tr><td>{{ venue_label[p.venue] }}</td><td>{{ p.data_as_of or "never" }}</td>
+        <td>{% if p.fresh %}fresh{% else %}<b>may be behind</b>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  <div class="muted">Fresh means known current within {{ d.health.freshness_window_seconds }} seconds.</div>
+  {% endif %}
+  {% if d.health.parked or d.health.rejected or d.health.conflicts or d.health.waiting_for_confirmation or d.health.gaps %}
+  <div class="muted">Waiting for a record from another venue: {{ d.health.waiting_for_confirmation }} &middot; Conflicts: {{ d.health.conflicts }}
+    &middot; Missing numbers: {{ d.health.gaps }} &middot; Held back: {{ d.health.parked }} &middot; Refused by central: {{ d.health.rejected }}</div>
+  {% endif %}
 </div>

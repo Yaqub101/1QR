@@ -13,12 +13,16 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from backend.admin import audit_view, corrections, dashboard, exporting
 from backend.admin import exceptions as exceptions_svc
 from backend.admin import reports as reports_svc
 from backend.admin import students as students_svc
 from backend.admin.corrections import CorrectionError
+from backend.audit import write_audit
+from backend.sync import reconcile as reconcile_svc
+from backend.sync import status as sync_status
 from backend.security import ownership
 from backend.security.deps import http_error, require_admin
 from backend.security.sessions import Principal
@@ -66,6 +70,36 @@ class ResolveBody(BaseModel):
 def api_dashboard(request: Request):
     with request.app.state.engine.connect() as conn:
         return dashboard.snapshot(conn, request.app.state.settings)
+
+
+class WindowBody(BaseModel):
+    seconds: int
+
+
+@router.post("/api/reconcile")
+def api_reconcile(request: Request):
+    """Run reconciliation now (it also runs after every sync): closes provisional items whose record has arrived,
+    raises the ones that have not, and checks every venue's numbering for holes."""
+    return reconcile_svc.reconcile(request.app.state.engine)
+
+
+@router.get("/api/sync")
+def api_sync(request: Request):
+    settings = request.app.state.settings
+    with request.app.state.engine.connect() as conn:
+        return dashboard.venue_health(conn, settings)
+
+
+@router.put("/api/sync/freshness-window")
+def api_freshness_window(request: Request, body: WindowBody, principal: Principal = Depends(require_admin)):
+    """How long a peer's data counts as fresh (SYSTEM_SPEC 11.5; default 120 s). Logged."""
+    if not 10 <= body.seconds <= 3600:
+        raise http_error(400, "BAD_WINDOW", "Please choose between 10 seconds and 1 hour.")
+    with request.app.state.engine.begin() as conn:
+        old = sync_status.freshness_window(conn)
+        conn.execute(text("UPDATE settings SET freshness_window_seconds = :s WHERE id = 1"), {"s": body.seconds})
+        write_audit(conn, "FRESHNESS_WINDOW_CHANGED", operator_id=principal.user_id, details={"from": old, "to": body.seconds})
+    return {"ok": True, "freshness_window_seconds": body.seconds}
 
 
 @router.get("/api/students")

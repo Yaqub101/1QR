@@ -38,5 +38,22 @@ services:
     volumes:
       - ./logs:/app/logs
 
+  # Central snapshots (SYSTEM_SPEC 21): a dump every day by default; keep a week.
+  backup:
+    image: convocation-system:latest
+    container_name: convocation_central_backup
+    restart: unless-stopped
+    command: ["python", "-m", "backend.ha.backup", "run"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://convocation_user:convocation_password@db:5432/convocation_db}
+      BACKUP_DIR: /backups
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ${BACKUP_HOST_DIR:-./backups}:/backups
+
 volumes:
   central_pgdata:

@@ -38,7 +38,7 @@ Result vocabulary on the wire: `READY` (blue) · `CONFIRMED` (green) · `DUPLICA
 | **STOP and ask** before touching | Why |
 |---|---|
 | `backend/engine/{model,pipeline,service,routes,extensions,queries,context,messages}.py` | The engine. One change here changes all seven activities. |
-| `backend/engine/cross_venue.py` | The **Phase 15 stub** — see §5. |
+| `backend/engine/cross_venue.py` | The cross-venue freshness rule (Phase 15) — see §5. |
 | `backend/security/*`, `alembic/versions/*`, `static/station*.js`, `templates/station.html` | Ownership, auth, schema, screen. |
 | `AGENTS.md`, `docs/SYSTEM_SPEC.md` | Not yours to change. |
 
@@ -95,18 +95,20 @@ Any other `{name}` stops startup.
 
 ---
 
-## 5. ⚠ Cross-venue prerequisites are a STUB until Phase 15
+## 5. Cross-venue prerequisites: the freshness rule (Phase 15)
 
-`backend/engine/cross_venue.py` currently **always allows**. So today:
+`backend/engine/cross_venue.py` implements SYSTEM_SPEC 11.5. The engine calls that ONE hook for every cross-venue prerequisite:
 
-* Thobe Allocation accepts a student with **no Registration** on file (Registration lives at the College).
-* Thobe Return accepts a student with **no Stage / Allocation** on file (both live at the Stadium).
+| Situation | Result |
+|---|---|
+| The prerequisite is stored on this server (from this venue, or replicated in from another by sync) | **allow** |
+| Missing, and the owning venue's data is **fresh** here (known current within the window; default 2 minutes) | **block**, with the prerequisite's own `missing_message` |
+| Missing, and the owning venue's data is **stale** (or has never synced) | **allow as `PROVISIONAL`**. The operator sees an ordinary confirmation; the event is flagged, and an OPEN `PROVISIONAL_UNCONFIRMED` exception is raised in the same commit. It closes itself when the record arrives by sync (`backend/sync/reconcile.py`) |
 
-That is deliberate and temporary. **Phase 15** replaces only the *body* of `check_cross_venue_prerequisite` with SYSTEM_SPEC 11.5 (present → allow; missing + fresh → block; missing + stale → `PROVISIONAL`). The engine already honours a block message, the `PROVISIONAL` flag and the `PROVISIONAL` scan-log result (tested), so **nothing else changes**.
+"Fresh" is `sync_state.data_as_of` for the owning venue, kept by the pull worker (`backend/sync/status.py`). Same-venue prerequisites never reach this hook: they are hard blocks (§4), whatever the sync state.
 
-* **Do not** write your own cross-venue logic in your activity, in `activities.py`, or anywhere else.
-* `test_PHASE_15_MUST_REPLACE_THIS_the_hook_is_still_a_stub_that_always_allows` asserts the stub on purpose; it fails the day the real rule lands, which is the reminder to update it.
-* Still write the correct `Prerequisite(...)` entries and messages now, so Phase 15 needs no config change.
+* **Do not** write cross-venue logic in your activity, in `activities.py`, or anywhere else. Just list the `Prerequisite(...)` with its message.
+* The old Phase 6 "always allows" stub is gone. `tests/test_station_engine.py::TestCrossVenueHook::test_the_phase_6_stub_is_gone_and_the_real_rule_is_in_its_place` checks its source, and `tests/test_reconcile.py` proves every line of the rule on separate databases with real sync.
 
 ---
 
@@ -142,7 +144,7 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 |---|---|---|
 | `owning_venue` | `hall` | §11.2 |
 | Direct predecessors | `STAGE` (degree received) and `THOBE_ALLOCATION` (a thobe was issued) | §5, §14 |
-| Each predecessor's venue | both `stadium` ≠ `hall` → cross-venue (stub for now, §5) | §11.2 |
+| Each predecessor's venue | both `stadium` ≠ `hall` → cross-venue (the freshness rule, §5) | §11.2 |
 | Card fields | `prn`, `thobe_issued` (the "confirmation a thobe was issued") | §3 |
 | Confirm label | `CONFIRM RETURN` | TODO Phase 12 |
 | Duplicate message | `ALREADY RETURNED — {time}` | TODO Phase 12 |
@@ -174,7 +176,7 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 
 `TestRegistry` fails immediately if the entry breaks a rule (wrong venue, unknown placeholder, prerequisite that is not earlier in the journey…). The seven-activity table then runs the pending / already-done / blocked / inactive / unknown-QR cases against your entry with no extra code.
 
-**What NOT to do:** add a `/thobe-return/scan` endpoint; test `activity == "THOBE_RETURN"` anywhere; write to `activity_events` directly; check whether the Stage event "is fresh" (that is Phase 15's hook); copy a message from memory instead of the spec.
+**What NOT to do:** add a `/thobe-return/scan` endpoint; test `activity == "THOBE_RETURN"` anywhere; write to `activity_events` directly; check whether the Stage event "is fresh" (that is the cross-venue hook's job, §5); copy a message from memory instead of the spec.
 
 ---
 

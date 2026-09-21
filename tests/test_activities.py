@@ -6,7 +6,8 @@ separate pipeline. Registration and Stage keep their Phase 6 tests.
 HOW THESE TESTS ARE RUN (stated plainly, per activity): every test below uses ONE shared PostgreSQL test
 database, with THREE separate venue app instances (College / Stadium / Hall Settings) talking to it. There
 are no separate per-venue databases and no sync, so cross-venue data is simply whatever is in the shared
-tables. Cross-venue prerequisites are still the Phase 15 stub (see tests/test_station_engine.py).
+tables. With no sync running here every peer counts as stale, so a missing cross-venue prerequisite is accepted
+PROVISIONALLY (the real rule and its tests are in tests/test_reconcile.py).
 """
 import json
 
@@ -305,10 +306,10 @@ class TestThobeReturn:
         scan(operator(apps, world, "THOBE_RETURN"), "THOBE_RETURN", ok.token)
         assert seen == [("STAGE", True), ("THOBE_ALLOCATION", True)]
 
-    def test_once_the_cross_venue_rule_is_switched_on_the_specified_messages_appear(self, apps, world, engine, monkeypatch):
-        """PHASE 15 STUB: today the hook always allows, so a missing Stage or Allocation is NOT refused. This
-        test proves the configuration and messages are ready: with a strict stand-in for the Phase 15 rule
-        (present locally -> allow, else block) the right sentence appears for each missing piece."""
+    def test_when_the_owning_venue_is_fresh_the_specified_messages_appear(self, apps, world, engine, monkeypatch):
+        """The configured message for each missing piece. A strict stand-in (present locally -> allow, else block)
+        stands for "the owning venue is FRESH": that is the case where these sentences are shown, and the real
+        freshness rule is proven in tests/test_reconcile.py."""
         monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
                             lambda conn, **k: cross_venue.CrossVenueDecision(allow=k["present_locally"]))
         client = operator(apps, world, "THOBE_RETURN")

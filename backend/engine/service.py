@@ -34,6 +34,7 @@ from backend.engine.context import EngineContext
 from backend.engine.pipeline import Outcome
 from backend.engine.queries import clock_text, next_completion_cycle
 from backend.security import ownership, permissions
+from backend.sync.exceptions_log import open_exception
 
 logger = logging.getLogger("backend.engine")
 
@@ -269,6 +270,13 @@ def confirm_in_transaction(conn: Connection, *, settings, guard, principal, stat
     event = insert_event(conn, ctx, student, flags=flags, details=details)
     insert_outbox(conn, event["event_id"])
     insert_audit(conn, ctx, student, event, flags)
+    if outcome.provisional:
+        # Accepted while the owning venue's data was stale (SYSTEM_SPEC 11.5). The operator sees a normal
+        # confirmation; the Admin gets an OPEN item, in the same commit, that closes itself when the missing
+        # record arrives by sync (backend/sync/reconcile.py).
+        open_exception(conn, "PROVISIONAL_UNCONFIRMED", student_id=student["id"], venue_id=ctx.venue, event_id=event["event_id"],
+                       details={"activity": ctx.activity, "missing": list(outcome.provisional_missing),
+                                "waiting_for_venues": sorted({ownership.ACTIVITY_OWNER[a] for a in outcome.provisional_missing})})
     log_attempt(
         conn, ctx, student_id=student["id"], event_id=event["event_id"], message=messages.CONFIRMED,
         result="PROVISIONAL" if outcome.provisional else "MANUAL" if manual else "SUCCESS",

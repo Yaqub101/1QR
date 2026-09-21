@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from backend.admin.queries import ACTIVE_CTE, FUNNEL_LABELS, NEVER_REGISTERED, iso_local, percent
 from backend.security.ownership import ACTIVITIES, ACTIVITY_LABEL
 from backend.stage import state as stage_state
+from backend.sync import status as sync_status
 
 OUTSTANDING_SHOWN = 50
 
@@ -103,28 +104,51 @@ def exception_counters(conn: Connection) -> dict:
     }
 
 
+def _local_time(value, off):
+    return iso_local(value, off) if value else None
+
+
 def venue_health(conn: Connection, settings) -> dict:
-    """What THIS server knows. Sync (Phase 14) fills sync_state; until it runs, the honest answer is LOCAL."""
-    pending = conn.execute(text("SELECT count(*) AS n, min(created_at) AS oldest FROM outbox WHERE sent_at IS NULL")).mappings().one()
-    peers = conn.execute(text("SELECT peer, cursor, last_success_at, last_error, last_error_at FROM sync_state ORDER BY peer")).mappings().all()
+    """Sync and freshness (SYSTEM_SPEC 9, 12). A venue shows how IT sees its link to central and how fresh each peer's
+    data is here; central shows one traffic light per venue, from the heartbeat each venue sends with every push."""
     off = settings.event_utc_offset_minutes
-    failing = any(p["last_error_at"] is not None and (p["last_success_at"] is None or p["last_error_at"] > p["last_success_at"]) for p in peers)
-    if not peers:
-        label = "LOCAL — sync has not started"
-    elif failing:
-        label = f"OFFLINE — LOCAL MODE · {pending['n']} waiting"
-    elif pending["n"]:
-        label = f"SYNCING — {pending['n']} waiting"
-    else:
-        label = "ONLINE — all synced"
-    return {
-        "server": "Central" if settings.mode == "central" else settings.venue_id, "mode": settings.mode,
-        "database": "up", "status": label, "pending_records": int(pending["n"]),
-        "oldest_pending_at": iso_local(pending["oldest"], off),
-        "last_sync_at": iso_local(max((p["last_success_at"] for p in peers if p["last_success_at"]), default=None), off),
-        "sync_failures": sum(1 for p in peers if p["last_error"]),
-        "standby": "Not set up yet",
+    pending = conn.execute(text("SELECT count(*) AS n, min(created_at) AS oldest FROM outbox "
+                                "WHERE sent_at IS NULL AND rejected_at IS NULL")).mappings().one()
+    marks = conn.execute(text("SELECT max(last_success_at) AS pulled, max(last_push_at) AS pushed, "
+                              "count(*) FILTER (WHERE last_error IS NOT NULL) AS failing FROM sync_state")).mappings().one()
+    last_sync = max((t for t in (marks["pulled"], marks["pushed"]) if t), default=None)
+    counts = {k: int(conn.execute(text(sql)).scalar_one()) for k, sql in {
+        "parked": "SELECT count(*) FROM sync_parked",
+        "rejected": "SELECT count(*) FROM outbox WHERE rejected_at IS NOT NULL",
+        "conflicts": "SELECT count(*) FROM exceptions WHERE type = 'CONFLICT' AND status = 'OPEN'",
+        "waiting_for_confirmation": "SELECT count(*) FROM exceptions WHERE type = 'PROVISIONAL_UNCONFIRMED' AND status = 'OPEN'",
+        "gaps": "SELECT count(*) FROM exceptions WHERE type = 'SEQ_GAP' AND status = 'OPEN'"}.items()}
+    out = {
+        "server": "Central" if settings.mode == "central" else settings.venue_id, "mode": settings.mode, "database": "up",
+        "pending_records": int(pending["n"]), "oldest_pending_at": _local_time(pending["oldest"], off),
+        "last_sync_at": _local_time(last_sync, off), "sync_failures": int(marks["failing"]),
+        "standby": "Not set up yet", "freshness_window_seconds": sync_status.freshness_window(conn), **counts,
+        "peers": [], "venues": [], "last_error": None, "last_backup_at": None,
     }
+    if settings.mode == "venue":
+        me = sync_status.this_server(conn, settings)
+        out.update(state=me["state"], emoji=me["emoji"], status=me["label"], last_error=me["last_error"])
+        out["peers"] = [{**p, "data_as_of": _local_time(p["data_as_of"], off), "last_pull_at": _local_time(p["last_pull_at"], off)}
+                        for p in sync_status.peers(conn)]
+    else:
+        venues = sync_status.venues_seen_by_central(conn)
+        out["venues"] = [{**v, "last_sync_at": _local_time(v["last_sync_at"], off)} for v in venues]
+        online = sum(1 for v in venues if v["state"] != sync_status.OFFLINE)
+        overall = sync_status.ONLINE if online == len(venues) else sync_status.OFFLINE
+        out.update(state=overall, emoji=sync_status.EMOJI[overall], status=f"{online} of {len(venues)} venues connected")
+    if getattr(settings, "backup_dir", None):
+        try:
+            from backend.ha import backup
+            latest = backup.latest_manifest(settings.backup_dir)
+            out["last_backup_at"] = latest["created_at"] if latest else None
+        except Exception:  # a missing or unreadable backup folder must never break the dashboard
+            out["last_backup_at"] = None
+    return out
 
 
 def snapshot(conn: Connection, settings) -> dict:

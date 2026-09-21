@@ -298,7 +298,7 @@ class TestRegistry:
         with_same_venue = sorted(a for a in ACTIVITIES if any(OWNER[p] == OWNER[a] for p in PREREQ[a]))
         assert sorted(HARD_BLOCK_MESSAGE) == with_same_venue  # a hard-block row iff a same-venue prerequisite
         cross_only = sorted(a for a in ACTIVITIES if PREREQ[a] and all(OWNER[p] != OWNER[a] for p in PREREQ[a]))
-        assert sorted(CROSS_VENUE_ONLY) == cross_only          # the stub-covered activities, listed explicitly
+        assert sorted(CROSS_VENUE_ONLY) == cross_only          # the cross-venue-only activities, listed explicitly
         for activity in ACTIVITIES:  # the duplicate template exists and formats for every activity
             assert_plain(duplicate_message(activity, time="11:21 AM", position=1))
 
@@ -793,23 +793,37 @@ class TestAccessRules:
 
 
 # --------------------------------------------------------------------------- #
-# Cross-venue prerequisites: a STUB until Phase 15 (SYSTEM_SPEC 11.5)
+# Cross-venue prerequisites: the real freshness rule (SYSTEM_SPEC 11.5). The full rule, with real sync
+# between separate databases, is tested in tests/test_reconcile.py; this class keeps the ENGINE-side wiring honest.
 # --------------------------------------------------------------------------- #
 class TestCrossVenueHook:
-    """The engine calls ONE hook for every cross-venue prerequisite. Phase 15 replaces the hook's body
-    with the fresh/stale rule. Until then it always allows, and these tests say so out loud."""
+    """The engine calls ONE hook for every cross-venue prerequisite (backend/engine/cross_venue.py)."""
 
-    def test_PHASE_15_MUST_REPLACE_THIS_the_hook_is_still_a_stub_that_always_allows(self, apps, world, engine):
-        assert cross_venue.CROSS_VENUE_RULES_IMPLEMENTED is False
-        # Thobe Allocation needs Registration (College) but a student with NO registration is accepted:
+    def test_the_phase_6_stub_is_gone_and_the_real_rule_is_in_its_place(self, apps, world, engine):
+        import inspect
+        source = inspect.getsource(cross_venue)
+        assert not hasattr(cross_venue, "CROSS_VENUE_RULES_IMPLEMENTED")  # the "still a stub" flag no longer exists
+        assert "STUB" not in source and "TODO(" not in source and "ALWAYS ALLOWS" not in source.upper()
+        # A server that has never synced counts every peer as STALE, so a missing prerequisite is accepted
+        # PROVISIONALLY (never blocked: internet failure is not event failure) ...
         s = make_student(engine)
         client = operator(apps, world, "THOBE_ALLOCATION")
         assert scan(client, "THOBE_ALLOCATION", s.token).json()["result"] == "READY"
         assert confirm(client, "THOBE_ALLOCATION", token=s.token).json()["result"] == "CONFIRMED"
-        assert "PROVISIONAL" not in events_of(engine, s, "THOBE_ALLOCATION")[0]["flags"]
-        # ...and Thobe Return needs Stage and Allocation (Stadium) but is accepted with none of it:
-        t = make_student(engine)
-        assert confirm(operator(apps, world, "THOBE_RETURN"), "THOBE_RETURN", token=t.token).json()["result"] == "CONFIRMED"
+        assert "PROVISIONAL" in events_of(engine, s, "THOBE_ALLOCATION")[0]["flags"]
+        # ... but the same missing prerequisite is BLOCKED the moment the College is known to be fresh here.
+        with engine.begin() as c:
+            c.execute(text("INSERT INTO sync_state (peer, data_as_of) VALUES ('college', now()) "
+                           "ON CONFLICT (peer) DO UPDATE SET data_as_of = now()"))
+        try:
+            t = make_student(engine)
+            blocked = scan(client, "THOBE_ALLOCATION", t.token).json()
+            assert blocked["result"] == "REJECTED" and blocked["message"] == "THOBE NOT AVAILABLE — REGISTRATION PENDING"
+            assert confirm(client, "THOBE_ALLOCATION", token=t.token).json()["result"] == "REJECTED"
+            assert events_of(engine, t, "THOBE_ALLOCATION") == []
+        finally:
+            with engine.begin() as c:
+                c.execute(text("DELETE FROM sync_state WHERE peer = 'college'"))
 
     def test_registration_has_no_prerequisites_at_all(self, apps, world, engine):
         assert scan(operator(apps, world, "REGISTRATION"), "REGISTRATION", make_student(engine).token).json()["result"] == "READY"

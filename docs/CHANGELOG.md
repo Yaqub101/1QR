@@ -1,3 +1,34 @@
+## [0.10.0] - Phase 14 + 15 + 17 bundle: sync, reconciliation, high availability  (tag `sync-and-ha-done`)
+
+### Added: sync engine (Phase 14) - `backend/sync/`
+- **Push worker** (`worker.py`): batches the outbox to central; an event is marked SENT only when central's answer names it ACCEPTED / DUPLICATE / PARKED / CONFLICT (i.e. central has COMMITTED it). Any failure, an incomplete answer, or a crash between central's commit and our mark leaves it unsent and it is sent again (central answers DUPLICATE). Retry with exponential back-off (`base * 2^n`, capped, jittered). An empty push is the heartbeat. A refusal that will never clear (`REJECTED`, or a student central never learns) stops being retried after `SYNC_MAX_ATTEMPTS`, raises a `SYNC_REJECTED` exception and is never falsely marked sent.
+- **Pull worker**: cursor-based on central's `sync_log.central_seq`, numbered in COMMIT order under a lock (so a late commit can never land behind a puller's cursor), applied idempotently, cursor moved in the same transaction. If central's **epoch** changes (it was rebuilt) the cursor restarts.
+- **Ingest** (`ingest.py`), the one place a replicated event enters a database: idempotent by `event_id`; **arrival order does not matter** (an event that arrives before its dependency is PARKED durably and inserted when the dependency arrives; the Phase 2 triggers stay strict); a **genuine duplicate** (second completion, reused `venue_seq`, reused `event_id` with different content) is **stored in full** in `conflict_events` and raised as a CONFLICT exception, never merged; single-writer is enforced on arrival (a venue's key may only send its own events).
+- **Per-venue API keys** (`keys.py`): random, shown once, stored only as SHA-256, one active per venue, rotation revokes the old. The venue refuses to send its key over plain http unless `SYNC_REQUIRE_TLS=false`; `CENTRAL_CA_FILE` trusts a private CA.
+- **Central-only routes** (`/sync/push`, `/sync/pull`): a venue server has no /sync route at all, so a foreign event can only enter a venue through its own pull worker, as read-only history.
+- **Status indicator** 🟢 ONLINE / 🟡 OFFLINE — LOCAL MODE · N waiting / 🔵 SYNCING x / y, on the Admin dashboard: a venue's view of itself plus per-peer "data as of"; central's view of all three venues (from each heartbeat). The small unlabelled dot for operators is NOT built.
+- **Freshness** (`status.py`): `sync_state.data_as_of` per peer, written only when a pull reaches the end of central's log, as `now - (how long ago that peer last reported to central)`. A successful pull therefore does not make an absent peer look fresh. Window is `settings.freshness_window_seconds` (default 120 s), changed by the Admin (`PUT /admin/api/sync/freshness-window`, audited).
+- **venue_seq gap detection** (`reconcile.py`): interior holes, and a tail hole when a venue reports (with an empty outbox) a higher number than central holds; one OPEN `SEQ_GAP` per range, closed by the system when it fills in.
+- **Central rebuild** (`python -m backend.sync.rebuild`): reads each venue's own events, ingests through the same idempotent path, new epoch, reconciles, verifies per-venue counts, exits non-zero on a mismatch. Idempotent.
+- **Migration `0008_sync`**: new `sync_log`, `sync_parked`, `conflict_events`, `venue_api_keys`, `sync_meta`; extra `sync_state` and `outbox` columns; partial unique indexes making exceptions idempotent. (No FK from `sync_log` to `activity_events`: it would have changed how a TRUNCATE of the append-only table is refused.)
+
+### Added: cross-location reconciliation (Phase 15)
+- **The Phase 6 stub is removed and replaced** (`backend/engine/cross_venue.py`): present locally -> allow; missing + owner fresh -> BLOCK (the prerequisite's own message); missing + owner stale or never synced -> PROVISIONAL (ordinary confirmation for the operator). The `CROSS_VENUE_RULES_IMPLEMENTED` flag, the "always allows" body, the TODO and the test named `..._PHASE_15_MUST_REPLACE_THIS_...` are gone. Same-venue prerequisites never reach the hook.
+- A provisional acceptance raises an OPEN `PROVISIONAL_UNCONFIRMED` exception **in the same commit**; reconciliation (after every sync on central and on each venue, and on demand: `POST /admin/api/reconcile`) **closes it automatically** when every missing record has arrived, leaves it OPEN when one has not, closes it if an Admin reversed the provisional record, and never reopens one an Admin resolved by hand.
+
+### Added: high availability (Phase 17) - `backend/ha/`, `scripts/`, `docs/HA.md`, `docs/failover/`
+- **Backups**: `pg_dump` custom-format dump to a second device on an interval (default **300 s**), verified with `pg_restore --list` before it counts, written via `.partial` and renamed, with a SHA-256 manifest; retention keeps the newest N automatic dumps and **never** a milestone; a failed run is retried in 30 s; missed intervals are skipped, not replayed. Compose service `backup` (venue every 5 min, central daily). Dashboard shows the last backup.
+- **Restore**: verifies the dump against its manifest first, refuses a database that has data unless `--replace`, restores, compares counts and revision with the manifest.
+- **Failover**: `scripts/failover.sh` (best effort; `--dry-run` tested), `docker-compose.standby.yml`, replication settings on the primary, `restart: unless-stopped` on every service, PostgreSQL 16 client tools in the image, and one plain-language page per venue.
+- Tests: `tests/test_sync.py` (33), `tests/test_reconcile.py` (31), `tests/test_ha.py` (19) on **four separate databases** with a **real HTTP central** (`tests/sync_support.py`).
+
+### Changed
+- `write_audit` / engine `Outcome` carry the provisional information; the confirm transaction raises the exception. `tests/test_station_engine.py` and `tests/test_activities.py` lost the stub wording; the dataset builder moved to `tests/admin_support.py` unchanged so the restore drill can reuse it.
+
+### Not built
+- Operator's small unlabelled sync dot; master-patch events; exceptions for events on a deactivated token; "Close event" (needs the sync status that now exists, but was not asked for).
+- **Needs real hardware to prove** (full list in `docs/HA.md`): streaming replication between two machines, timed promotion, address takeover (DNS / hosts file / floating IP) and fencing, the reboot test, the Dockerfile build, TLS through a real CA/proxy, real Internet/route failover, full-rate load.
+
 ## [0.9.0] - Phase 13 + 16 bundle: admin, corrections, audit, reports  (PENDING REVIEW: not tagged `phase-13-done`)
 
 > The correction endpoint (`backend/admin/corrections.py`) is the risky part of this bundle and is awaiting the final review. No `phase-13-done` tag has been made. Exit Gate 13 (`m3-done`) and Exit Gate 16 are NOT claimed.

@@ -18,6 +18,23 @@ class Settings(BaseSettings):
     log_dir: str = "logs"
     log_level: str = "INFO"
 
+    # Sync (Phase 14). A venue pushes its outbox to central and pulls the other venues' events. The API key is
+    # issued at central (`python -m backend.sync.keys issue --venue <v>`) and is stored there only as a SHA-256.
+    sync_enabled: bool = True
+    sync_interval_seconds: float = 5.0        # between cycles while healthy
+    sync_batch_size: int = 200                # events per request
+    sync_timeout_seconds: float = 10.0
+    sync_backoff_base_seconds: float = 2.0    # first retry delay after a failed cycle; doubles each failure
+    sync_backoff_max_seconds: float = 60.0
+    sync_max_attempts: int = 20               # times a transient refusal (student not on central yet) is retried
+    sync_require_tls: bool = True             # refuse to send the API key over plain http (set false only in dev/tests)
+    central_ca_file: Optional[str] = None     # a private CA / self-signed certificate for central, if any
+
+    # Backups (Phase 17). The directory should be on a SECOND device.
+    backup_dir: Optional[str] = None
+    backup_interval_seconds: int = 300        # SYSTEM_SPEC 21: a full dump every 5 minutes
+    backup_keep: int = 24                     # newest automatic dumps kept (milestones are kept forever)
+
     # Clock used for the times operators read on screen ("11:21 AM"). A fixed offset in minutes from
     # UTC, so it works offline and on any OS with no timezone database. 330 = India (no daylight saving).
     event_utc_offset_minutes: int = 330

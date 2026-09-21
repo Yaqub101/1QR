@@ -30,7 +30,7 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         activity="THOBE_ALLOCATION",
         owning_venue="stadium",
         prerequisites=(
-            # Registration happens at the College: a CROSS-venue prerequisite (Phase 15 hook).
+            # Registration happens at the College: a CROSS-venue prerequisite (freshness rule: cross_venue.py).
             Prerequisite("REGISTRATION", "THOBE NOT AVAILABLE — REGISTRATION PENDING"),
         ),
         display_fields=("prn", "programme", "school"),
@@ -68,7 +68,7 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         activity="THOBE_RETURN",
         owning_venue="hall",
         prerequisites=(
-            # Both are recorded at the Stadium: CROSS-venue prerequisites (Phase 15 hook).
+            # Both are recorded at the Stadium: CROSS-venue prerequisites (freshness rule: cross_venue.py).
             Prerequisite("STAGE", "THOBE RETURN NOT AVAILABLE — STAGE PENDING"),
             Prerequisite("THOBE_ALLOCATION", "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED"),
         ),

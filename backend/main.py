@@ -1,8 +1,10 @@
 import io
 import json
+import logging
 import pathlib
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -25,10 +27,14 @@ from backend.stage.routes import router as stage_router
 from backend.security.deps import require_admin
 from backend.security.ownership import guard_from_settings
 from backend.admin.routes import router as admin_console_router
+from backend.sync.client import SyncConfigError
+from backend.sync.routes import router as sync_router
+from backend.sync.worker import SyncWorker, WorkerThread
 from backend.web_admin import router as admin_router
 from backend.web_auth import router as auth_router
 
 STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
+logger = logging.getLogger("backend.sync")
 
 
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
@@ -39,9 +45,27 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     engine = database.get_engine(settings.database_url)
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # A venue with a central URL and API key runs the sync worker for as long as the app runs. It never
+        # touches the scan path: operators cannot tell whether it is running.
+        worker = None
+        if settings.mode == "venue" and settings.sync_enabled and settings.central_url and settings.venue_api_key:
+            try:
+                worker = WorkerThread(SyncWorker(engine, settings)).start()
+            except SyncConfigError as exc:
+                logger.error("sync is not running: %s", exc)
+        app.state.sync_thread = worker
+        try:
+            yield
+        finally:
+            if worker is not None:
+                worker.stop()
+
     app = FastAPI(
         title=f"Convocation System ({settings.mode.capitalize()} Mode)",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     app.state.settings = settings
@@ -84,6 +108,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(admin_console_router)  # dashboard, corrections, exceptions, audit, reports (Phases 13/16)
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
     app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
+    if settings.mode == "central":
+        # /sync/push and /sync/pull exist ONLY on central. A venue server has no route through which a foreign
+        # event could be pushed at it: the only way in is its own pull worker (read-only history).
+        app.include_router(sync_router)
 
     # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
     @app.post("/admin/import/preview", dependencies=[Depends(require_admin)])

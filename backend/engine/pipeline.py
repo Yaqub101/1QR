@@ -37,6 +37,7 @@ class Outcome:
     student: Optional[dict] = None
     earlier: Optional[dict] = None
     provisional: bool = False
+    provisional_missing: tuple = ()  # the cross-venue prerequisites that were missing when this was accepted provisionally
     rule: Optional[str] = None     # technical: which rule fired (log only, never on screen)
     detail: Optional[str] = None   # technical: extra detail (log only)
 
@@ -125,6 +126,7 @@ def evaluate(conn: Connection, ctx: EngineContext, student: dict) -> Outcome:
                        detail=f"student status is {student['status']}")
 
     provisional = False
+    provisional_missing: list = []
     for prerequisite in cfg.prerequisites:
         present = active_completion(conn, sid, prerequisite.activity) is not None
         if ownership.ACTIVITY_OWNER[prerequisite.activity] == ctx.venue:
@@ -133,13 +135,15 @@ def evaluate(conn: Connection, ctx: EngineContext, student: dict) -> Outcome:
                 return Outcome("REJECTED", prerequisite.missing_message, "REJECTED", student=student,
                                rule=f"prerequisite:{prerequisite.activity}", detail="same-venue prerequisite missing")
             continue
-        # DIFFERENT venue: the data may be stale, so this goes through the one Phase 15 hook.
+        # DIFFERENT venue: the data may be stale, so this goes through the one cross-venue hook (SYSTEM_SPEC 11.5).
         decision = cross_venue.check_cross_venue_prerequisite(
             conn, student_id=sid, prerequisite=prerequisite, this_venue=ctx.venue, present_locally=present)
         if not decision.allow:
             return Outcome("REJECTED", decision.message or prerequisite.missing_message, "REJECTED", student=student,
                            rule=f"cross_venue_prerequisite:{prerequisite.activity}", detail="blocked by the cross-venue rule")
-        provisional = provisional or decision.provisional
+        if decision.provisional:
+            provisional = True
+            provisional_missing.append(prerequisite.activity)
 
     earlier = active_completion(conn, sid, ctx.activity)
     if earlier is not None:
@@ -149,4 +153,5 @@ def evaluate(conn: Connection, ctx: EngineContext, student: dict) -> Outcome:
                      "station_id": earlier["station_id"], "event_id": str(earlier["event_id"]), "kind": earlier["kind"]},
             detail=f"earlier event {earlier['event_id']}",
         )
-    return Outcome("READY", messages.READY, None, student=student, provisional=provisional)
+    return Outcome("READY", messages.READY, None, student=student, provisional=provisional,
+                   provisional_missing=tuple(provisional_missing))

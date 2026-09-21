@@ -1,0 +1,60 @@
+# The STANDBY laptop for one venue (SYSTEM_SPEC 18): a hot copy of the primary's database, kept up to date by
+# PostgreSQL streaming replication. The application is deliberately NOT started here: two application servers for
+# one venue must never run at once. scripts/failover.sh promotes this database and only then starts the app.
+#
+#   docker compose -f docker-compose.standby.yml up -d          # starts only the standby database
+#
+# BEST EFFORT / NOT TESTED: this needs two machines on one network, which the development environment does not
+# have. See docs/HA.md, "What still needs real hardware". The primary must be started with replication enabled
+# (docker-compose.yml already does that) and reachable at PRIMARY_HOST.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: convocation_standby_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-convocation_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-convocation_password}
+      POSTGRES_DB: ${POSTGRES_DB:-convocation_db}
+      PRIMARY_HOST: ${PRIMARY_HOST:?set PRIMARY_HOST to the primary server's address (e.g. stadium.local)}
+      REPLICATION_USER: ${REPLICATION_USER:-replicator}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-replicator_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - standby_pgdata:/var/lib/postgresql/data
+      - ./scripts/standby-entrypoint.sh:/standby-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/standby-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-convocation_user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Started by failover.sh only (profile "failover"), after the database above has been promoted.
+  app:
+    profiles: ["failover"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: convocation-system:latest
+    container_name: convocation_standby_app
+    restart: unless-stopped
+    environment:
+      MODE: ${MODE:-venue}
+      VENUE_ID: ${VENUE_ID:?set VENUE_ID to this venue}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://convocation_user:convocation_password@db:5432/convocation_db}
+      CENTRAL_URL: ${CENTRAL_URL:-}
+      VENUE_API_KEY: ${VENUE_API_KEY:-}
+      EVENT_NAME: ${EVENT_NAME:-Annual Convocation 2026}
+      LOG_DIR: /app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  standby_pgdata:
