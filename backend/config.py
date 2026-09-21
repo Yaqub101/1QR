@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     log_dir: str = "logs"
     log_level: str = "INFO"
 
+    # Sessions (Phase 5). Sized for a multi-hour event day: an operator who keeps
+    # scanning is never logged out; a laptop left alone for 2 hours is; nothing
+    # lives past 12 hours, so the next morning starts with a fresh login.
+    session_idle_minutes: int = 120
+    session_max_hours: int = 12
+    # Set true only where the site is served over HTTPS (central). Venue LANs are plain HTTP.
+    cookie_secure: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

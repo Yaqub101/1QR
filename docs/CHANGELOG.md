@@ -1,3 +1,19 @@
+## [0.5.0] - Phase 5 Complete
+
+### Added
+- **Roles** (`backend/security/permissions.py`): `ADMIN`, `DEPUTY_ADMIN` and one operator role per activity. Admin and Deputy share one permission set by construction, so their powers are identical while every audit row still names the individual.
+- **Sessions** (`backend/security/sessions.py`, migration `0005`): server-side, token stored only as a SHA-256. Idle timeout 120 min (sliding), absolute limit 12 h, both configurable (`SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS`). Validity is re-checked against the user and station on every request, so disabling a user or station takes effect immediately.
+- **Passwords**: Argon2id (`argon2-cffi`). Minimum 8 characters, 12 for Admin/Deputy.
+- **Stations & binding** (`backend/stations.py`, `/admin/bind`): a laptop becomes a station by holding a secret device token (stored hashed). One laptop per station, enforced by a unique index; a station's id, venue and activity are immutable (trigger). Rebinding retires the old laptop and signs its operator out. The station, never the operator, decides the activity.
+- **Venue-ownership guard** (`backend/security/ownership.py`, `deps.require_can_originate`): one reusable guard for every write path. College: Registration; Stadium: Thobe Allocation, Seating, Queue, Stage; Hall: Thobe Return, Lunch; Central originates nothing but accepts corrections, routed to the owning venue. Mirrors the DB function `activity_owner()`; a test compares them.
+- **Admin screens** (Jinja2, plain forms): users, stations, "set up this laptop". Admin/Deputy accounts are created only by the seed script, never from the UI.
+- **Seed script** (`python -m backend.seed` / `scripts/seed_admins.py`): credentials from environment or prompt, never from a file; idempotent.
+- **Phase 3 admin endpoints are now Admin-only** (they were unauthenticated).
+- `tests/test_auth.py`: 507 tests, including a full role matrix and a sweep asserting every route rejects anonymous callers.
+
+### Changed
+- Added dependencies `argon2-cffi`, `jinja2` to `pyproject.toml` (`uv.lock` not regenerated: `uv` is not installed on this machine).
+
 ## [0.3.0] - Phase 3 Complete
 
 ### Added

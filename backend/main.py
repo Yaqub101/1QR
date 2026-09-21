@@ -5,10 +5,12 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import Connection
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.config import Settings, get_settings
 from backend.logging_config import setup_logging
@@ -17,6 +19,10 @@ from backend.importer import parse_file, detect_column_mapping, validate_import,
 from backend.photos import link_photos_by_prn
 from backend.snapshot import freeze_display_data
 from backend.master_pack import export_master_pack, import_master_pack
+from backend.security.deps import require_admin
+from backend.security.ownership import guard_from_settings
+from backend.web_admin import router as admin_router
+from backend.web_auth import router as auth_router
 
 STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
 
@@ -36,6 +42,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     app.state.settings = settings
     app.state.engine = engine
+    app.state.venue_guard = guard_from_settings(settings)  # golden rule 4: one guard for every write path
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_error(request: Request, exc: StarletteHTTPException):
+        # A browser whose session ended goes back to the sign-in page, not to a raw JSON error.
+        if exc.status_code == 401 and request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse("/login", status_code=303)
+        return await http_exception_handler(request, exc)
 
     # ── Static files ─────────────────────────────────────────────────────────
     if STATIC_DIR.is_dir():
@@ -52,8 +66,12 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-    # ── Admin: import ─────────────────────────────────────────────────────────
-    @app.post("/admin/import/preview")
+    # ── Sign-in, station screens, admin screens (Phase 5) ────────────────────
+    app.include_router(auth_router)
+    app.include_router(admin_router)
+
+    # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
+    @app.post("/admin/import/preview", dependencies=[Depends(require_admin)])
     async def import_preview(
         file: UploadFile = File(...),
         column_mapping: Optional[str] = Form(None),
@@ -86,7 +104,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "is_valid": preview.is_valid,
         }
 
-    @app.post("/admin/import/commit")
+    @app.post("/admin/import/commit", dependencies=[Depends(require_admin)])
     async def import_commit(
         file: UploadFile = File(...),
         column_mapping: Optional[str] = Form(None),
@@ -124,7 +142,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         }
 
     # ── Admin: photos ─────────────────────────────────────────────────────────
-    @app.post("/admin/photos/link")
+    @app.post("/admin/photos/link", dependencies=[Depends(require_admin)])
     async def photos_link(
         photo_dir: str = Form(...),
     ) -> Dict[str, Any]:
@@ -141,7 +159,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         }
 
     # ── Admin: snapshot ───────────────────────────────────────────────────────
-    @app.post("/admin/snapshot/freeze")
+    @app.post("/admin/snapshot/freeze", dependencies=[Depends(require_admin)])
     def snapshot_freeze() -> Dict[str, Any]:
         """Freeze display_snapshot from current student master records."""
         with engine.connect() as conn:
@@ -149,7 +167,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return {"frozen_count": summary.frozen_count}
 
     # ── Admin: master pack ────────────────────────────────────────────────────
-    @app.get("/admin/master-pack/export")
+    @app.get("/admin/master-pack/export", dependencies=[Depends(require_admin)])
     def master_pack_export(photos_dir: Optional[str] = None) -> FileResponse:
         """Export master pack ZIP (students, snapshots, tokens, photos)."""
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
@@ -168,7 +186,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             media_type="application/zip",
         )
 
-    @app.post("/admin/master-pack/import")
+    @app.post("/admin/master-pack/import", dependencies=[Depends(require_admin)])
     async def master_pack_import(
         file: UploadFile = File(...),
         photos_target: Optional[str] = Form(None),

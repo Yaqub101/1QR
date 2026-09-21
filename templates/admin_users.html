@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block body %}
+<p><a href="/admin">&larr; Admin</a></p>
+<h1>Users</h1>
+<table>
+  <tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr>
+  {% for u in users %}
+  <tr class="{% if not u.active %}off{% endif %}">
+    <td>{{ u.username }}</td>
+    <td>{{ u.full_name or "" }}</td>
+    <td>{{ role_label[u.role] }}</td>
+    <td>{{ "On" if u.active else "Switched off" }}</td>
+    <td class="actions">
+      <form method="post" action="/admin/users/{{ u.id }}/active">
+        <input type="hidden" name="active" value="{{ 0 if u.active else 1 }}">
+        <button type="submit">{{ "Switch off" if u.active else "Switch on" }}</button>
+      </form>
+      <form method="post" action="/admin/users/{{ u.id }}/password">
+        <input name="password" type="password" placeholder="New password" minlength="{{ min_length }}" required>
+        <button type="submit">Set password</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>New operator</h2>
+<form method="post" action="/admin/users" class="card">
+  <label>Username <input name="username" required></label>
+  <label>Full name <input name="full_name"></label>
+  <label>Role
+    <select name="role">{% for r in operator_roles %}<option value="{{ r }}">{{ role_label[r] }}</option>{% endfor %}</select>
+  </label>
+  <label>Password <input name="password" type="password" minlength="{{ min_length }}" required></label>
+  <button class="big" type="submit">Create account</button>
+</form>
+<p class="muted">Admin and Deputy accounts are created with the seed script, not here.</p>
+{% endblock %}

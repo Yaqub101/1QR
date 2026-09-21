@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ activity_label[activity] }}{% endblock %}
+{% block body %}
+<h1>{{ activity_label[activity] }}</h1>
+<div class="card">
+  <p><strong>Station:</strong> {{ principal.station_id or "(Admin view)" }}</p>
+  <p><strong>Operator:</strong> {{ principal.full_name or principal.username }}</p>
+  <p class="muted">Ready. The scan box appears here in Phase 6.</p>
+</div>
+{% endblock %}
