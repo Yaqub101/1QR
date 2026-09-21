@@ -1,3 +1,32 @@
+## [0.9.0] - Phase 13 + 16 bundle: admin, corrections, audit, reports  (PENDING REVIEW: not tagged `phase-13-done`)
+
+> The correction endpoint (`backend/admin/corrections.py`) is the risky part of this bundle and is awaiting the final review. No `phase-13-done` tag has been made. Exit Gate 13 (`m3-done`) and Exit Gate 16 are NOT claimed.
+
+### Added
+- **Admin console** (`backend/admin/`, pages under `/admin/...`, JSON under `/admin/api/...`). Every route depends on `require_admin` (Admin or Deputy): operators get 403, a signed-out visitor 401. A test reads the router's own route table and checks every route for every operator role and for anonymous callers.
+  - **Dashboard**: Registered / Reported / Yet to report / Reporting % / Not attended, school-wise reporting, the seven-step funnel (waived returns marked), Stage view (on stage, LED, waiting queue), outstanding thobes, exception counters, this server's sync/pending status. Refreshes every 3 s (polling, not SSE). All figures are taken in one read-only snapshot transaction.
+  - **Student search and journey timeline**: by PRN, name or sequence number (typed `%`/`_` are literal); every event with its state (ACTIVE / REVERSED / CORRECTION / SKIPPED), reason, station, operator, sync time.
+  - **Corrections**: `POST /admin/api/corrections/reverse` and `.../waive-return`. **A correction is a new row that references the original; the original `activity_events` row is never touched** (see the report and the module docstring). Reason mandatory and enforced server-side. Applied only at the owning venue (golden rule 4): elsewhere the Admin gets a plain "make this at the Hall server" (409) and nothing is written.
+  - **Return Waived / Lost**: Admin-only `WAIVER` event, flagged `CORRECTED`, mandatory reason, unlocks Lunch, opens a `RETURN_WAIVED` exception, appears in the waived-thobes report and leaves the outstanding list. It can itself be reversed (Lunch locks again) and re-issued (cycle 2).
+  - **Exceptions**: list with filters and a **resolve** action (mandatory note, audited, final).
+  - **Audit viewer**: filters (student, action, activity, operator, date range), paging, export.
+  - **Reports** (each as JSON, an HTML table, CSV and XLSX): school-wise and programme-wise summaries; Not Attended; incomplete journey; a completed / not-completed list for **each of the seven activities**; Stage completed / skipped with reasons; outstanding thobes; waived / lost thobes; thobe stock check; late registrations; provisional entries; manual entries; corrections; exceptions; audit; one student's full history.
+  - **Exports** are Admin-only, and every one writes an `EXPORT` audit row (who, which report, format, rows, filters) in the same transaction that read the data. CSV is UTF-8 **with a BOM** so Excel shows Devanagari / accented / CJK names correctly; text cells starting with `= + - @` are neutralised in both formats so a name or reason can never run as a formula.
+- **Migration `0007_exceptions_guard`**: a trigger makes an `exceptions` row resolve-only (OPEN to RESOLVED); a resolved row is final; type / student / venue / event / details / created_at never change; no DELETE or TRUNCATE. **No table or column was added for the waiver: the Phase 2 schema already had the slot** (`activity_events.kind = 'WAIVER'`, `audit_log.corrected_by`, `exceptions`). See the report for the two small design notes this involved.
+- `write_audit` accepts `corrects_event_id` and `corrected_by` (backwards compatible).
+- Tests: `tests/test_admin_reports.py` (49) and `tests/test_admin_corrections.py` (63); helpers in `tests/admin_support.py`.
+
+### Definitions (decided here; please confirm in review)
+- **Population** = every row of `students` (the master list), whatever its status, so every figure reconciles to the master count.
+- **Reported** = an active Registration (a COMPLETE with no REVERSAL). **Not Attended** = **no Registration event of any kind**. A student whose registration an Admin reversed is neither: they count as Yet to report and are visible on the Registration report as `Not Completed: Reversed by Admin: <reason>` (and as `registration_reversed` on the dashboard). So `Not Attended + Registration reversed + Reported = Registered`.
+
+### Not built (deliberately)
+- Corrections for an activity owned by **another venue** are refused with a pointer, not queued: the transport is sync (Phase 14/15). SYSTEM_SPEC 16's "correction pending" state therefore does not exist yet.
+- "Close event" (Phase 16) needs sync status; PDF export was not requested.
+- Sequence-gap / conflict / provisional **exception rows** are written by sync (Phase 14/15); today the list holds `RETURN_WAIVED` items, and provisional / manual entries are counted straight from the events on the dashboard.
+- Venue health shows what THIS server knows (pending outbox, `sync_state`); primary/standby is "Not set up yet" until Phase 17.
+- The pages were checked by rendering them in tests, not by eye in a browser.
+
 ## [0.8.0] - Phase 11: Stage Controller and public LED
 
 ### Added

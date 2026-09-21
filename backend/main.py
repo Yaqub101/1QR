@@ -24,6 +24,7 @@ from backend.engine.routes import router as engine_router
 from backend.stage.routes import router as stage_router
 from backend.security.deps import require_admin
 from backend.security.ownership import guard_from_settings
+from backend.admin.routes import router as admin_console_router
 from backend.web_admin import router as admin_router
 from backend.web_auth import router as auth_router
 
@@ -80,6 +81,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # ── Sign-in, station screens, admin screens (Phase 5) ────────────────────
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(admin_console_router)  # dashboard, corrections, exceptions, audit, reports (Phases 13/16)
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
     app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
 

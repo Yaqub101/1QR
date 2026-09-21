@@ -22,13 +22,15 @@ def write_audit(
     event_id: Any = None,
     venue_seq: Optional[int] = None,
     flags: Sequence[str] = (),
+    corrects_event_id: Any = None,
+    corrected_by: Any = None,
 ) -> None:
     conn.execute(
         text(
             "INSERT INTO audit_log (action, operator_id, station_id, venue_id, reason, details, "
-            "student_id, activity, event_id, venue_seq, flags) "
+            "student_id, activity, event_id, venue_seq, flags, corrects_event_id, corrected_by) "
             "VALUES (:action, :operator_id, :station_id, :venue_id, :reason, CAST(:details AS jsonb), "
-            ":student_id, :activity, :event_id, :venue_seq, CAST(:flags AS text[]))"
+            ":student_id, :activity, :event_id, :venue_seq, CAST(:flags AS text[]), :corrects, :corrected_by)"
         ),
         {
             "action": action,
@@ -42,5 +44,7 @@ def write_audit(
             "event_id": event_id,
             "venue_seq": venue_seq,
             "flags": list(flags),
+            "corrects": corrects_event_id,
+            "corrected_by": corrected_by,
         },
     )

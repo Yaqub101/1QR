@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Audit{% endblock %}
+{% block body %}
+<p><a href="/admin">&larr; Admin</a></p>
+<h1>Audit trail</h1>
+<p class="muted">Append-only: nothing here can be edited or deleted. Exports are logged.</p>
+<form method="get" action="/admin/audit" class="card filters">
+  <label>Student <input name="student" value="{{ filters.student or '' }}"></label>
+  <label>Action <select name="action"><option value="">Any</option>
+    {% for a in actions %}<option value="{{ a }}" {{ "selected" if filters.action == a }}>{{ a }}</option>{% endfor %}</select></label>
+  <label>Activity <select name="activity"><option value="">Any</option>
+    {% for k, v in activity_label.items() %}<option value="{{ k }}" {{ "selected" if filters.activity == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Operator / Admin <input name="operator" value="{{ filters.operator or '' }}"></label>
+  <label>From <input name="since" value="{{ filters.since or '' }}" placeholder="2026-10-15T09:00"></label>
+  <label>To <input name="until" value="{{ filters.until or '' }}" placeholder="2026-10-15T18:00"></label>
+  <button class="big" type="submit">Filter</button>
+</form>
+<p>{{ data.total }} rows &middot;
+  <a href="/admin/api/audit/export?format=csv&{{ query }}">Export CSV</a> &middot;
+  <a href="/admin/api/audit/export?format=xlsx&{{ query }}">Export XLSX</a></p>
+<table>
+  <tr><th>Time</th><th>Action</th><th>Student</th><th>Activity</th><th>Who</th><th>Reason</th><th>Flags</th></tr>
+  {% for r in data.rows %}
+  <tr><td>{{ r.occurred_at }}</td><td>{{ r.action }}</td><td>{{ r.student or "" }} {{ r.prn or "" }}</td>
+      <td>{{ activity_label.get(r.activity, "") if r.activity else "" }}</td>
+      <td>{{ r.corrected_by or r.operator or "" }}</td><td>{{ r.reason or "" }}</td><td>{{ r.flags }}</td></tr>
+  {% endfor %}
+</table>
+<p>Page {{ page }} of {{ pages }}
+  {% if page > 1 %}<a href="/admin/audit?{{ query }}&page={{ page - 1 }}">Newer</a>{% endif %}
+  {% if page < pages %}<a href="/admin/audit?{{ query }}&page={{ page + 1 }}">Older</a>{% endif %}</p>
+{% endblock %}

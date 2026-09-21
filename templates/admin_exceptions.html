@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Exceptions{% endblock %}
+{% block body %}
+<p><a href="/admin">&larr; Admin</a></p>
+<h1>Exceptions</h1>
+<p>
+  <a href="/admin/exceptions?status=OPEN">Open</a> &middot; <a href="/admin/exceptions?status=RESOLVED">Resolved</a> &middot;
+  <a href="/admin/exceptions?status=ALL">All</a> &middot; <a href="/admin/api/reports/exceptions/export?format=csv">Download CSV</a>
+</p>
+<table>
+  <tr><th>Raised</th><th>Type</th><th>Student</th><th>Detail</th><th>Status</th></tr>
+  {% for x in data.exceptions %}
+  <tr>
+    <td>{{ x.created_at }}</td><td>{{ x.type }}</td>
+    <td>{% if x.student_id %}<a href="/admin/students/{{ x.student_id }}">{{ x.name }}</a> ({{ x.prn }}){% endif %}</td>
+    <td>{{ x.reason or "" }}</td>
+    <td>
+      {% if x.status == "OPEN" %}
+      <form method="post" action="/admin/exceptions/{{ x.id }}/resolve" class="inline">
+        <input name="note" placeholder="How was it dealt with? (required)" required>
+        <button type="submit">Resolve</button>
+      </form>
+      {% else %}Resolved by {{ x.resolved_by }} &middot; {{ x.resolution_note }}{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not data.exceptions %}<tr><td colspan="5" class="muted">Nothing here.</td></tr>{% endif %}
+</table>
+{% endblock %}

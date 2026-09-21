@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Students{% endblock %}
+{% block body %}
+<p><a href="/admin">&larr; Admin</a></p>
+<h1>Find a student</h1>
+<form method="get" action="/admin/students" class="card narrow">
+  <label>PRN, name or sequence number <input name="q" value="{{ q }}" autofocus></label>
+  <button class="big" type="submit">Search</button>
+</form>
+{% if q %}
+  {% if found %}
+  <table class="spaced">
+    <tr><th>Seq</th><th>Name</th><th>PRN</th><th>School</th><th>Status</th></tr>
+    {% for s in found %}
+    <tr><td>{{ s.sequence_no }}</td><td><a href="/admin/students/{{ s.student_id }}">{{ s.name }}</a></td><td>{{ s.prn }}</td>
+        <td>{{ s.school }}</td><td>{{ s.journey_status }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted spaced">Nobody matches that.</p>{% endif %}
+{% endif %}
+{% endblock %}

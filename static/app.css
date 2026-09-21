@@ -78,3 +78,15 @@ button.confirm:disabled { opacity:.6; }
 .tool input { flex:1; }
 .results { display:grid; gap:.4rem; }
 .result { display:flex; justify-content:space-between; align-items:center; background:#fff; border:1px solid var(--line); border-radius:8px; padding:.5rem .8rem; }
+
+/* ---- Admin console (Phase 13 / 16) ---- */
+.stats { grid-template-columns:repeat(auto-fill, minmax(11rem, 1fr)); }
+.stat { display:block; background:#fff; border:1px solid var(--line); border-radius:10px; padding:.8rem 1rem; color:var(--ink); text-decoration:none; }
+.stat b { display:block; font-size:2rem; line-height:1.1; }
+.stat span { color:var(--muted); font-size:.9rem; }
+td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+.barcell { width:40%; }
+.bar-fill { height:.8rem; background:var(--brand); border-radius:4px; min-width:2px; }
+form.inline { display:flex; gap:.35rem; margin:0; }
+form.inline input { min-width:12rem; }
+.filters { grid-template-columns:repeat(auto-fill, minmax(12rem, 1fr)); align-items:end; }
