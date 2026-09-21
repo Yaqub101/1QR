@@ -1,3 +1,20 @@
+## [0.7.0] - Phases 7-12 bundle: remaining station screens
+
+### Added
+- **Thobe Allocation, Seating, Queue, Thobe Return and Lunch are verified end to end on the Phase 6 engine.** All five were already *configured* in `backend/engine/activities.py` (the engine suite needed all seven); no new pipeline, no per-activity code, and no config entry needed changing. This bundle adds `tests/test_activities.py` (24 tests) for the guarantees that matter per activity:
+  - Thobe Allocation: once only; duplicate shows the *earlier* time; no number/size accepted (SYSTEM_SPEC C2); student record and QR untouched for later scans.
+  - Seating: master-data seat shown and recorded; a client-supplied seat is ignored; duplicate shows the earlier seat and time even after a later master change.
+  - Queue: positions strictly in confirmation order under real concurrent confirms from three Queue stations (with and without other Stadium traffic), no gaps, one row for a student confirmed at two stations at once; confirmation never touches `display_snapshot` or queue statuses the LED follows (SYSTEM_SPEC C4).
+  - Thobe Return: once only; configured to require Stage and Thobe Allocation.
+  - Lunch: blocked without a return, unlocked by an existing Admin waiver record (the Phase 2 schema already has the slot), blocked again if the waiver is reversed; two counters at once leave one row.
+  - Full journey Registration → Lunch (also with an Admin-waived return) ends `EXITED`.
+
+### Fixed
+- **Queue re-queue after an Admin reversal.** A stale `queue` row from a reversed completion blocked the student from being queued again (503). The `enqueue` effect now clears it, so the student rejoins at the back with a new position.
+
+### Notes
+- Cross-venue prerequisites are still the Phase 15 stub, so Thobe Return does not yet *refuse* a student with no Stage / Allocation on file; the messages and configuration are tested and ready.
+
 ## [0.6.0] - Phase 6 Complete
 
 ### Added

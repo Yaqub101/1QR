@@ -87,6 +87,11 @@ DISPLAY_FIELDS: dict[str, DisplayField] = {
 def _enqueue(conn, student, ctx) -> dict:
     """Queue: take the next position from the venue's counter, in the SAME transaction as the event
     (first come, first shown). The position is recorded on the event."""
+    # The pipeline only reaches here when the student has NO active Queue completion. A queue row that is
+    # still there therefore belongs to a completion an Admin reversed: drop it so the student is queued
+    # again at the BACK (a new position), not blocked by the old row. (Concurrent confirms are still
+    # settled by the unique index on the event, which rolls the loser's delete back too.)
+    conn.execute(text("DELETE FROM queue WHERE student_id = :s"), {"s": student["id"]})
     position = conn.execute(
         text("INSERT INTO queue (student_id) VALUES (:s) RETURNING queue_position"), {"s": student["id"]}
     ).scalar_one()
