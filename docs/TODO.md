@@ -1,0 +1,665 @@
+# Convocation System — Implementation TODO (v3)
+
+**One student → one QR → seven activities → three locations → local operation → automatic sync.**
+Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build order. If they disagree, stop and ask the project owner.
+
+---
+
+## 0. How to Work With Antigravity (you write no code)
+
+1. Put `SYSTEM_SPEC.md` and this `TODO.md` in the repo under `docs/`, and create `AGENTS.md` (template in Appendix A) in the repo root, before anything else.
+2. Give Antigravity **one phase at a time**. Use the "Antigravity prompt" line under each phase.
+3. Always ask it to **write the tests first**, then the code, then run the tests and show results.
+4. After each phase, **you** run the test command and check the Exit Gate. Do not start the next phase until every gate box is ticked.
+5. One Git commit per phase, tagged `phase-N-done`. If a phase goes wrong, roll back to the last tag.
+6. Never let it change the spec or the rules in Appendix A. If it wants to, that's a question for the project owner.
+7. When a phase is done, ask it to update `README.md` and `docs/CHANGELOG.md` with what changed.
+
+**Milestones:** M1 single-venue core (Phases 1–9) · M2 Stadium complete (10–11) · M3 Hall + Admin (12–13) · M4 sync (14–15) · M5 resilience, hardware, rehearsal (16–20).
+
+---
+
+## Decisions Already Made (from the spec discussion)
+
+| Topic | Decision |
+|---|---|
+| Stack | Python FastAPI + PostgreSQL (+ SQLAlchemy, Alembic, Jinja2 + HTMX, SSE), Docker Compose; custom outbox sync. **Not** Firebase, **not** the Admitto codebase |
+| Architecture | Central cloud server + one local server (with hot standby) at each of College, Stadium, Hall |
+| Activity ownership | Registration → College. Thobe Allocation, Seating, Queue, Stage → Stadium. Thobe Return, Lunch → Hall |
+| QR | One opaque random token per student, used at all 7 stations |
+| Cross-location stale data | Accept as **provisional**; Admin reviews later |
+| "Not Attended" | Never registered. Registered-but-incomplete goes in a separate exceptions report |
+| Stage order | First come, first shown (order of queue confirmation). Sequence number is shown and reported, not used for ordering |
+| Manual fallback | PRN-only search with photo check, at all 7 stations |
+| Thobes | Identical, unnumbered. Allocation and Return are simple confirmations |
+| Lost/unreturned thobe | Admin approves "Return Waived / Lost" with reason; unlocks Lunch |
+| Admin | One Admin plus a named deputy (identical powers) |
+| LED on server loss | Keep current student up to 10 s, then holding screen |
+| Central account owner | The university |
+| Student count | 1,000–3,000 (plan for 3,000) |
+| Data | About half the list available now; import must be incremental; master freeze ~24 h before event |
+
+**Assumptions (change if wrong):** registration window 2 hours; **late registration is accepted and flagged LATE** after the cutoff; the university's cloud region is in India.
+
+---
+
+## Status Overview
+
+| # | Phase | Milestone | Done |
+|---|---|---|---|
+| 1 | Repo, AGENTS.md, environment, Docker skeleton | M1 | ☑ |
+| 2 | Database schema and migrations | M1 | ☐ |
+| 3 | Incremental import, photos, display snapshot | M1 | ☐ |
+| 4 | QR tokens and convocation passes | M1 | ☐ |
+| 5 | Auth, roles, stations, venue ownership | M1 | ☐ |
+| 6 | Station engine (scan pipeline) | M1 | ☐ |
+| 7 | Registration (College) | M1 | ☐ |
+| 8 | Thobe Allocation | M1 | ☐ |
+| 9 | Seating | M1 | ☐ |
+| 10 | Queue | M2 | ☐ |
+| 11 | Stage Controller and public LED | M2 | ☐ |
+| 12 | Thobe Return and Lunch (Hall) | M3 | ☐ |
+| 13 | Admin: dashboard, corrections, exceptions, audit | M3 | ☐ |
+| 14 | Sync engine (outbox, push/pull, status) | M4 | ☐ |
+| 15 | Cross-location rules and reconciliation | M4 | ☐ |
+| 16 | Reports and exports | M5 | ☐ |
+| 17 | High availability: standby, failover, backups | M5 | ☐ |
+| 18 | Network, power and hardware setup | M5 | ☐ |
+| 19 | Chaos and outage testing | M5 | ☐ |
+| 20 | Three-location rehearsal, freeze, handover | M5 | ☐ |
+| 21 | Go/No-Go acceptance and sign-off | — | ☐ |
+
+---
+
+## Phase 0 — Owner Tasks (do in parallel; not code)
+
+- [ ] Get the university to create the cloud account and give the team deploy access (provider and India region to be chosen)
+- [ ] Get the rest of the student list and photos; agree on a delivery date and a **master freeze time**
+- [ ] Agree on photo naming (e.g. `photos/<PRN>.jpg`) and the required master columns: PRN, Name, Programme/Degree, School/Department, Photo, Awards, Convocation Sequence No., Seat No.
+- [ ] Decide the registration window and cutoff time
+- [ ] Decide the name of the deputy Admin
+- [ ] Get the LED/projector specs (16:9, HDMI) and the university branding assets
+- [ ] Confirm the number of stations per location (starting point: Registration 6; Thobe 5; Seating 4; Queue 3; Stage 1+1 backup; Return 4; Lunch 5)
+- [ ] Buy or borrow hardware (Phase 18 list)
+- [ ] Book dates for the three-location rehearsal
+
+---
+
+## Phase 1 — Repo, AGENTS.md, Environment, Docker Skeleton
+
+**Antigravity prompt:** "Read `AGENTS.md` and `docs/SYSTEM_SPEC.md`. Create the FastAPI project with PostgreSQL, Alembic, pytest and a Docker Compose setup. The app must start in one of two modes set by env vars: `MODE=venue` with `VENUE_ID=college|stadium|hall`, or `MODE=central`. Add `/health`. Write tests first. Do not add features."
+
+- [x] Git repo, `.gitignore` (exclude `.env`, photos, DB dumps, exports), `docs/`, `backend/`, `templates/`, `static/`, `scripts/`, `tests/`
+- [x] `AGENTS.md` (Appendix A) in the root
+- [x] `docker-compose.yml`: `app` + `db` (PostgreSQL); a second compose file for central mode
+- [x] `.env.example` (no real secrets): `MODE`, `VENUE_ID`, `DATABASE_URL`, `CENTRAL_URL`, `VENUE_API_KEY`, `LATE_CUTOFF`, `EVENT_NAME`
+- [x] Alembic set up; one command rebuilds the empty schema
+- [x] pytest set up with a test database; a single command runs all tests
+- [x] Logging to file and console
+- [x] `/health` reports mode, venue, DB status, time
+
+**Tests**
+- [x] `/health` returns OK in venue and central modes
+- [x] Fresh clone + README steps starts everything on a second machine
+
+**Exit Gate 1**
+- [x] All three (college/stadium/hall) and central start from the same code and the same image with different env values
+
+
+---
+
+## Phase 2 — Database Schema and Migrations
+
+**Antigravity prompt:** "Create the schema from `SYSTEM_SPEC.md` sections 5, 9, 11, 15 and 17. Write tests for every constraint first. Enforce rules in the database, not only in code."
+
+- [ ] `students`: id, prn (UNIQUE), name, programme, school, photo_path, awards, sequence_no (UNIQUE), seat_no, status (ACTIVE/INACTIVE), timestamps
+- [ ] `display_snapshot`: approved name/programme/school/award/photo (LED reads only this)
+- [ ] `qr_tokens`: student_id, token (UNIQUE), active flag, generated_at, deactivated_at/by. **At most one active token per student**
+- [ ] `activity_events` (append-only): event_id (UUID, UNIQUE), student_id, activity (REGISTRATION, THOBE_ALLOCATION, SEATING, QUEUE, STAGE, THOBE_RETURN, LUNCH), kind (COMPLETE / SKIP / WAIVER / REVERSAL), venue_id, venue_seq (per-venue counter), station_id, operator_id, server_time, flags (PROVISIONAL, MANUAL, LATE, CORRECTED), details JSON (seat, queue position, reason)
+- [ ] **Unique constraint:** one active completed event per (student, activity)
+- [ ] `scan_log`: every attempt with result SUCCESS / DUPLICATE / INVALID / REJECTED / PROVISIONAL / MANUAL
+- [ ] `stations`: station_id, venue_id, activity (fixed mode), active flag
+- [ ] `users`: username, password hash, role, active
+- [ ] `queue`: student_id, queue_position (assigned by a per-venue counter), status (QUEUED / DISPLAYED / DONE / SKIPPED / HELD)
+- [ ] `outbox`: event_id, payload, created_at, sent_at (nullable)
+- [ ] `sync_state`: per-peer cursor, last_success_at, last_error
+- [ ] `exceptions`: type (PROVISIONAL_UNCONFIRMED, CONFLICT, SEQ_GAP, INACTIVE_TOKEN_USED, …), student, details, status (OPEN/RESOLVED), resolved_by/at
+- [ ] `audit_log`: append-only; no UPDATE/DELETE allowed
+- [ ] `settings`: event name, late cutoff, freshness window (default 2 min), holding-screen text
+- [ ] Derived view `student_status` computed from events (SYSTEM_SPEC section 5)
+- [ ] Indexes on prn, token, (student_id, activity), venue_seq
+
+**Tests**
+- [ ] Duplicate PRN / token insert fails
+- [ ] Second active token for the same student fails
+- [ ] Second completed event for the same (student, activity) fails at DB level
+- [ ] One student can have all seven activities completed
+- [ ] Audit log rejects UPDATE/DELETE
+- [ ] `student_status` view returns the right label for each stage of a journey
+- [ ] Schema rebuilds from scratch with one command
+
+**Exit Gate 2**
+- [ ] All constraint tests pass
+
+---
+
+## Phase 3 — Incremental Import, Photos, Display Snapshot
+
+**Antigravity prompt:** "Build an Admin import (CSV/XLSX) with column mapping, a validation preview, and a transactional commit. Re-importing must update students by PRN without duplicating them or touching existing QR tokens. Write tests first."
+
+- [ ] Upload CSV/XLSX (Admin only); column-mapping screen
+- [ ] Validation preview before anything is written: missing required fields, duplicate PRNs, duplicate/missing sequence numbers, missing photos, overlong names, inactive rows
+- [ ] All-or-nothing commit; safe to run again with the extra half of the list
+- [ ] Photo linker by PRN; report unmatched photos and unmatched students; placeholder for missing photos
+- [ ] "Freeze display data" action fills `display_snapshot`; after freeze, changes only via a logged "master patch"
+- [ ] Import summary page; import logged in audit
+- [ ] **Master pack export/import:** export the master + photos as a single file that venue servers import offline (backup route if central sync isn't ready)
+
+**Tests**
+- [ ] Clean file imports 100%
+- [ ] Re-import with new rows adds only the new students
+- [ ] Duplicate PRN is flagged with row numbers
+- [ ] Failed import rolls back
+- [ ] Display snapshot unchanged by later master edits
+- [ ] Master pack round-trips to a second venue database
+
+**Exit Gate 3**
+- [ ] The real (half) list imports; counts match the source exactly
+
+---
+
+## Phase 4 — QR Tokens and Convocation Passes
+
+**Antigravity prompt:** "Generate one opaque random token per student (idempotent). Build the printable pass PDF and bulk sheet. Never regenerate existing tokens."
+
+- [ ] Random token, at least 128 bits, no personal data in the QR
+- [ ] "Generate missing tokens" — running twice changes nothing
+- [ ] Admin "Reissue QR": deactivates the old token, creates a new one, mandatory reason, audited
+- [ ] Pass PDF: university/event name, student name, PRN, programme, photo, the QR, and a line saying to keep it for the whole event
+- [ ] Individual and bulk downloads; correct QR size and quiet zone at print size
+
+**Tests**
+- [ ] Every ACTIVE student has exactly one active token
+- [ ] Generation is idempotent
+- [ ] Decoding a sample QR shows only the token
+- [ ] Reissued token: old NOT ACTIVE, new works
+- [ ] Printed and phone-screen QRs read with the real USB scanner
+
+**Exit Gate 4**
+- [ ] Sample passes printed and scanned successfully
+
+---
+
+## Phase 5 — Auth, Roles, Stations, Venue Ownership
+
+**Antigravity prompt:** "Implement personal logins, roles, station binding, and the single-writer ownership rule from SYSTEM_SPEC section 11.2. Enforce on the server. Write the role matrix test first."
+
+- [ ] Login with password hashing; session timeout suitable for event day
+- [ ] Roles: Admin (and deputy), Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch operator
+- [ ] Each laptop is **bound to one station**; the station fixes the activity. Operators never choose the activity
+- [ ] **Venue ownership:** a venue server rejects activities it doesn't own (College = Registration; Stadium = Thobe Allocation, Seating, Queue, Stage; Hall = Thobe Return, Lunch)
+- [ ] Admin screens: users, stations, and station↔laptop binding; rebinding a spare laptop takes under a minute
+- [ ] Seed script for the initial Admin and deputy (credentials not committed)
+
+**Tests**
+- [ ] Role matrix: each role reaches only its own endpoints
+- [ ] A Thobe station cannot record Lunch
+- [ ] Hall server rejects a Registration write; College rejects Lunch
+- [ ] Disabled user cannot log in
+- [ ] Both Admin and deputy pass the same permission tests
+
+**Exit Gate 5**
+- [ ] Role, station and ownership tests pass
+
+---
+
+## Phase 6 — Station Engine (Scan Pipeline)
+
+**Antigravity prompt:** "Build one generic station engine that handles all seven activities through configuration. Pipeline: token valid → student active → prerequisites → already done → show card → operator confirms → save in one transaction with an outbox row. Prerequisite failures use hard-block for same-venue data. Write a table-driven test covering all seven activities first."
+
+- [ ] `POST /scan` (token, station) — the activity comes from the station
+- [ ] Pipeline: valid token → student ACTIVE → prerequisites (sequential order per spec) → this activity already completed? → show card
+- [ ] `POST /confirm`: one DB transaction writes the event **and** the outbox row; success is shown only after the commit
+- [ ] Duplicates are per activity; the message shows the earlier record ("THOBE ALREADY ALLOCATED — 11:21 AM")
+- [ ] Manual PRN search on every station, with photo check; the event is flagged MANUAL
+- [ ] Operator-facing messages are one plain sentence (SYSTEM_SPEC section 14); technical details go to logs only
+- [ ] Large-button screen: auto-focused scan box, refocus after each action, debounce double scans, strip the scanner's Enter suffix, colour + sound for success/duplicate/rejected
+- [ ] Every attempt written to `scan_log`
+- [ ] Prerequisite hook with a cross-venue mode placeholder (filled in Phase 15)
+
+**Tests**
+- [ ] Table-driven: 7 activities × {pending, already done, prerequisite missing, inactive student, unknown token}
+- [ ] The same QR passes all seven activities in order with zero false duplicates
+- [ ] Same activity twice → 1 success + 1 duplicate, exactly one row
+- [ ] Two stations confirm the same student and activity at once → exactly one row
+- [ ] Killing the app mid-confirm leaves either a complete (event + outbox) or nothing
+- [ ] Scan-to-confirm well under 1 second on the local network
+
+**Exit Gate 6**
+- [ ] The engine suite passes before any activity screen is built on it
+
+---
+
+## Phase 7 — Registration (College)
+
+**Antigravity prompt:** "Configure the Registration station on the engine. Show photo, name, PRN, programme, school, sequence number. Add the LATE flag after the cutoff."
+
+- [ ] Screen: SCAN → VERIFY → CONFIRM REGISTRATION
+- [ ] Duplicate → "ALREADY REGISTERED — time"
+- [ ] Manual PRN search; unknown student → "STUDENT NOT FOUND — CONTACT ADMIN"
+- [ ] Registration after the cutoff is accepted and flagged LATE (assumption; easy to change in settings)
+- [ ] Multiple desks supported; per-desk counter on screen
+
+**Tests**
+- [ ] Registers once with correct time/station/operator
+- [ ] Duplicate rejected without a new row
+- [ ] After the cutoff: accepted with LATE; before: no flag
+- [ ] Inactive student → NOT ACTIVE
+- [ ] Two desks register different students at the same time without collision
+
+**Exit Gate 7**
+- [ ] Registration works on two laptops at once with real scanners
+
+---
+
+## Phase 8 — Thobe Allocation (Stadium)
+
+**Antigravity prompt:** "Configure Thobe Allocation: a plain confirmation (no number, no size). Requires Registration."
+
+- [ ] Screen: SCAN → VERIFY → CONFIRM THOBE GIVEN
+- [ ] Duplicate → "THOBE ALREADY ALLOCATED — time"
+- [ ] Not registered → "THOBE NOT AVAILABLE — REGISTRATION PENDING" (or provisional per Phase 15)
+
+**Tests**
+- [ ] Recorded once
+- [ ] Unregistered student blocked or provisional as designed
+- [ ] After allocation the same QR still works at every later station
+
+**Exit Gate 8**
+- [ ] Passes end to end
+
+---
+
+## Phase 9 — Seating (Stadium)
+
+**Antigravity prompt:** "Configure Seating: show the university-assigned seat (read-only). The operator only confirms."
+
+- [ ] Shows Block/Row/Seat from the master data; the operator cannot change it
+- [ ] Requires Thobe Allocation; duplicate → "SEATING ALREADY COMPLETED — seat and time"
+
+**Tests**
+- [ ] Seat shown correctly for a sample of students
+- [ ] Skipping Thobe → "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"
+- [ ] Duplicate rejected
+
+**Exit Gate 9 (M1 done)**
+- [ ] Registration → Thobe → Seating works locally; tag `m1-done`; backup taken
+
+---
+
+## Phase 10 — Queue (Stadium)
+
+**Antigravity prompt:** "Configure Queue. Queue Position is assigned by the venue's counter at confirmation (first come, first shown). Show sequence number and current position. A queue scan must never change the LED."
+
+- [ ] Screen shows student, sequence number, current queue position → CONFIRM QUEUE
+- [ ] Requires Seating; duplicate → "ALREADY IN QUEUE — position"
+- [ ] Queue depth indicator; a report of students shown out of university sequence (informational)
+
+**Tests**
+- [ ] Positions are assigned 1, 2, 3 in confirmation order, including under concurrent confirms
+- [ ] Skipping Seating is blocked
+- [ ] A queue scan leaves the public LED state unchanged
+
+**Exit Gate 10**
+- [ ] Queue works with multiple queue stations
+
+---
+
+## Phase 11 — Stage Controller and Public LED (Stadium)
+
+**Antigravity prompt:** "Build the Stage Controller (CURRENT / NEXT / AFTER NEXT; DISPLAY NEXT, HOLD/HOME, PREVIOUS, SEARCH, SKIP, COMPLETE) and the 16:9 public LED page fed by SSE from `display_snapshot` only. The LED keeps the current student for 10 seconds after losing the server, then shows the holding screen."
+
+- [ ] Operator screen with photos; keyboard shortcuts; one-key emergency HOME
+- [ ] DISPLAY NEXT shows the next queued student; guard against double-presses
+- [ ] COMPLETE records the Stage event; SKIP requires a reason; PREVIOUS and SEARCH are logged as append-only events
+- [ ] Only one active controller; "take over" action for the backup laptop, which locks the old one out
+- [ ] LED page: branding, name, photo, degree/programme, school, medal. No controls, no private data; holding screen between students
+- [ ] Preload the next 3–5 students' data and photos; SSE with auto-reconnect
+- [ ] Autofit for the longest names; Unicode fonts; 1920×1080 with other 16:9 sizes tested
+- [ ] LED behaviour on server loss: 10 s hold, then holding screen (**decided**)
+
+**Tests**
+- [ ] DISPLAY NEXT changes the LED to the right student in about 1 second
+- [ ] No other station can change the LED
+- [ ] HOME instantly returns to the holding screen
+- [ ] COMPLETE creates the Stage record; queue-only students have none
+- [ ] SKIP without a reason is blocked; double-press doesn't skip anyone
+- [ ] Backup laptop takes over and the old one can no longer act
+- [ ] Inspect the public payload: no PRN, phone, or internal fields
+- [ ] Server killed: the LED holds 10 s, then shows the holding screen, then recovers by itself
+- [ ] The longest name and a missing photo render cleanly
+
+**Exit Gate 11 (M2 done)**
+- [ ] Queue → Stage → LED works on the real display; tag `m2-done`
+
+---
+
+## Phase 12 — Thobe Return and Lunch (Hall)
+
+**Antigravity prompt:** "Configure Thobe Return (simple confirmation, requires Stage completed and Thobe Allocation) and Lunch (requires Thobe Return or Admin waiver). Lunch completion sets EXITED."
+
+- [ ] Thobe Return: SCAN → VERIFY → CONFIRM RETURN; duplicate → "ALREADY RETURNED — time"
+- [ ] Lunch: SCAN → VERIFY → CONFIRM; "LUNCH NOT AVAILABLE — THOBE RETURN PENDING" if needed; duplicate → "LUNCH ALREADY CLAIMED — time"
+- [ ] Admin-only "Return Waived / Lost" (reason mandatory) counts as Return for Lunch; flagged CORRECTED
+- [ ] Multiple lunch counters cannot double-issue
+- [ ] Student status becomes EXITED after Lunch
+
+**Tests**
+- [ ] Return once; duplicate rejected
+- [ ] Lunch blocked without Return or waiver; allowed with the waiver
+- [ ] Two lunch counters, same student, at the same time → one record
+- [ ] A full journey for a dummy student ends EXITED
+
+**Exit Gate 12**
+- [ ] Hall works end to end
+
+---
+
+## Phase 13 — Admin: Dashboard, Corrections, Exceptions, Audit
+
+**Antigravity prompt:** "Build the Admin dashboard, student search and journey view, corrections, exception list and audit viewer per SYSTEM_SPEC sections 12, 16 and 17."
+
+- [ ] Counts: Registered, Reported, Yet to Report, Reporting %, school-wise reporting
+- [ ] Funnel across the seven activities; stage view; outstanding thobes; exceptions counter
+- [ ] Venue health: online/offline/syncing, pending records, last sync, primary/standby status
+- [ ] Student search and full journey timeline
+- [ ] Corrections: reverse or fix an activity with a mandatory reason; a correction is a new event, never a delete
+- [ ] Exception list (provisional, conflicts, sequence gaps, inactive tokens, waivers) with resolve action
+- [ ] Audit viewer and export; append-only
+
+**Tests**
+- [ ] Every count equals a direct database query
+- [ ] Registered = Reported + Yet to Report
+- [ ] A correction keeps the original, logs who/why, and changes the derived status
+- [ ] Operators cannot reach correction endpoints
+- [ ] Dashboard updates within seconds of a scan elsewhere
+
+**Exit Gate 13 (M3 done)**
+- [ ] All seven activities and Admin tools work on one venue database; tag `m3-done`
+
+---
+
+## Phase 14 — Sync Engine (Outbox, Push/Pull, Status)
+
+**Antigravity prompt:** "Implement transactional outbox sync per SYSTEM_SPEC section 9. Every event has a UUID and a per-venue sequence. Push unsent events to central with retries; pull other venues' events by cursor; inserts are idempotent by event_id. Show sync status. Write the idempotency and outage tests first."
+
+- [ ] Background worker: push outbox batches to central over HTTPS with back-off; central inserts each `event_id` once
+- [ ] Pull worker: fetch other venues' events after the cursor; insert idempotently; update `sync_state`
+- [ ] Per-venue API keys; TLS to central
+- [ ] Status per venue: 🟢 ONLINE / 🟡 OFFLINE (local mode, N waiting) / 🔵 SYNCING (x / y); shown to the Admin, and a small unlabelled dot for operators
+- [ ] Track the **last successful pull time per peer venue** ("data freshness"), configurable window (default 2 minutes)
+- [ ] Detect gaps in each venue's `venue_seq` and raise an exception
+- [ ] Central rebuild script: recreate central from venue data
+- [ ] Master patch and corrections travel by sync as events
+
+**Tests**
+- [ ] Sending the same batch three times creates no duplicates
+- [ ] Central offline for 30 minutes while scanning → after reconnect, all events arrive exactly once
+- [ ] Killing the app mid-sync loses nothing and duplicates nothing
+- [ ] A venue never accepts a foreign venue's write through the operator API, and accepts it through sync only as read-only history
+- [ ] Derived status is identical regardless of arrival order
+- [ ] Sync survives a change of internet route (simulated)
+
+**Exit Gate 14 (M4a)**
+- [ ] Three venue stacks and a central stack stay consistent through simulated outages
+
+---
+
+## Phase 15 — Cross-Location Rules and Reconciliation
+
+**Antigravity prompt:** "Implement the cross-location prerequisite policy from SYSTEM_SPEC section 11.5. Same-venue prerequisites are always hard blocks. Cross-venue (Stadium needs Registration; Hall needs Thobe Allocation and Stage): present locally → allow; missing and the source venue is fresh → block; missing and stale → accept as PROVISIONAL with an exception for the Admin."
+
+- [ ] Prerequisite check uses local data plus the freshness window
+- [ ] Missing + fresh → block with a plain message; missing + stale → PROVISIONAL event (no scary message for the operator)
+- [ ] On sync, a provisional event whose prerequisite still doesn't exist raises an OPEN exception; confirmed ones close automatically
+- [ ] Duplicate (student, activity) arriving from a peer (should never happen) is stored and flagged CONFLICT — never silently merged
+- [ ] Events for a deactivated token raise an exception
+- [ ] Reconciliation job on central and each venue after sync
+
+**Tests**
+- [ ] Stadium offline from College, registration missing locally: provisional accept; after sync, exception auto-closes
+- [ ] Fresh peer + missing prerequisite → blocked
+- [ ] A truly unregistered student accepted provisionally produces an OPEN exception on reconciliation
+- [ ] Hall provisional Return when the Stadium's Stage event hasn't arrived
+- [ ] Injected duplicate creates a CONFLICT exception
+- [ ] Same-venue prerequisites are never provisional
+
+**Exit Gate 15 (M4 done)**
+- [ ] Simulated three-location outage scenario ends with correct data and only the expected exceptions; tag `m4-done`
+
+---
+
+## Phase 16 — Reports and Exports
+
+**Antigravity prompt:** "Build the reports and CSV/XLSX exports from SYSTEM_SPEC section 12 and the decisions table. Write reconciliation tests first."
+
+- [ ] Registered, Reported, **Not Attended (never registered)**
+- [ ] Per-activity completed / not-completed lists for all seven activities
+- [ ] Incomplete-journey report (registered but did not finish)
+- [ ] Stage completed / skipped (with reasons)
+- [ ] Thobes allocated but not returned; waived/lost thobes; end-of-event physical thobe count check
+- [ ] Late registrations; provisional and manual entries; corrections; exceptions
+- [ ] School-wise / programme-wise summary; per-student full history; audit export
+- [ ] CSV (mandatory), XLSX; PDF if the university asks; exports limited to authorised roles and logged
+- [ ] "Close event" action: locks the final lists, requires all venues at 0 pending sync, triggers a backup
+
+**Tests**
+- [ ] Total = Completed + Not Completed for every activity
+- [ ] Not Attended equals students with no Registration event
+- [ ] Reports regenerate identically after a restore
+- [ ] CSV opens in Excel with Unicode names intact
+- [ ] Unauthorised roles cannot export
+
+**Exit Gate 16**
+- [ ] All reports demonstrated and reconciled against the master counts
+
+---
+
+## Phase 17 — High Availability: Standby, Failover, Backups
+
+**Antigravity prompt:** "Add a hot standby per venue, a documented failover procedure with a script, and automated backups. Stations always reach the server by a fixed name."
+
+- [ ] Standby laptop per venue continuously receives a copy of the database (the stage laptop can double as the Stadium standby)
+- [ ] `failover.sh`: promote the standby and take over the server's address; stations reconnect on their own; target under 2 minutes
+- [ ] Automatic full dump every 5 minutes to a second device; milestone backups (before event, after registration closes, after ceremony)
+- [ ] Restore script and a rehearsed "restore on a clean laptop" drill
+- [ ] Central snapshots daily; rebuild-from-venues drill
+- [ ] Auto-restart on crash/reboot
+- [ ] One-page failover procedure per venue
+
+**Tests**
+- [ ] Kill the primary mid-scan: standby promoted in under 2 minutes; earlier data intact
+- [ ] Restore from backup: app runs and reports regenerate
+- [ ] Rebuild central from venue data and compare counts
+- [ ] Reboot the server machine: data intact, stations reconnect
+
+**Exit Gate 17**
+- [ ] Failover and restore each demonstrated by someone other than the developer
+
+---
+
+## Phase 18 — Network, Power and Hardware Setup
+
+Physical work. Checklist per location:
+
+- [ ] Dedicated router with **dual uplinks** (venue broadband + 4G/5G SIM) and automatic failover; a spare router configured identically
+- [ ] Wired Ethernet for the server and standby; two switches (or one plus a spare)
+- [ ] Fixed names/addresses reserved in the router (`college.local`, `stadium.local`, `hall.local`)
+- [ ] Primary server + standby laptop, operator laptops per the station plan, one spare laptop and scanner per location
+- [ ] USB QR scanners (spares included); confirm each types the token followed by Enter
+- [ ] UPS for server, standby, router(s), switch(es), 4G/5G router; test the runtime with the real load (aim for 30+ minutes); surge-protected extension boards and spares
+- [ ] Stadium: LED controller and both stage laptops on a dedicated UPS; spare HDMI cable and adapters; confirm the generator/mains switchover time with the venue
+- [ ] Disk encryption on all laptops holding student data
+- [ ] Set every server's clock correctly (offline-safe)
+- [ ] Print: the student list with sequence/seat per station, one-page SOPs, failover procedure
+
+**Tests**
+- [ ] Unplug the broadband: traffic moves to 4G/5G with no action
+- [ ] Every scanner works on every laptop type
+- [ ] UPS bridges a mains cut for the tested runtime
+- [ ] Any laptop can be rebound to any station in under a minute
+
+**Exit Gate 18**
+- [ ] Each location passes the hardware checklist
+
+---
+
+## Phase 19 — Chaos and Outage Testing
+
+Run these against the real hardware, with real scanners and people.
+
+- [ ] Internet cut at the Stadium for 30 minutes during heavy scanning; reconnect; counts match; only the expected provisionals
+- [ ] Both uplinks down at one location for 15 minutes
+- [ ] Central server stopped for an hour; all venues keep working; sync catches up
+- [ ] Primary server power-cycled at each location; failover timed
+- [ ] Switch or router failure; spare swapped in
+- [ ] Stage laptop failure; backup takes over; LED holds 10 s then shows the holding screen
+- [ ] Operator laptop dies mid-queue; a spare is bound to the station
+- [ ] Load test: 3,000 dummy students × 7 activities at the expected arrival rate, with duplicates and invalid QRs mixed in
+- [ ] Clock skew on an operator laptop (no effect on ordering)
+- [ ] Restore from backup; regenerate all reports; rebuild central
+
+**Exit Gate 19**
+- [ ] Every scenario passes and the timings are written down (failover, sync catch-up, LED update)
+
+---
+
+## Phase 20 — Three-Location Rehearsal, Freeze, Handover
+
+### Rehearsal (real people in every role, 50–100 dummy students)
+- [ ] One student walks all seven activities across College → Stadium → Hall with the same QR
+- [ ] Duplicate scan at each of the seven activities
+- [ ] A skipped step at each location; unknown QR; inactive student; damaged QR → PRN search
+- [ ] Late registration after the cutoff
+- [ ] Queue confirmed in a mixed order; stage follows first come, first shown
+- [ ] Wrong student displayed → HOME → recover; SKIP; PREVIOUS; COMPLETE
+- [ ] Lost thobe → Admin waiver → Lunch
+- [ ] Stadium loses internet mid-run, then reconnects; Admin reviews the exceptions
+- [ ] Server failover during the run
+- [ ] Deputy Admin performs a correction
+- [ ] Closure: wait for 0 pending on all venues, export every report, reconcile, restore a backup
+
+### Freeze and handover
+- [ ] Master freeze applied; final import; tokens and passes generated; all photos preloaded to the three venues
+- [ ] Build frozen; tag `release-final`; final backup with an off-site copy
+- [ ] Handover package: source code and README; schema and clean backup; `.env` template (no production secrets); QR/pass procedure; role matrix and credentials handed over securely; one-page SOP per station plus Admin; failover procedure; test report; printed fallback sheets
+- [ ] Brief all operators; brief the Admin and deputy; agree the escalation path
+
+### Event-day checklist
+- [ ] Servers and standbys up at all three locations; sync 🟢; dummy scan at every station
+- [ ] UPS and both uplinks verified; LED shows the holding screen
+- [ ] Operators logged in on their bound stations; scanners tested
+- [ ] Printed fallback sheets at each station
+- [ ] After registration closes: milestone backup
+- [ ] After the ceremony: wait for all venues to reach 🟢 with 0 pending; final backup; export and reconcile reports
+
+**Exit Gate 20**
+- [ ] Rehearsal passed with no open critical bugs; handover complete
+
+---
+
+## Phase 21 — Go/No-Go Acceptance and Sign-Off
+
+### Mandatory test cases
+- [ ] **MC-1** One QR passes through all seven activities across the three locations; each recorded once with the right time/station/operator
+- [ ] **MC-2** Same activity twice → no duplicate and the earlier record shown; a different activity is never wrongly rejected
+- [ ] **MC-3** Unknown QR rejected cleanly and logged; PRN manual search works at all seven stations with photo check
+- [ ] **MC-4** Every venue rejects activities it doesn't own
+- [ ] **MC-5** Two stations at one venue confirm at the same time without collision (including the same student and activity)
+- [ ] **MC-6** Skipping a step is blocked with a plain message for same-venue prerequisites
+- [ ] **MC-7** Cross-venue stale data → accepted as PROVISIONAL and reviewed by the Admin; fresh data → blocked
+- [ ] **MC-8** Stadium offline for 30 minutes: no lost or duplicated events after reconnect
+- [ ] **MC-9** Queue order is first come, first shown; sequence number is displayed but doesn't reorder
+- [ ] **MC-10** A queue scan never changes the LED; only DISPLAY NEXT does
+- [ ] **MC-11** LED shows correct student/photo/programme and no private data; holds 10 s on server loss, then the holding screen
+- [ ] **MC-12** Stage COMPLETE creates the Stage record; Registration or Queue alone doesn't
+- [ ] **MC-13** Lunch blocked without Return; the Admin waiver unlocks it; Lunch = EXITED
+- [ ] **MC-14** Corrections keep the original, log who and why; operators can't correct
+- [ ] **MC-15** Late registration is accepted and flagged LATE
+- [ ] **MC-16** Primary server failover under 2 minutes with data intact
+- [ ] **MC-17** Backup stage laptop takes over
+- [ ] **MC-18** Backup restores and every report regenerates identically; central rebuilds from venue data
+- [ ] **MC-19** Reissued QR: old token NOT ACTIVE everywhere after sync; new works at all stations
+- [ ] **MC-20** Not Attended = never registered; incomplete journeys appear in their own report
+
+### Go/No-Go acceptance criteria
+- [ ] **AC-1** 100% of active students imported with unique IDs (including the late-arriving half of the list)
+- [ ] **AC-2** 100% have exactly one active token; printed and on-phone QRs scan
+- [ ] **AC-3** All three locations run independently with the internet unplugged
+- [ ] **AC-4** Sync catches up automatically after an outage with zero manual entry
+- [ ] **AC-5** Duplicate, invalid and out-of-order handling demonstrated at every activity
+- [ ] **AC-6** Dashboard and per-activity reports reconcile with the master counts
+- [ ] **AC-7** Queue → Stage Controller → LED works on the real venue display; the correct student appears in about 1 second
+- [ ] **AC-8** The Stage operator can HOLD and recover from a wrong student
+- [ ] **AC-9** Failover, restore and central-rebuild drills each demonstrated
+- [ ] **AC-10** Dual-uplink switchover happens with no operator action
+- [ ] **AC-11** A complete journey history exports for a sample student
+
+### Security and data rules
+- [ ] No personal data in the QR; passwords hashed; roles enforced on the server
+- [ ] The public LED endpoint returns only approved fields
+- [ ] TLS between venues and central; per-venue keys; operator laptops on a closed local network
+- [ ] Disk encryption on all laptops; a data wipe plan after the event
+- [ ] Exports restricted and logged; backups taken at the milestones
+
+### Sign-off
+- [ ] Student master received (all of it)
+- [ ] Station counts and hardware list approved
+- [ ] LED design and fields approved
+- [ ] All seven activity workflows approved
+- [ ] Three-location rehearsal passed
+- [ ] Build frozen; backups taken; handover complete
+
+---
+
+## Out of Scope
+New registration or payment workflows · complex mobile apps · facial recognition · SMS/WhatsApp automation · PowerPoint automation · advanced analytics · anything that makes an activity depend on the internet · multiple QR codes per student
+
+---
+
+## Appendix A — `AGENTS.md` Template (put in the repo root)
+
+```
+# AGENTS.md — Convocation System
+
+## What this is
+A hybrid offline-first convocation system. One student = one QR = seven activities
+(Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch) across
+three locations (College, Stadium, Hall) with a central server. Full behaviour is in
+docs/SYSTEM_SPEC.md. Build order is in docs/TODO.md.
+
+## Stack (do not change)
+Python 3.12, FastAPI + Uvicorn, PostgreSQL, SQLAlchemy + Alembic, Jinja2 + HTMX +
+small vanilla JS, Server-Sent Events, pytest, Docker Compose. No Firebase.
+
+## Golden rules (never break)
+1. ONE QR per student. The QR holds only an opaque random token. No personal data.
+2. The station decides the activity. Operators never choose it.
+3. Duplicate prevention is PER ACTIVITY. Enforce it with a database unique constraint.
+4. Each activity has exactly one owning venue (College: Registration; Stadium: Thobe
+   Allocation, Seating, Queue, Stage; Hall: Thobe Return, Lunch). Reject other writes.
+5. Events are append-only. Corrections are new events with a reason. Never delete/update history.
+6. Save the event and its outbox row in ONE transaction. Show success only after commit.
+7. Every station works with the internet unplugged. The internet is only for sync.
+8. Same-venue prerequisites are hard blocks. Cross-venue prerequisites follow the fresh/stale rule.
+9. A queue scan never changes the public LED. Only the Stage operator does.
+10. The LED reads only the display snapshot. Never expose PRN, phone, email or internal fields.
+11. Operator messages are one plain sentence. No technical errors on screen.
+12. Write tests first. Run them. Show the results. Do not move to the next phase yourself.
+
+## Working rules
+- Work on one phase of docs/TODO.md at a time; stop at its Exit Gate.
+- Ask before changing the spec, the schema rules, or anything in this file.
+- Commit once per phase; tag `phase-N-done`.
+- Keep README.md and docs/CHANGELOG.md updated.
+```

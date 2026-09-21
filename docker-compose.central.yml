@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: convocation_central_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-convocation_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-convocation_password}
+      POSTGRES_DB: ${POSTGRES_DB:-convocation_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - central_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-convocation_user} -d $${POSTGRES_DB:-convocation_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: convocation-system:latest
+    container_name: convocation_central_app
+    restart: unless-stopped
+    environment:
+      MODE: central
+      DATABASE_URL: ${DATABASE_URL:-postgresql://convocation_user:convocation_password@db:5432/convocation_db}
+      EVENT_NAME: ${EVENT_NAME:-Annual Convocation 2026}
+      LOG_DIR: /app/logs
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  central_pgdata:

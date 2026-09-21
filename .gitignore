@@ -1,0 +1,23 @@
+# Secrets and environment
+.env
+*.env
+
+# Student data and generated output
+photos/
+exports/
+
+# Database dumps (SQL migration files are kept)
+*.dump
+*.sql
+!**/migrations/**/*.sql
+!**/alembic/**/*.sql
+
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+logs/
+*.db
+*.egg-info/
+
