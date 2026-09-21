@@ -4,7 +4,7 @@ The system tracks each university student through seven activities (Registration
 
 ## Status
 
-Phase 1 complete (Repository, environment validation, Docker skeleton, Alembic migrations, logging, and health checks wired up).
+Phase 2 complete (database schema and migrations: every table from `docs/TODO.md` Phase 2, with duplicate prevention, venue ownership and append-only history enforced by PostgreSQL itself). Phase 1 (repository, environment validation, Docker skeleton, health check) is also in place. Next: Phase 3.
 
 ## Setup
 
@@ -100,10 +100,12 @@ pytest -v
 
 ### 4. Database Migrations (Alembic)
 
-Rebuild an empty schema from scratch with a single command:
+Build the full schema (all tables, constraints, triggers and the `student_status` view) on an empty database with a single command:
 ```bash
 alembic upgrade head
 ```
+
+The schema tests (`tests/test_schema.py`) need a real PostgreSQL reachable at `TEST_DATABASE_URL` (default `postgresql://convocation_user:convocation_password@localhost:5432/convocation_test`; the `convocation_test` database is created automatically). They rebuild that database's schema with the command above, so never point `TEST_DATABASE_URL` at a real venue database.
 
 Roll back all migrations:
 ```bash
