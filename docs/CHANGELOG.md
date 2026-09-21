@@ -1,3 +1,27 @@
+## [0.11.0] - Phase 18 + 20a bundle: operational documents  (tag `docs-complete`)
+
+Documents and one small script. **No application code was written or changed.** The physical work of Phase 18 and the rehearsal, freeze and handover of Phase 20 are **not done**: these are the sheets that guide them, so no Phase 18 or Phase 20 box in `docs/TODO.md` was ticked and neither Exit Gate is claimed.
+
+### Added
+- **`docs/ops/HARDWARE_CHECKLIST.md`**: a tick-box checklist in plain language for a non-technical volunteer, one self-contained section each for **College, Stadium, Hall and Central**: dual-uplink router and spare, wired server and standby, fixed addresses, desk/spare laptops, scanners and spares, UPS coverage and the 30-minute runtime test, the Stadium's separate stage/LED UPS, generator changeover, disk encryption, correct clocks, printed fallback sheets, with the unplug, scanner, UPS and rebind tests written as steps with a place to record the result. SYSTEM_SPEC 10, 18, 19; TODO Phase 18.
+- **`scripts/fallback_sheets.py`** (+ **`tests/test_fallback_sheets.py`**, 1 test): prints one landscape sheet per activity from the current database (sequence, seat, PRN, name, programme, school, and Done/Time/Initials boxes). Read-only; every student is on every sheet in sequence order, so **rows = master count** (the script refuses to write if they differ); an inactive student is printed and marked DO NOT SERVE rather than dropped; **no QR token and no photo is printed**; names are HTML-escaped. The Queue and Stage sheets carry the "stage follows order of queue confirmation" note.
+- **`docs/ops/REHEARSAL_SCRIPT.md`**: roles, ground rules (what counts as CRITICAL), set-up, a cast table, and twelve scenarios with checkable expected outcomes: one student's seven activities; a duplicate at each activity (plus the double-read); skipped steps; unknown / damaged QR, PRN search, inactive student; late registration and the after-registration milestone backup; queue ordering and the queue never changing the LED; wrong student, HOME, PREVIOUS, SKIP, COMPLETE; lost thobe and the Admin waiver; Stadium outage and reconnect; a correction by the Deputy Admin; server failover; the full closure sequence with an arithmetic reconciliation. Every on-screen message quoted was checked against the code.
+- **`docs/ops/MASTER_FREEZE_CHECKLIST.md`**: final import, field checks, photos, display-data freeze, tokens/passes, copying the master pack to every place with fingerprint queries that must match everywhere, the database-only settings, fallback sheets, the `before-event` milestone backup, the sign-off block and a post-freeze change log. Its nine SQL snippets were run against a freshly migrated schema.
+- **`docs/ops/HANDOVER_OUTLINE.md`**: every handover item, where it lives in the repo now, and whether it EXISTS / is PARTIAL / is TO PRODUCE / is NOT BUILT.
+
+### Found while writing these (not fixed: outside this task; each is recorded in the documents above)
+- **Phase 4 is not built**: there is no token generator or pass PDF, so the freeze step "tokens/passes generated" and the whole rehearsal are blocked. The checklists say so and do not invent commands.
+- **`LATE_CUTOFF` and `EVENT_NAME` in `.env` are never read into the database.** The engine and the LED read the `settings` table, which nothing in the application writes except the freshness window. As built, nobody is flagged LATE and the LED holding screen says "Convocation Ceremony" with no text, unless it is set with SQL (freeze checklist step 7).
+- The software **never shows "Use backup — call Admin"**, which the three failover sheets tell volunteers to expect (it only says "One moment, please try again.").
+- **`scripts/` is not copied into the Docker image**, so the generator (and `failover.sh`) run from the repo on the host, not in the container.
+- **No one-page instruction sheets (SOPs) exist** for the seven stations or the Admin.
+- `.env.example` omits variables the compose files use (`POSTGRES_*`, `REPLICATION_*`, `PRIMARY_HOST`, `BACKUP_HOST_DIR`); the compose defaults are development passwords.
+- Import, photo linking, the display-data freeze, the master pack and "reconcile now" have **no Admin-screen buttons** (server functions only). An unknown-QR attempt is stored in `scan_log` but is not listed on any Admin screen. `docs/HA.md` warns against `.local` names while TODO, the spec and the failover sheets use them.
+- The repo root has a second, stale `CHANGELOG.md` (stops at 0.3.0); this file is the maintained one.
+
+### Not verified
+- The generated sheets were not looked at in a browser or printed (only their contents are tested). The `docker compose exec db psql ...` wrapper and the built-in `/docs` API page are documented but were not run here (no Docker in this environment); the SQL itself was.
+
 ## [0.10.0] - Phase 14 + 15 + 17 bundle: sync, reconciliation, high availability  (tag `sync-and-ha-done`)
 
 ### Added: sync engine (Phase 14) - `backend/sync/`
