@@ -42,8 +42,7 @@ def _fresh_client_cache(world):
 
 @pytest.fixture(scope="module", autouse=True)
 def _admin_signed_in(apps, world, _fresh_client_cache):
-    for venue in ("college", "stadium", "hall", "central"):
-        admin(apps, venue)
+    admin(apps)
 
 
 # --------------------------------------------------------------------------- building a file
@@ -153,7 +152,7 @@ class TestTheWayIn:
 
     def test_only_an_admin_can_reach_it(self, apps, world):
         assert operator(apps, world, "REGISTRATION").get("/admin/import").status_code == 403
-        assert new_client(apps["college"]).get("/admin/import", follow_redirects=False).status_code in (303, 401)
+        assert new_client(apps).get("/admin/import", follow_redirects=False).status_code in (303, 401)
 
     def test_the_deputy_admin_can_reach_it_too(self, apps, engine, world):
         from backend import users as users_svc
@@ -161,7 +160,7 @@ class TestTheWayIn:
         username = f"deputy-{tag().lower()}"
         with engine.begin() as c:
             users_svc.create_user(c, username=username, password=PASSWORD, role="DEPUTY_ADMIN")
-        client = new_client(apps["college"])
+        client = new_client(apps)
         assert api_login(client, username).status_code == 200
         assert client.get("/admin/import").status_code == 200
 
@@ -481,8 +480,8 @@ class TestRunningTheSameImportTwice:
         run_whole_screen(client, content)
         student_id = scalar(engine, "SELECT id FROM students WHERE prn = :p", p=prn)
         with engine.begin() as c:
-            c.execute(text("INSERT INTO activity_events (student_id, activity, venue_id, station_id, operator_id) "
-                           "VALUES (:s, 'REGISTRATION', 'college', 'REG-01', gen_random_uuid())"), {"s": student_id})
+            c.execute(text("INSERT INTO activity_events (student_id, activity, operator_id) "
+                           "VALUES (:s, 'REGISTRATION', gen_random_uuid())"), {"s": student_id})
         run_whole_screen(client, content)
         assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s", s=student_id) == 1
 

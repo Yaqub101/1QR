@@ -25,7 +25,6 @@ from sqlalchemy.engine import Connection
 from backend.audit import write_audit
 from backend.engine import service
 from backend.engine.service import StationAccessError, TemporaryFailure
-from backend.security import permissions
 from backend.stage import state as stage_state
 
 logger = logging.getLogger("backend.engine")  # same logger as the engine: technical detail lives in one log
@@ -47,15 +46,11 @@ def _refuse(status: int, pair_or_code, message: Optional[str] = None):
     raise StageRefusal(status, code, msg)
 
 
-def _run(engine, *, settings, guard, principal, station_id: str, fn: Callable, needs_control: bool = True) -> dict:
+def _run(engine, *, settings, principal, fn: Callable, needs_control: bool = True) -> dict:
     """One controller action: authorise, take the stage lock, check control, act, return the new private state."""
-    if not permissions.can_use_activity(principal.role, "STAGE"):
-        raise StationAccessError(403, "FORBIDDEN", "That screen is not part of your role.")
     try:
         with engine.begin() as conn:
-            ctx = service.authorize_station(conn, settings, guard, principal, station_id)
-            if ctx.activity != "STAGE":
-                raise StationAccessError(403, "FORBIDDEN", "That is not a Stage station.")
+            ctx = service.authorize_station(settings, principal, "STAGE")
             stage_state.begin_controller_txn(conn)
             st = stage_state.read_state(conn, lock=True)  # serialises every press, including a rapid double press
             if needs_control and (st["controller_session_id"] is None or str(st["controller_session_id"]) != principal.session_id):
@@ -67,13 +62,12 @@ def _run(engine, *, settings, guard, principal, station_id: str, fn: Callable, n
     except (StationAccessError, StageRefusal):
         raise
     except Exception as exc:
-        logger.exception("stage action failed unexpectedly: station_id=%s", station_id)
+        logger.exception("stage action failed unexpectedly: operator=%s", principal.username)
         raise TemporaryFailure() from exc
 
 
 def _audit(conn: Connection, ctx, action: str, student_id=None, **details) -> None:
-    write_audit(conn, action, operator_id=ctx.principal.user_id, station_id=ctx.station["station_id"],
-                venue_id=ctx.venue, student_id=student_id, activity="STAGE", details=details)
+    write_audit(conn, action, operator_id=ctx.principal.user_id, student_id=student_id, activity="STAGE", details=details)
 
 
 # --------------------------------------------------------------------------- control
@@ -94,7 +88,7 @@ def takeover(engine, **kw) -> dict:
         mine = st["controller_session_id"] is not None and str(st["controller_session_id"]) == ctx.principal.session_id
         if mine:
             return {"changed": False, "message": "This laptop is already running the stage."}
-        _audit(conn, ctx, "STAGE_TAKEOVER", replaced_station=st["controller_station_id"],
+        _audit(conn, ctx, "STAGE_TAKEOVER",
                replaced_session=str(st["controller_session_id"]) if st["controller_session_id"] else None)
         _set_controller(conn, ctx, st)
         return {"message": "This laptop has taken over the stage."}
@@ -103,7 +97,7 @@ def takeover(engine, **kw) -> dict:
 
 def _set_controller(conn: Connection, ctx, st: dict) -> None:
     stage_state.update_state(
-        conn, controller_session_id=ctx.principal.session_id, controller_station_id=ctx.station["station_id"],
+        conn, controller_session_id=ctx.principal.session_id,
         controller_since=conn.execute(text("SELECT now()")).scalar(), controller_epoch=st["controller_epoch"] + 1)
 
 
@@ -216,24 +210,24 @@ def _leave_stage(conn: Connection, student_id, queue_status: str) -> None:
     stage_state.update_state(conn, current_student_id=None, display_student_id=None, previous_student_id=student_id)
 
 
-def complete(engine, *, station_id: str, settings, guard, principal) -> dict:
+def complete(engine, *, settings, principal) -> dict:
     def act(conn, ctx, st):
         student_id = st["current_student_id"]
         if student_id is None:
             _refuse(409, "NOTHING_ON_STAGE", "Nobody is on stage.")
-        # The engine records the Stage event (event + outbox + audit + scan_log) in THIS transaction. The
+        # The engine records the Stage event (event + audit + scan_log) in THIS transaction. The
         # student came from the queue, not from a typed PRN, so it is not flagged MANUAL.
         result = service.confirm_in_transaction(
-            conn, settings=settings, guard=guard, principal=principal, station_id=station_id,
+            conn, settings=settings, principal=principal, activity="STAGE",
             student_id=str(student_id), manual=False)
         if result.result not in ("CONFIRMED", "DUPLICATE"):  # DUPLICATE: already recorded; just finish the hand-over
             _refuse(409, "CANNOT_COMPLETE", result.message)
         _leave_stage(conn, student_id, "DONE")
         return {"message": "Degree recorded."}
-    return _run(engine, settings=settings, guard=guard, principal=principal, station_id=station_id, fn=act)
+    return _run(engine, settings=settings, principal=principal, fn=act)
 
 
-def skip(engine, *, reason: Optional[str], station_id: str, settings, guard, principal) -> dict:
+def skip(engine, *, reason: Optional[str], settings, principal) -> dict:
     def act(conn, ctx, st):
         clean = (reason or "").strip()
         if not clean:
@@ -245,4 +239,4 @@ def skip(engine, *, reason: Optional[str], station_id: str, settings, guard, pri
         service.record_skip(conn, ctx, student, clean)
         _leave_stage(conn, student_id, "SKIPPED")
         return {"message": "Skipped."}
-    return _run(engine, settings=settings, guard=guard, principal=principal, station_id=station_id, fn=act)
+    return _run(engine, settings=settings, principal=principal, fn=act)

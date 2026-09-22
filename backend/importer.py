@@ -393,7 +393,6 @@ def commit_import(
     preview: ImportPreview,
     conn: Connection,
     operator_id: str | None = None,
-    venue_id: str | None = None,
     filename: str | None = None,
 ) -> ImportSummary:
     """Transactionally commit a validated import preview.
@@ -448,8 +447,8 @@ def commit_import(
         conn.execute(
             text(
                 """
-                INSERT INTO audit_log (action, details, operator_id, venue_id)
-                VALUES ('IMPORT_STUDENTS', CAST(:details AS jsonb), :operator_id, :venue_id)
+                INSERT INTO audit_log (action, details, operator_id)
+                VALUES ('IMPORT_STUDENTS', CAST(:details AS jsonb), :operator_id)
                 """
             ),
             {
@@ -462,7 +461,6 @@ def commit_import(
                     "filename": filename,
                 }),
                 "operator_id": operator_id,
-                "venue_id": venue_id,
             },
         )
         conn.commit()

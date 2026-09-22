@@ -151,6 +151,21 @@ it is what the next import matches on.
 
 ---
 
+### 3c-ii. Importing student photos from ZIP (`backend.photos`)
+
+When university student photos arrive as a ZIP archive (e.g. `Student Profile Image.zip`) with structured filenames:
+
+```bash
+python -m backend.photos "Student Profile Image.zip" "Untitled spreadsheet.xlsx"
+```
+
+1. **Filename convention**: parses `<seq>_PROFILE_IMAGE_PRN_No_<PRN>_Name_<Name>.<ext>`.
+2. **Master-assisted matching**: automatically cross-references the student spreadsheet, mapping `Enrollment No/Roll No` (used by university filename exports) to canonical database `PRN No.`.
+3. **Filesystem sanitization**: strips illegal control characters (e.g. stray tabs) before saving to `photos/`.
+4. **Safety**: never alters QR tokens, activity events, or frozen display snapshots.
+
+---
+
 ### 3d. QR tokens and passes
 
 The QR on a pass holds **one random 128-bit token and nothing else** (no PRN, no name). Everything below is in the Admin console under **Passes and QR** (`/admin/passes`); the same actions are on the JSON API (`/admin/api/...`).

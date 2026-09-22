@@ -46,8 +46,7 @@ def _fresh_client_cache(world):
 
 @pytest.fixture(scope="module", autouse=True)
 def _admin_signed_in(apps, world, _fresh_client_cache):
-    for venue in ("college", "stadium", "hall", "central"):
-        admin(apps, venue)
+    admin(apps)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -74,19 +73,19 @@ def patch_rows(engine, student):
                         "WHERE student_id = :s AND action = 'MASTER_PATCH' ORDER BY id", s=student.id)
 
 
-def patch(engine, student, changes, reason=REASON, operator_id=None, venue_id="stadium"):
+def patch(engine, student, changes, reason=REASON, operator_id=None):
     return master_patch.apply_master_patch(
         engine, student_id=str(student.id), changes=changes, reason=reason,
-        operator_id=operator_id, venue_id=venue_id)
+        operator_id=operator_id)
 
 
-def form_patch(apps, venue, student, data, client=None):
-    return (client or admin(apps, venue)).post(
+def form_patch(apps, student, data, client=None):
+    return (client or admin(apps)).post(
         f"/admin/students/{student.id}/master-patch", data=data, follow_redirects=False)
 
 
-def api_patch(apps, venue, student, body, client=None):
-    return (client or admin(apps, venue)).post(f"/admin/api/students/{student.id}/master-patch", json=body)
+def api_patch(apps, student, body, client=None):
+    return (client or admin(apps)).post(f"/admin/api/students/{student.id}/master-patch", json=body)
 
 
 # ===================================================================== THE LOCK
@@ -285,34 +284,34 @@ class TestTheScreen:
 
     def test_the_form_applies_the_change_and_says_so(self, apps, engine):
         s = frozen_student(engine)
-        response = form_patch(apps, "stadium", s, {"seat_no": "K-5", "reason": REASON})
+        response = form_patch(apps, s, {"seat_no": "K-5", "reason": REASON})
         assert response.status_code == 303
         assert master_of(engine, s)["seat_no"] == "K-5"
         assert "msg=" in response.headers["location"]
 
     def test_the_form_refuses_without_a_reason_and_says_why(self, apps, engine):
         s = frozen_student(engine)
-        response = form_patch(apps, "stadium", s, {"seat_no": "L-6", "reason": "  "})
+        response = form_patch(apps, s, {"seat_no": "L-6", "reason": "  "})
         assert response.status_code == 303 and "error=" in response.headers["location"]
         assert master_of(engine, s)["seat_no"] is None
 
     def test_a_blank_box_on_the_form_means_leave_it_alone_not_erase_it(self, apps, engine):
         s = frozen_student(engine)
-        form_patch(apps, "stadium", s, {"seat_no": "M-7", "sequence_no": "", "reason": REASON})
-        form_patch(apps, "stadium", s, {"name": "Renamed Student", "seat_no": "", "reason": REASON})
+        form_patch(apps, s, {"seat_no": "M-7", "sequence_no": "", "reason": REASON})
+        form_patch(apps, s, {"name": "Renamed Student", "seat_no": "", "reason": REASON})
         after = master_of(engine, s)
         assert after["name"] == "Renamed Student" and after["seat_no"] == "M-7"
 
     def test_the_json_api_does_the_same_thing(self, apps, engine, world):
         s = frozen_student(engine)
-        response = api_patch(apps, "stadium", s, {"changes": {"seat_no": "N-8"}, "reason": REASON})
+        response = api_patch(apps, s, {"changes": {"seat_no": "N-8"}, "reason": REASON})
         assert response.status_code == 200, response.text
         assert response.json()["changed"] == {"seat_no": {"from": None, "to": "N-8"}}
         assert master_of(engine, s)["seat_no"] == "N-8"
 
     def test_the_json_api_refuses_without_a_reason(self, apps, engine):
         s = frozen_student(engine)
-        response = api_patch(apps, "stadium", s, {"changes": {"seat_no": "O-9"}, "reason": ""})
+        response = api_patch(apps, s, {"changes": {"seat_no": "O-9"}, "reason": ""})
         assert response.status_code == 400
         assert master_of(engine, s)["seat_no"] is None
 
@@ -326,7 +325,7 @@ class TestTheScreen:
     def test_a_signed_out_visitor_cannot_patch_anything(self, apps, engine):
         from tests.test_auth import new_client
         s = frozen_student(engine)
-        anonymous = new_client(apps["stadium"])
+        anonymous = new_client(apps)
         assert anonymous.post(f"/admin/api/students/{s.id}/master-patch",
                               json={"changes": {"seat_no": "P-2"}, "reason": REASON}).status_code == 401
 

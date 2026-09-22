@@ -13,36 +13,30 @@ def write_audit(
     action: str,
     *,
     operator_id: Any = None,
-    station_id: Optional[str] = None,
-    venue_id: Optional[str] = None,
     reason: Optional[str] = None,
     details: Optional[dict] = None,
     student_id: Any = None,
     activity: Optional[str] = None,
     event_id: Any = None,
-    venue_seq: Optional[int] = None,
     flags: Sequence[str] = (),
     corrects_event_id: Any = None,
     corrected_by: Any = None,
 ) -> None:
     conn.execute(
         text(
-            "INSERT INTO audit_log (action, operator_id, station_id, venue_id, reason, details, "
-            "student_id, activity, event_id, venue_seq, flags, corrects_event_id, corrected_by) "
-            "VALUES (:action, :operator_id, :station_id, :venue_id, :reason, CAST(:details AS jsonb), "
-            ":student_id, :activity, :event_id, :venue_seq, CAST(:flags AS text[]), :corrects, :corrected_by)"
+            "INSERT INTO audit_log (action, operator_id, reason, details, "
+            "student_id, activity, event_id, flags, corrects_event_id, corrected_by) "
+            "VALUES (:action, :operator_id, :reason, CAST(:details AS jsonb), "
+            ":student_id, :activity, :event_id, CAST(:flags AS text[]), :corrects, :corrected_by)"
         ),
         {
             "action": action,
             "operator_id": operator_id,
-            "station_id": station_id,
-            "venue_id": venue_id,
             "reason": reason,
             "details": json.dumps(details or {}, default=str),
             "student_id": student_id,
             "activity": activity,
             "event_id": event_id,
-            "venue_seq": venue_seq,
             "flags": list(flags),
             "corrects": corrects_event_id,
             "corrected_by": corrected_by,

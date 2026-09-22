@@ -1,10 +1,8 @@
 import io
 import json
-import logging
 import pathlib
 import tempfile
 import time
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -27,18 +25,13 @@ from backend.master_pack import export_master_pack, import_master_pack
 from backend.engine.routes import router as engine_router
 from backend.stage.routes import router as stage_router
 from backend.security.deps import require_admin
-from backend.security.ownership import guard_from_settings
 from backend.security.sessions import Principal
 from backend.admin.routes import router as admin_console_router
-from backend.sync.client import SyncConfigError
-from backend.sync.routes import router as sync_router
-from backend.sync.worker import SyncWorker, WorkerThread
 from backend.web_admin import router as admin_router
 from backend.web_import import router as import_router
 from backend.web_auth import router as auth_router
 
 STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
-logger = logging.getLogger("backend.sync")
 
 
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
@@ -49,32 +42,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     engine = database.get_engine(settings.database_url)
 
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        # A venue with a central URL and API key runs the sync worker for as long as the app runs. It never
-        # touches the scan path: operators cannot tell whether it is running.
-        worker = None
-        if settings.mode == "venue" and settings.sync_enabled and settings.central_url and settings.venue_api_key:
-            try:
-                worker = WorkerThread(SyncWorker(engine, settings)).start()
-            except SyncConfigError as exc:
-                logger.error("sync is not running: %s", exc)
-        app.state.sync_thread = worker
-        try:
-            yield
-        finally:
-            if worker is not None:
-                worker.stop()
-
-    app = FastAPI(
-        title=f"Convocation System ({settings.mode.capitalize()} Mode)",
-        version="0.1.0",
-        lifespan=lifespan,
-    )
+    app = FastAPI(title="Convocation System", version="0.1.0")
 
     app.state.settings = settings
     app.state.engine = engine
-    app.state.venue_guard = guard_from_settings(settings)  # golden rule 4: one guard for every write path
 
     @app.middleware("http")
     async def _process_time(request: Request, call_next):
@@ -104,8 +75,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         # reports "not_ready" (run `alembic upgrade head`) rather than a healthy-looking "up".
         status, missing = database.db_status(engine=engine)
         body: Dict[str, Any] = {
-            "mode": settings.mode,
-            "venue": settings.venue_id,
             "db": status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -121,10 +90,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(import_router)         # the Admin import screen (Phase 3)
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
     app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
-    if settings.mode == "central":
-        # /sync/push and /sync/pull exist ONLY on central. A venue server has no route through which a foreign
-        # event could be pushed at it: the only way in is its own pull worker (read-only history).
-        app.include_router(sync_router)
 
     # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
     # These two are the machine-facing face of the importer; the Admin screen in
@@ -238,7 +203,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                     conn,
                     photos_dir=pathlib.Path(photos_dir) if photos_dir else None,
                 )
-                write_audit(conn, "EXPORT_MASTER_PACK", operator_id=principal.user_id, venue_id=settings.venue_id,
+                write_audit(conn, "EXPORT_MASTER_PACK", operator_id=principal.user_id,
                             details={"with_photos": bool(photos_dir)})
         except Exception:
             tmp_path.unlink(missing_ok=True)

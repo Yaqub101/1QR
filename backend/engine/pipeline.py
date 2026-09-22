@@ -4,7 +4,9 @@
         ->  already completed at this activity?  ->  READY (show the card)
 
 Nothing here is per-activity: what differs between activities is the ActivityConfig in
-activities.py. Nothing here writes; it only decides.
+activities.py. Nothing here writes; it only decides. Every prerequisite is a hard block:
+with one shared server there is no other server's stale copy of the data to be lenient
+about (docs/ARCHITECTURE_PIVOT.md).
 """
 from __future__ import annotations
 
@@ -17,10 +19,9 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from backend.engine import cross_venue, messages
+from backend.engine import messages
 from backend.engine.context import EngineContext
 from backend.engine.queries import active_completion, clock_text
-from backend.security import ownership
 
 logger = logging.getLogger("backend.engine")
 
@@ -36,8 +37,6 @@ class Outcome:
     log_result: Optional[str] = None  # scan_log result for a terminal outcome; None while READY
     student: Optional[dict] = None
     earlier: Optional[dict] = None
-    provisional: bool = False
-    provisional_missing: tuple = ()  # the cross-venue prerequisites that were missing when this was accepted provisionally
     rule: Optional[str] = None     # technical: which rule fired (log only, never on screen)
     detail: Optional[str] = None   # technical: extra detail (log only)
 
@@ -109,14 +108,13 @@ def duplicate_text(ctx: EngineContext, earlier: dict) -> str:
     details = earlier.get("details") or {}
     values = _Defaults(
         time=clock_text(earlier["server_time"], ctx.settings.event_utc_offset_minutes),
-        station=earlier.get("station_id") or "the Admin console",
         queue_position=details.get("queue_position") if details.get("queue_position") is not None else "n/a",
     )
     return ctx.config.duplicate_message.format_map(values)
 
 
 def evaluate(conn: Connection, ctx: EngineContext, student: dict) -> Outcome:
-    """Decide what may happen for this student at this station right now."""
+    """Decide what may happen for this student right now."""
     cfg = ctx.config
     sid = student["id"]
 
@@ -124,33 +122,18 @@ def evaluate(conn: Connection, ctx: EngineContext, student: dict) -> Outcome:
         return Outcome("REJECTED", messages.STUDENT_INACTIVE, "REJECTED", student=student, rule="student_inactive",
                        detail=f"student status is {student['status']}")
 
-    provisional = False
-    provisional_missing: list = []
     for prerequisite in cfg.prerequisites:
         present = active_completion(conn, sid, prerequisite.activity) is not None
-        if ownership.ACTIVITY_OWNER[prerequisite.activity] == ctx.venue:
-            # SAME venue: the data is local and current, so this is a hard block (golden rule 8).
-            if not present:
-                return Outcome("REJECTED", prerequisite.missing_message, "REJECTED", student=student,
-                               rule=f"prerequisite:{prerequisite.activity}", detail="same-venue prerequisite missing")
-            continue
-        # DIFFERENT venue: the data may be stale, so this goes through the one cross-venue hook (SYSTEM_SPEC 11.5).
-        decision = cross_venue.check_cross_venue_prerequisite(
-            conn, student_id=sid, prerequisite=prerequisite, this_venue=ctx.venue, present_locally=present)
-        if not decision.allow:
-            return Outcome("REJECTED", decision.message or prerequisite.missing_message, "REJECTED", student=student,
-                           rule=f"cross_venue_prerequisite:{prerequisite.activity}", detail="blocked by the cross-venue rule")
-        if decision.provisional:
-            provisional = True
-            provisional_missing.append(prerequisite.activity)
+        if not present:
+            return Outcome("REJECTED", prerequisite.missing_message, "REJECTED", student=student,
+                           rule=f"prerequisite:{prerequisite.activity}", detail="prerequisite missing")
 
     earlier = active_completion(conn, sid, ctx.activity)
     if earlier is not None:
         return Outcome(
             "DUPLICATE", duplicate_text(ctx, earlier), "DUPLICATE", student=student, rule="already_completed",
             earlier={"time": clock_text(earlier["server_time"], ctx.settings.event_utc_offset_minutes),
-                     "station_id": earlier["station_id"], "event_id": str(earlier["event_id"]), "kind": earlier["kind"]},
+                     "event_id": str(earlier["event_id"]), "kind": earlier["kind"]},
             detail=f"earlier event {earlier['event_id']}",
         )
-    return Outcome("READY", messages.READY, None, student=student, provisional=provisional,
-                   provisional_missing=tuple(provisional_missing))
+    return Outcome("READY", messages.READY, None, student=student)

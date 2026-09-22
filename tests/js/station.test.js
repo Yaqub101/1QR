@@ -29,7 +29,7 @@ function harness(overrides = {}) {
   const els = {
     scan: fakeEl(), banner: fakeEl(), message: fakeEl(), card: fakeEl({ hidden: true }), cardName: fakeEl(),
     cardPhoto: fakeEl(), cardFields: fakeEl(), confirmBtn: fakeEl({ hidden: true }), searchInput: fakeEl(),
-    searchBtn: fakeEl(), stationSelect: null,
+    searchBtn: fakeEl(),
   };
   const doc = { createElement: () => fakeEl() };
   const calls = [];
@@ -48,7 +48,7 @@ function harness(overrides = {}) {
   const screen = createStationScreen({
     els, doc, post, sound: (name) => sounds.push(name), now: () => clock, resetMs: 2500, debounceMs: 1500,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => {},
-    stationId: "REG-01", ...overrides,
+    activity: "REGISTRATION", ...overrides,
   });
   screen.init();
   return {
@@ -112,7 +112,7 @@ test("a scan with the scanner's trailing Enter sends ONE clean request and clear
   const before = h.els.scan.focusCount;
   scanValue(h, "token-abc\r\n");
   await flush();
-  assert.deepEqual(h.calls, [{ url: "/scan", body: { token: "token-abc", station_id: "REG-01" } }]);
+  assert.deepEqual(h.calls, [{ url: "/scan", body: { token: "token-abc", activity: "REGISTRATION" } }]);
   assert.equal(h.els.scan.value, "");
   assert.ok(h.els.scan.focusCount > before);
 });
@@ -183,7 +183,7 @@ test("confirm sends the SAME identity that was scanned (the token), once, even o
   await flush();
   const confirms = h.calls.filter((c) => c.url === "/confirm");
   assert.equal(confirms.length, 1);
-  assert.deepEqual(confirms[0].body, { token: "tok-1", station_id: "REG-01" });
+  assert.deepEqual(confirms[0].body, { token: "tok-1", activity: "REGISTRATION" });
 });
 
 test("CONFIRMED is green with the success sound, then the screen resets for the next student and refocuses", async () => {
@@ -255,11 +255,11 @@ test("manual PRN search shows the photo card, and confirming it sends the studen
   h.els.searchInput.value = " e1 \n";
   h.els.searchBtn.dispatch("click");
   await flush();
-  assert.deepEqual(h.calls[0], { url: "/search", body: { prn: "e1", station_id: "REG-01" } });
+  assert.deepEqual(h.calls[0], { url: "/search", body: { prn: "e1", activity: "REGISTRATION" } });
   assert.equal(h.els.cardPhoto.attributes.src, "/photo/s-1"); // the operator verifies the face
   h.els.confirmBtn.dispatch("click");
   await flush();
-  assert.deepEqual(h.calls[1], { url: "/confirm", body: { student_id: "s-1", station_id: "REG-01" } });
+  assert.deepEqual(h.calls[1], { url: "/confirm", body: { student_id: "s-1", activity: "REGISTRATION" } });
   assert.equal(h.els.searchInput.value, "");
 });
 
@@ -272,13 +272,4 @@ test("focus returns to the scan box after every action", async () => {
   await step(() => h.els.confirmBtn.dispatch("click"));
   h.advance(3000);
   await step(() => scanValue(h, "b\n"));
-});
-
-test("an Admin's station choice is sent with every request", async () => {
-  const h = harness();
-  h.els.stationSelect = fakeEl({ value: "REG-02" });
-  h.replies.push(READY);
-  scanValue(h, "t\n");
-  await flush();
-  assert.equal(h.calls[0].body.station_id, "REG-02");
 });

@@ -47,8 +47,8 @@ MILESTONES = ("before-event", "after-registration-closes", "after-ceremony")
 # The tables whose row counts go in the manifest, and which together answer "is there anything here worth
 # protecting?". `users` is among them because a server that has been set up but has not had its students
 # imported yet still holds the accounts, whose passwords nobody can read back out to retype.
-COUNTED_TABLES = ("activity_events", "audit_log", "students", "users", "outbox", "exceptions", "sync_log",
-                  "conflict_events")
+COUNTED_TABLES = ("activity_events", "audit_log", "students", "users", "exceptions", "scan_log",
+                  "queue", "qr_tokens")
 # A dump of a database whose migrations never ran is a real, valid, EMPTY archive of about a kilobyte, which
 # `pg_restore --list` reads back perfectly happily. Neither existing check can tell it from a good backup, so
 # the size is checked too. Any genuine dump of this schema is far larger than this, data or no data.

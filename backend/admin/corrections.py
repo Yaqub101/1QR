@@ -11,10 +11,8 @@ The original activity_events row is never updated, never deleted, never "flagged
      status to change (migration 0004's view and backend/engine/queries.py use the same definition).
   3. Even a bug here could not change history: PostgreSQL triggers (migration 0003) refuse UPDATE, DELETE and
      TRUNCATE of that table for every role, including the table owner the app connects as.
-  4. The reversal, its outbox row, its audit row and any exception row commit in ONE transaction, or none do.
+  4. The reversal and its audit row commit in ONE transaction, or neither does.
 
-Only the owning venue applies a correction (golden rule 4). Corrections for another venue's activity are not
-written here; the caller is told plainly where to make them (queueing them through sync is Phase 14/15).
 Admin only, enforced here as well as on the route, so no future caller can reach these without the role.
 """
 from __future__ import annotations
@@ -29,14 +27,12 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from backend.audit import write_audit
-from backend.engine import service
 from backend.engine.queries import active_completion, next_completion_cycle
-from backend.security import ownership, permissions
+from backend.security import permissions
 
 logger = logging.getLogger("backend.admin")
 
 MAX_REASON_LENGTH = 500
-NOT_HERE = "{label} is recorded at the {venue} server, so this correction has to be made there."
 
 
 class CorrectionError(Exception):
@@ -62,37 +58,25 @@ def _require_admin(principal) -> None:
         raise CorrectionError(403, "FORBIDDEN", "Only the Admin can make corrections.")
 
 
-def _apply_here(guard, activity: str) -> None:
-    route = guard.route_correction(activity)
-    if not route.apply_here:
-        raise CorrectionError(
-            409, "APPLY_AT_OWNER",
-            NOT_HERE.format(label=ownership.ACTIVITY_LABEL[activity], venue=ownership.VENUE_LABEL[route.owner_venue]))
-
-
 # ------------------------------------------------------------------ the write steps (replaceable in tests)
-def insert_correction_event(conn: Connection, *, student_id, activity: str, kind: str, venue_id: str, operator_id,
+def insert_correction_event(conn: Connection, *, student_id, activity: str, kind: str, operator_id,
                             cycle: int, details: dict, corrects_event_id=None) -> dict:
-    """THE ONLY WRITE to activity_events in this module: one INSERT of a new row. No station (an Admin acted),
-    always flagged CORRECTED, and for a REVERSAL the original's id goes in corrects_event_id."""
+    """THE ONLY WRITE to activity_events in this module: one INSERT of a new row. Always flagged CORRECTED,
+    and for a REVERSAL the original's id goes in corrects_event_id."""
     row = conn.execute(
-        text("INSERT INTO activity_events (student_id, activity, kind, venue_id, station_id, operator_id, flags, details, "
-             "completion_cycle, corrects_event_id) VALUES (:s, :a, :k, :v, NULL, :o, ARRAY['CORRECTED']::text[], "
-             "CAST(:d AS jsonb), :c, :x) RETURNING event_id, venue_seq, server_time"),
-        {"s": student_id, "a": activity, "k": kind, "v": venue_id, "o": operator_id, "d": json.dumps(details, default=str),
+        text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details, "
+             "completion_cycle, corrects_event_id) VALUES (:s, :a, :k, :o, ARRAY['CORRECTED']::text[], "
+             "CAST(:d AS jsonb), :c, :x) RETURNING event_id, server_time"),
+        {"s": student_id, "a": activity, "k": kind, "o": operator_id, "d": json.dumps(details, default=str),
          "c": cycle, "x": corrects_event_id},
     ).mappings().one()
     return dict(row)
 
 
-def insert_outbox(conn: Connection, event_id) -> None:
-    service.insert_outbox(conn, event_id)
-
-
-def insert_audit(conn: Connection, *, action: str, principal, student_id, activity: str, venue_id: str, event: dict,
+def insert_audit(conn: Connection, *, action: str, principal, student_id, activity: str, event: dict,
                  reason: str, details: dict, corrects_event_id) -> None:
-    write_audit(conn, action, operator_id=principal.user_id, venue_id=venue_id, reason=reason, details=details,
-                student_id=student_id, activity=activity, event_id=event["event_id"], venue_seq=event["venue_seq"],
+    write_audit(conn, action, operator_id=principal.user_id, reason=reason, details=details,
+                student_id=student_id, activity=activity, event_id=event["event_id"],
                 flags=["CORRECTED"], corrects_event_id=corrects_event_id, corrected_by=principal.user_id)
 
 
@@ -120,13 +104,13 @@ def _queue_effects(conn: Connection, student_id, activity: str) -> Optional[str]
 
 
 # ------------------------------------------------------------------ reverse
-def reverse_event(engine, *, guard, principal, event_id, reason) -> dict:
+def reverse_event(engine, *, principal, event_id, reason) -> dict:
     """Reverse a completed activity (or a waiver). Writes ONE new REVERSAL event that references `event_id`."""
     _require_admin(principal)
     reason = clean_reason(reason)
     try:
         with engine.begin() as conn:
-            result = _reverse(conn, guard=guard, principal=principal, event_id=event_id, reason=reason)
+            result = _reverse(conn, principal=principal, event_id=event_id, reason=reason)
         return result  # only after COMMIT (golden rule 6)
     except CorrectionError:
         raise
@@ -141,7 +125,7 @@ def reverse_event(engine, *, guard, principal, event_id, reason) -> dict:
         raise CorrectionError(503, "TEMPORARY", "One moment, please try again.") from exc
 
 
-def _reverse(conn: Connection, *, guard, principal, event_id, reason: str) -> dict:
+def _reverse(conn: Connection, *, principal, event_id, reason: str) -> dict:
     original = None
     if _is_uuid(event_id):  # a malformed id must never reach SQL: a bad cast would abort the transaction
         original = conn.execute(text("SELECT * FROM activity_events WHERE event_id = CAST(:e AS uuid)"),
@@ -151,7 +135,6 @@ def _reverse(conn: Connection, *, guard, principal, event_id, reason: str) -> di
     if original["kind"] not in ("COMPLETE", "WAIVER"):
         raise CorrectionError(409, "NOT_REVERSIBLE", "Only a completed activity or a waiver can be reversed.")
     activity = original["activity"]
-    _apply_here(guard, activity)
 
     already = conn.execute(
         text("SELECT 1 FROM activity_events WHERE kind = 'REVERSAL' AND student_id = :s AND activity = :a AND completion_cycle = :c"),
@@ -168,32 +151,31 @@ def _reverse(conn: Connection, *, guard, principal, event_id, reason: str) -> di
         {"s": original["student_id"], "a": activity}).mappings()]
     details = {
         "reason": reason, "corrects_kind": original["kind"], "original_server_time": original["server_time"].isoformat(),
-        "original_venue_seq": original["venue_seq"], "later_activities_still_recorded": sorted(later),
+        "later_activities_still_recorded": sorted(later),
     }
     side_effect = _queue_effects(conn, original["student_id"], activity)
     if side_effect:
         details["queue"] = side_effect
 
     event = insert_correction_event(
-        conn, student_id=original["student_id"], activity=activity, kind="REVERSAL", venue_id=original["venue_id"],
+        conn, student_id=original["student_id"], activity=activity, kind="REVERSAL",
         operator_id=principal.user_id, cycle=original["completion_cycle"], details=details,
         corrects_event_id=original["event_id"])
-    insert_outbox(conn, event["event_id"])
     insert_audit(conn, action="ADMIN_REVERSAL", principal=principal, student_id=original["student_id"], activity=activity,
-                 venue_id=original["venue_id"], event=event, reason=reason, details=details, corrects_event_id=original["event_id"])
+                 event=event, reason=reason, details=details, corrects_event_id=original["event_id"])
     return {"ok": True, "message": "Reversed. The original record is kept.", "correction_event_id": str(event["event_id"]),
             "corrects_event_id": str(original["event_id"]), "activity": activity, "kind": "REVERSAL",
             "later_activities_still_recorded": sorted(later)}
 
 
 # ------------------------------------------------------------------ waive a lost / unreturned thobe
-def waive_return(engine, *, guard, principal, student_id, reason) -> dict:
+def waive_return(engine, *, principal, student_id, reason) -> dict:
     """Admin "Return Waived / Lost": counts as the Thobe Return for Lunch, flagged CORRECTED, reason mandatory."""
     _require_admin(principal)
     reason = clean_reason(reason)
     try:
         with engine.begin() as conn:
-            result = _waive(conn, guard=guard, principal=principal, student_id=student_id, reason=reason)
+            result = _waive(conn, principal=principal, student_id=student_id, reason=reason)
         return result
     except CorrectionError:
         raise
@@ -208,9 +190,8 @@ def waive_return(engine, *, guard, principal, student_id, reason) -> dict:
         raise CorrectionError(503, "TEMPORARY", "One moment, please try again.") from exc
 
 
-def _waive(conn: Connection, *, guard, principal, student_id, reason: str) -> dict:
+def _waive(conn: Connection, *, principal, student_id, reason: str) -> dict:
     activity = "THOBE_RETURN"
-    _apply_here(guard, activity)
     student = None
     if _is_uuid(student_id):
         student = conn.execute(text("SELECT id, prn, name FROM students WHERE id = CAST(:s AS uuid)"),
@@ -223,15 +204,14 @@ def _waive(conn: Connection, *, guard, principal, student_id, reason: str) -> di
     details = {"reason": reason, "thobe_allocation_event_id": str(allocation["event_id"]) if allocation else None,
                "thobe_allocation_on_record": allocation is not None}
     cycle = next_completion_cycle(conn, student["id"], activity)
-    event = insert_correction_event(conn, student_id=student["id"], activity=activity, kind="WAIVER", venue_id="hall",
+    event = insert_correction_event(conn, student_id=student["id"], activity=activity, kind="WAIVER",
                                     operator_id=principal.user_id, cycle=cycle, details=details)
-    insert_outbox(conn, event["event_id"])
     # A WAIVER row cannot carry corrects_event_id (that column is reserved for reversals by a CHECK), so the
     # audit row links it to the thobe allocation it writes off.
-    insert_audit(conn, action="RETURN_WAIVED", principal=principal, student_id=student["id"], activity=activity, venue_id="hall",
+    insert_audit(conn, action="RETURN_WAIVED", principal=principal, student_id=student["id"], activity=activity,
                  event=event, reason=reason, details=details, corrects_event_id=allocation["event_id"] if allocation else None)
     conn.execute(
-        text("INSERT INTO exceptions (type, student_id, venue_id, event_id, details) VALUES ('RETURN_WAIVED', :s, 'hall', :e, "
+        text("INSERT INTO exceptions (type, student_id, event_id, details) VALUES ('RETURN_WAIVED', :s, :e, "
              "CAST(:d AS jsonb))"),
         {"s": student["id"], "e": event["event_id"],
          "d": json.dumps({"reason": reason, "waived_by": str(principal.user_id), "prn": student["prn"]}, default=str)},

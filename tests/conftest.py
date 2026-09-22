@@ -63,7 +63,7 @@ def run_alembic(*args: str, database_url: str = TEST_DB_URL) -> subprocess.Compl
     """Run the documented CLI (`alembic <args>`) against a TEST database."""
     _assert_is_test_database(database_url)
     env = os.environ.copy()
-    env.update({"DATABASE_URL": database_url, "MODE": "venue", "VENUE_ID": "college"})
+    env.update({"DATABASE_URL": database_url})
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=REPO_ROOT,

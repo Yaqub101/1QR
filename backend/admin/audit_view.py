@@ -13,10 +13,10 @@ MAX_PAGE = 1000
 
 COLUMNS = [
     ("id", "Audit id"), ("occurred_at", "Server time"), ("local_time", "Operator laptop time"), ("action", "Action"),
-    ("prn", "PRN"), ("student", "Student"), ("activity", "Activity"), ("venue", "Venue"), ("station_id", "Station"),
-    ("operator", "Operator"), ("event_id", "Event id"), ("venue_seq", "Venue seq"), ("flags", "Flags"),
+    ("prn", "PRN"), ("student", "Student"), ("activity", "Activity"),
+    ("operator", "Operator"), ("event_id", "Event id"), ("flags", "Flags"),
     ("corrects_event_id", "Corrects event"), ("corrected_by", "Corrected by (Admin)"), ("reason", "Reason"),
-    ("synced_at", "Synced at"), ("details", "Details"),
+    ("details", "Details"),
 ]
 
 _FROM = """
@@ -24,7 +24,6 @@ _FROM = """
     LEFT JOIN students s ON s.id = a.student_id
     LEFT JOIN users op ON op.id = a.operator_id
     LEFT JOIN users cb ON cb.id = a.corrected_by
-    LEFT JOIN outbox ob ON ob.event_id = a.event_id
 """
 
 
@@ -55,18 +54,18 @@ def _filters(*, student: Optional[str], action: Optional[str], activity: Optiona
 def _row(r, off: int) -> dict:
     return {
         "id": r["id"], "occurred_at": iso_local(r["occurred_at"], off), "local_time": iso_local(r["local_time"], off),
-        "action": r["action"], "prn": r["prn"], "student": r["student"], "activity": r["activity"], "venue": r["venue_id"],
-        "station_id": r["station_id"], "operator": r["operator"], "event_id": str(r["event_id"]) if r["event_id"] else None,
-        "venue_seq": r["venue_seq"], "flags": ", ".join(r["flags"] or []),
+        "action": r["action"], "prn": r["prn"], "student": r["student"], "activity": r["activity"],
+        "operator": r["operator"], "event_id": str(r["event_id"]) if r["event_id"] else None,
+        "flags": ", ".join(r["flags"] or []),
         "corrects_event_id": str(r["corrects_event_id"]) if r["corrects_event_id"] else None,
-        "corrected_by": r["corrected_by_name"], "reason": r["reason"], "synced_at": iso_local(r["synced_at"], off),
+        "corrected_by": r["corrected_by_name"], "reason": r["reason"],
         "details": json.dumps(r["details"], ensure_ascii=False, sort_keys=True) if r["details"] else "",
     }
 
 
-_SELECT = ("SELECT a.id, a.occurred_at, a.local_time, a.action, s.prn, s.name AS student, a.activity, a.venue_id, a.station_id, "
-           "op.username AS operator, a.event_id, a.venue_seq, a.flags, a.corrects_event_id, cb.username AS corrected_by_name, "
-           "a.reason, ob.sent_at AS synced_at, a.details")
+_SELECT = ("SELECT a.id, a.occurred_at, a.local_time, a.action, s.prn, s.name AS student, a.activity, "
+           "op.username AS operator, a.event_id, a.flags, a.corrects_event_id, cb.username AS corrected_by_name, "
+           "a.reason, a.details")
 
 
 def list_audit(conn: Connection, settings, *, student=None, action=None, activity=None, operator=None, since=None,

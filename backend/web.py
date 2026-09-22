@@ -10,19 +10,16 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from backend.security import ownership
-from backend.security.deps import DEVICE_COOKIE, SESSION_COOKIE
+from backend.security.deps import SESSION_COOKIE
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["activity_label"] = ownership.ACTIVITY_LABEL
-templates.env.globals["venue_label"] = ownership.VENUE_LABEL
 templates.env.globals["role_label"] = {
     "ADMIN": "Admin",
     "DEPUTY_ADMIN": "Deputy Admin",
     **{a: f"{label} operator" for a, label in ownership.ACTIVITY_LABEL.items()},
 }
-
-DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365  # a laptop keeps its station until an Admin rebinds it
 
 
 def slug(activity: str) -> str:
@@ -50,14 +47,9 @@ def set_session_cookie(response, token: str, settings) -> None:
     )
 
 
-def set_device_cookie(response, token: str, settings) -> None:
-    response.set_cookie(
-        DEVICE_COOKIE, token, httponly=True, samesite="strict", secure=settings.cookie_secure,
-        max_age=DEVICE_COOKIE_MAX_AGE, path="/",
-    )
-
-
-def landing_url(role_is_admin: bool, station_activity: Optional[str]) -> str:
-    if role_is_admin or not station_activity:
+def landing_url(role_is_admin: bool, role: Optional[str]) -> str:
+    """An Admin/Deputy lands on the admin console; an operator lands on their own activity's
+    screen -- their role names the activity directly, one role per account."""
+    if role_is_admin or not role:
         return "/admin"
-    return f"/station/{slug(station_activity)}"
+    return f"/station/{slug(role)}"

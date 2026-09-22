@@ -1,17 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ activity_label[activity] }}{% endblock %}
 {% block body %}
-<div id="station-root" data-station-id="{{ station_id or '' }}" data-activity="{{ activity }}">
+<div id="station-root" data-activity="{{ activity }}">
   <h1>{{ activity_label[activity] }}</h1>
-
-  {% if principal.is_admin %}
-  <label class="admin-station">Acting as station
-    <select id="station-select">
-      {% for s in stations %}<option value="{{ s.station_id }}">{{ s.station_id }}</option>{% endfor %}
-    </select>
-  </label>
-  {% if not stations %}<p class="flash bad">No station is set up for this activity yet.</p>{% endif %}
-  {% endif %}
 
   <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Scan a QR to begin.</span></div>
 

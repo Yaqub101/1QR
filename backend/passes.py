@@ -33,7 +33,10 @@ from typing import Optional, Sequence
 
 import reportlab
 import segno
-from PIL import Image, ImageOps
+from PIL import Image, ImageFile, ImageOps
+
+# Allow slightly truncated JPEG/PNG images from cameras/web uploads to render cleanly
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 from reportlab.lib.colors import CMYKColor, Color
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
@@ -197,12 +200,21 @@ def _clean(value, font: str) -> tuple:
 
 
 # ------------------------------------------------------------------ the photo
+# Root of the project (two levels above this file: /app inside the container, repo root on host).
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 def _prepare_photo(path: Optional[str]) -> tuple:
     """-> (jpeg bytes | None, warning code | None). Cropped to the photo box (a little above centre keeps faces in
     frame), shrunk to 300 dpi at print size and re-encoded, so a 12 MB camera original never reaches the PDF."""
     if not path:
         return None, "NO_PHOTO"
-    source = pathlib.Path(path)
+    # Stored paths are POSIX-relative ("photos/foo.jpg"). Windows-imported paths may have
+    # backslashes; normalise them so pathlib.Path on Linux does not treat the whole string as
+    # a single component ('\\' is not a path separator on POSIX).
+    normalised = path.replace("\\", "/")
+    source = pathlib.Path(normalised)
+    if not source.is_absolute():
+        source = _PROJECT_ROOT / source
     if not source.exists():
         return None, "NO_PHOTO"
     try:

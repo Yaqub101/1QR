@@ -3,24 +3,19 @@
 All five are CONFIGURATION on the Phase 6 engine (backend/engine/activities.py); nothing here tests a
 separate pipeline. Registration and Stage keep their Phase 6 tests.
 
-HOW THESE TESTS ARE RUN (stated plainly, per activity): every test below uses ONE shared PostgreSQL test
-database, with THREE separate venue app instances (College / Stadium / Hall Settings) talking to it. There
-are no separate per-venue databases and no sync, so cross-venue data is simply whatever is in the shared
-tables. With no sync running here every peer counts as stale, so a missing cross-venue prerequisite is accepted
-PROVISIONALLY (the real rule and its tests are in tests/test_reconcile.py).
+HOW THESE TESTS ARE RUN: every test below uses ONE shared PostgreSQL test database with a single app
+instance. In this single-server, role-based model, each operator's role determines which activity they
+can perform, and every prerequisite check is an immediate local check against the database.
 """
 import json
 
 import pytest
 from sqlalchemy import text
 
-from backend import stations as stations_svc
 from backend import users as users_svc
-from backend.engine import cross_venue
-from tests.test_auth import ACTIVITIES, OWNER, PASSWORD, api_login, new_client
+from tests.test_auth import ACTIVITIES, PASSWORD, api_login, new_client
 from tests.test_schema import STATUS_AFTER_STEP, _run_threads
 from tests.test_station_engine import (  # noqa: F401  (engine/world/apps are pytest fixtures)
-    STATION,
     _CLIENTS,
     apps,
     clock,
@@ -39,7 +34,7 @@ from tests.test_station_engine import (  # noqa: F401  (engine/world/apps are py
     world,
 )
 
-EXTRA_STATIONS = [("QUE-02", "QUEUE"), ("QUE-03", "QUEUE"), ("LUN-02", "LUNCH")]
+EXTRA_OPS = [("QUE-02", "QUEUE"), ("QUE-03", "QUEUE"), ("LUN-02", "LUNCH")]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -51,44 +46,37 @@ def _fresh_client_cache(world):
 
 @pytest.fixture(scope="module")
 def tokens(engine, world, apps):
-    """Session tokens for every station used here: the Phase 6 ones plus extra Queue and Lunch counters."""
-    devices = {}
+    """Clients and activities for each operator used here: the default ones plus extra Queue and Lunch."""
     with engine.begin() as c:
-        for sid, activity in EXTRA_STATIONS:
+        for sid, activity in EXTRA_OPS:
             users_svc.create_user(c, username=f"act-{sid.lower()}", password=PASSWORD, role=activity)
-            stations_svc.create_station(c, venue_id=OWNER[activity], station_id=sid, activity=activity)
-            devices[sid] = stations_svc.bind_station(c, sid, actor_id=world.admin_id)
     out = {}
-    for sid, activity in EXTRA_STATIONS:
-        response = api_login(new_client(apps[OWNER[activity]], devices[sid]), f"act-{sid.lower()}")
-        assert response.status_code == 200, response.text
-        out[sid] = response.json()["token"]
-    for activity in ("SEATING", "QUEUE", "LUNCH"):
-        out[STATION[activity]] = operator(apps, world, activity).cookies.get("session")
+    for sid, activity in EXTRA_OPS:
+        client = new_client(apps)
+        assert api_login(client, f"act-{sid.lower()}").status_code == 200
+        out[sid] = (client, activity)
+    for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH"):
+        out[f"{activity[:3]}-01"] = (operator(apps, world, activity), activity)
     return out
 
 
 def call(apps, tokens, path, station_id, **body):
     """One request as the operator of `station_id` (own client, own session), as concurrent stations would."""
-    activity = next(a for a, s in STATION.items() if s == station_id) if station_id in STATION.values() \
-        else dict(EXTRA_STATIONS)[station_id]
-    client = new_client(apps[OWNER[activity]])
-    client.headers["Authorization"] = f"Bearer {tokens[station_id]}"
-    return client.post(path, json={"station_id": station_id, **body}).json()
+    client, activity = tokens[station_id]
+    return client.post(path, json={"activity": activity, **body}).json()
 
 
-def seed_at(engine, student, activity, *, hours_ago=2, details=None, kind="COMPLETE", station="SEED-1", corrects=None, cycle=1):
+def seed_at(engine, student, activity, *, hours_ago=2, details=None, kind="COMPLETE", corrects=None, cycle=1, station=None):
     """An earlier record, backdated, so 'shows the EARLIER time' is distinguishable from 'shows now'."""
     if details is None:
         details = {} if kind == "COMPLETE" else {"reason": "seeded"}
     with engine.begin() as c:
         return c.execute(
-            text("INSERT INTO activity_events (student_id, activity, kind, venue_id, station_id, operator_id, flags, details, "
-                 "completion_cycle, corrects_event_id, server_time) VALUES (:s, :a, :k, :v, :st, gen_random_uuid(), "
+            text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details, "
+                 "completion_cycle, corrects_event_id, server_time) VALUES (:s, :a, :k, gen_random_uuid(), "
                  "CAST(:f AS text[]), CAST(:d AS jsonb), :c, :x, now() - make_interval(hours => :h)) "
                  "RETURNING event_id, server_time"),
-            {"s": student.id, "a": activity, "k": kind, "v": OWNER[activity],
-             "st": None if kind in ("WAIVER", "REVERSAL") else station,
+            {"s": student.id, "a": activity, "k": kind,
              "f": ["CORRECTED"] if kind == "WAIVER" else [], "d": json.dumps(details),
              "c": cycle, "x": corrects, "h": hours_ago},
         ).one()
@@ -101,25 +89,25 @@ def fingerprint(engine, sql):
 # =========================================================================== THOBE ALLOCATION
 class TestThobeAllocation:
     def test_confirms_once_and_the_duplicate_shows_the_earlier_time(self, apps, world, engine):
-        s = make_student(engine)
+        s = ready_student(engine, "THOBE_ALLOCATION")
         earlier = seed_at(engine, s, "THOBE_ALLOCATION", hours_ago=3, station="THO-09")
         client = operator(apps, world, "THOBE_ALLOCATION")
         body = scan(client, "THOBE_ALLOCATION", s.token).json()
         assert body["result"] == "DUPLICATE" and body["colour"] == "amber"
         assert body["message"] == f"THOBE ALREADY ALLOCATED — {clock(earlier.server_time)}"  # the earlier time, not now
-        assert body["earlier"]["station_id"] == "THO-09"
+        assert body["earlier"]["time"] == clock(earlier.server_time)
         assert confirm(client, "THOBE_ALLOCATION", token=s.token).json()["result"] == "DUPLICATE"
         assert len(events_of(engine, s, "THOBE_ALLOCATION")) == 1
 
-        fresh = make_student(engine)
+        fresh = ready_student(engine, "THOBE_ALLOCATION")
         assert confirm(client, "THOBE_ALLOCATION", token=fresh.token).json()["result"] == "CONFIRMED"
         assert scan(client, "THOBE_ALLOCATION", fresh.token).json()["result"] == "DUPLICATE"
         assert len(events_of(engine, fresh, "THOBE_ALLOCATION")) == 1
 
     def test_allocation_is_a_plain_confirmation_no_number_no_size(self, apps, world, engine):
-        s = make_student(engine)
+        s = ready_student(engine, "THOBE_ALLOCATION")
         client = operator(apps, world, "THOBE_ALLOCATION")
-        done = client.post("/confirm", json={"token": s.token, "station_id": "THO-01", "thobe_no": "T-77", "size": "XL"}).json()
+        done = client.post("/confirm", json={"token": s.token, "activity": "THOBE_ALLOCATION", "thobe_no": "T-77", "size": "XL"}).json()
         assert done["result"] == "CONFIRMED"
         assert events_of(engine, s, "THOBE_ALLOCATION")[0]["details"] == {}  # SYSTEM_SPEC C2: identical, unnumbered
 
@@ -144,10 +132,10 @@ class TestSeating:
         s = ready_student(engine, "SEATING", seat_no="A-12")   # a leftover master seat changes nothing
         client = operator(apps, world, "SEATING")
         smuggled = {"seat_no": "Z-99", "seat": "Z-99", "details": {"seat_no": "Z-99"}}
-        card = client.post("/scan", json={"token": s.token, "station_id": "SEA-01", **smuggled}).json()["student"]
+        card = client.post("/scan", json={"token": s.token, "activity": "SEATING", **smuggled}).json()["student"]
         assert field(card, "seat_no") is None
         assert not any("seat" in f["label"].lower() for f in card["fields"])
-        done = client.post("/confirm", json={"token": s.token, "station_id": "SEA-01", **smuggled}).json()
+        done = client.post("/confirm", json={"token": s.token, "activity": "SEATING", **smuggled}).json()
         assert done["result"] == "CONFIRMED"
         assert events_of(engine, s, "SEATING")[0]["details"] == {}   # nothing smuggled onto the event
         assert q(engine, "SELECT seat_no FROM students WHERE id = :s", s=s.id)[0]["seat_no"] == "A-12"  # master untouched
@@ -181,7 +169,7 @@ class TestSeating:
 class TestQueue:
     def _queue_rows(self, engine, students):
         ids = [s.id for s in students]
-        return q(engine, "SELECT qu.student_id, qu.queue_position, e.venue_seq, e.details FROM queue qu "
+        return q(engine, "SELECT qu.student_id, qu.queue_position, e.details, e.server_time FROM queue qu "
                          "JOIN activity_events e ON e.student_id = qu.student_id AND e.activity = 'QUEUE' AND e.kind = 'COMPLETE' "
                          "WHERE qu.student_id = ANY(:ids) ORDER BY qu.queue_position", ids=ids)
 
@@ -231,8 +219,6 @@ class TestQueue:
             assert len(rows) == 12
             positions = [r["queue_position"] for r in rows]
             assert positions == list(range(positions[0], positions[0] + 12)), positions      # unique and gap-free
-            seqs = [r["venue_seq"] for r in rows]
-            assert seqs == sorted(seqs) and len(set(seqs)) == 12, seqs                       # STRICT confirmation order
             assert [r["details"]["queue_position"] for r in rows] == positions               # what the event recorded
 
         table = [r["queue_position"] for r in q(engine, "SELECT queue_position FROM queue ORDER BY queue_position")]
@@ -266,7 +252,6 @@ class TestQueue:
         assert not any("led" in key.lower() or "snapshot" in key.lower() for r in replies for key in r)  # no LED-shaped field
 
     def test_after_an_admin_reversal_the_student_is_queued_again_at_the_back(self, apps, world, engine):
-        # Found while writing this bundle: the old queue row used to block a re-queue (503).
         first = ready_student(engine, "QUEUE")
         client = operator(apps, world, "QUEUE")
         confirm(client, "QUEUE", token=first.token)
@@ -289,38 +274,23 @@ class TestThobeReturn:
         s = ready_student(engine, "THOBE_RETURN")
         client = operator(apps, world, "THOBE_RETURN")
         assert confirm(client, "THOBE_RETURN", token=s.token).json()["result"] == "CONFIRMED"
-        older = make_student(engine)
+        older = ready_student(engine, "THOBE_RETURN")
         earlier = seed_at(engine, older, "THOBE_RETURN", hours_ago=4, station="RET-09")
         body = scan(client, "THOBE_RETURN", older.token).json()
         assert body["result"] == "DUPLICATE" and body["message"] == f"ALREADY RETURNED — {clock(earlier.server_time)}"
         assert confirm(client, "THOBE_RETURN", token=s.token).json()["result"] == "DUPLICATE"
         assert len(events_of(engine, s, "THOBE_RETURN")) == 1
 
-    def test_it_is_configured_to_require_stage_complete_and_the_thobe_allocation(self, apps, world, engine, monkeypatch):
-        seen = []
-        monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
-                            lambda conn, **k: seen.append((k["prerequisite"].activity, k["present_locally"])) or cross_venue.CrossVenueDecision(allow=True))
-        s = make_student(engine)
-        scan(operator(apps, world, "THOBE_RETURN"), "THOBE_RETURN", s.token)
-        assert seen == [("STAGE", False), ("THOBE_ALLOCATION", False)]  # exactly these two, reported truthfully
-        seen.clear()
-        ok = ready_student(engine, "THOBE_RETURN")
-        scan(operator(apps, world, "THOBE_RETURN"), "THOBE_RETURN", ok.token)
-        assert seen == [("STAGE", True), ("THOBE_ALLOCATION", True)]
-
-    def test_when_the_owning_venue_is_fresh_the_specified_messages_appear(self, apps, world, engine, monkeypatch):
-        """The configured message for each missing piece. A strict stand-in (present locally -> allow, else block)
-        stands for "the owning venue is FRESH": that is the case where these sentences are shown, and the real
-        freshness rule is proven in tests/test_reconcile.py."""
-        monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
-                            lambda conn, **k: cross_venue.CrossVenueDecision(allow=k["present_locally"]))
+    def test_it_is_configured_to_require_stage_complete_and_the_thobe_allocation(self, apps, world, engine):
         client = operator(apps, world, "THOBE_RETURN")
         nothing = make_student(engine)
         assert scan(client, "THOBE_RETURN", nothing.token).json()["message"] == "THOBE RETURN NOT AVAILABLE — STAGE PENDING"
+
         skipped = make_student(engine)
         seed_at(engine, skipped, "THOBE_ALLOCATION", hours_ago=1)
-        seed_at(engine, skipped, "STAGE", kind="SKIP", hours_ago=1)  # a SKIP is not "Stage COMPLETE"
+        seed_at(engine, skipped, "STAGE", kind="SKIP", hours_ago=1)
         assert scan(client, "THOBE_RETURN", skipped.token).json()["message"] == "THOBE RETURN NOT AVAILABLE — STAGE PENDING"
+
         no_thobe = make_student(engine)
         seed_events(engine, no_thobe, ["REGISTRATION"])
         seed_at(engine, no_thobe, "STAGE", hours_ago=1)
@@ -328,6 +298,7 @@ class TestThobeReturn:
         assert body["result"] == "REJECTED" and body["message"] == "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED"
         assert confirm(client, "THOBE_RETURN", token=no_thobe.token).json()["result"] == "REJECTED"
         assert events_of(engine, no_thobe, "THOBE_RETURN") == []
+
         both = ready_student(engine, "THOBE_RETURN")
         assert scan(client, "THOBE_RETURN", both.token).json()["result"] == "READY"
 
@@ -370,7 +341,7 @@ class TestLunch:
         earlier = seed_at(engine, s, "LUNCH", hours_ago=2, station="LUN-07")
         body = scan(operator(apps, world, "LUNCH"), "LUNCH", s.token).json()
         assert body["result"] == "DUPLICATE" and body["message"] == f"LUNCH ALREADY CLAIMED — {clock(earlier.server_time)}"
-        assert body["earlier"]["station_id"] == "LUN-07" and len(events_of(engine, s, "LUNCH")) == 1
+        assert body["earlier"]["time"] == clock(earlier.server_time) and len(events_of(engine, s, "LUNCH")) == 1
 
     def test_two_lunch_counters_confirming_the_same_student_at_once_leave_exactly_one_row(self, apps, world, engine, tokens):
         for _ in range(3):
@@ -380,7 +351,6 @@ class TestLunch:
             assert sorted(results) == ["CONFIRMED"] + ["DUPLICATE"] * 7
             event = events_of(engine, s, "LUNCH")
             assert len(event) == 1
-            assert q(engine, "SELECT count(*) AS n FROM outbox WHERE event_id = :e", e=event[0]["event_id"])[0]["n"] == 1
             assert sorted(r["result"] for r in log_of(engine, s, "LUNCH")) == ["DUPLICATE"] * 7 + ["SUCCESS"]
 
 

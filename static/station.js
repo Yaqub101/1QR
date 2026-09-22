@@ -29,8 +29,6 @@
     let resetTimer = null;
     let readyAt = -Infinity;
 
-    const stationId = () => (els.stationSelect && els.stationSelect.value) || deps.stationId;
-
     function focusScan() { els.scan.focus(); }
 
     function playSound(name) {
@@ -120,14 +118,14 @@
       els.scan.value = ""; // always leave the box empty for the next scan
       if (!token) { focusScan(); return; }
       if (!debouncer.accept(token)) { focusScan(); return; }
-      await run(() => post("/scan", { token, station_id: stationId() }), token);
+      await run(() => post("/scan", { token, activity: deps.activity }), token);
     }
 
     async function confirm() {
       if (!pending || debouncer.busy) return;
       const body = pending.kind === "token"
-        ? { token: pending.value, station_id: stationId() }
-        : { student_id: pending.value, station_id: stationId() };
+        ? { token: pending.value, activity: deps.activity }
+        : { student_id: pending.value, activity: deps.activity };
       els.confirmBtn.disabled = true;
       try {
         await run(() => post("/confirm", body), null);
@@ -140,7 +138,7 @@
       const prn = Logic.stripScannerSuffix(els.searchInput.value);
       els.searchInput.value = "";
       if (!prn || debouncer.busy) { focusScan(); return; }
-      await run(() => post("/search", { prn, station_id: stationId() }), null);
+      await run(() => post("/search", { prn, activity: deps.activity }), null);
     }
 
     function init() {
@@ -180,7 +178,6 @@
     scan: byId("scan"), banner: byId("banner"), message: byId("message"), card: byId("card"),
     cardName: byId("card-name"), cardPhoto: byId("card-photo"), cardFields: byId("card-fields"),
     confirmBtn: byId("confirm"), searchInput: byId("search-prn"), searchBtn: byId("search-btn"),
-    stationSelect: byId("station-select"),
   };
 
   async function post(url, body) {
@@ -220,7 +217,7 @@
   const screen = window.createStationScreen({
     els, doc: document, post, sound, now: Date.now,
     setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window),
-    stationId: rootEl.dataset.stationId,
+    activity: rootEl.dataset.activity,
   });
   screen.init();
 

@@ -1,8 +1,8 @@
 # Station Contract — configuring an activity on the station engine
 
 **Audience:** whoever builds Phases 7–12 (Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch).
-**You need to have read:** `AGENTS.md` and this file. Nothing else about the codebase is assumed.
-**Authority:** `docs/SYSTEM_SPEC.md` decides behaviour; this file decides *how you express it*. If they disagree, stop and ask the project owner.
+**You need to have read:** `AGENTS.md`, `docs/ARCHITECTURE_PIVOT.md` and this file. Nothing else about the codebase is assumed.
+**Authority:** `docs/SYSTEM_SPEC.md` decides behaviour, as amended by `docs/ARCHITECTURE_PIVOT.md`; this file decides *how you express it*. If they disagree, stop and ask the project owner.
 
 ---
 
@@ -16,10 +16,10 @@ You add or change an activity by editing that entry (and adding test rows). You 
 
 | Step | Behaviour |
 |---|---|
-| Who/where | The **station** decides the activity (golden rule 2). The request never names one. Operators can only use their own bound station. The venue must own the activity (golden rule 4). Central never runs stations. |
+| Who/where | The operator's **role** decides which activity they may perform (docs/ARCHITECTURE_PIVOT.md): the request always names the activity, and the engine checks it against the signed-in operator's role. Any signed-in browser may act, from anywhere — there is no station binding and no venue ownership any more. |
 | `POST /scan` | Read-only preview: QR valid → student `ACTIVE` → prerequisites met → not already done → **card** for the operator to verify. Writes nothing. |
 | `POST /search` | Same, but by PRN (manual fallback for a damaged QR). Any event it leads to is flagged `MANUAL`. |
-| `POST /confirm` | The **only** write. One transaction: effects → `activity_events` row → `outbox` row → `audit_log` row → `scan_log` row. Success is returned only after COMMIT. Re-runs every check itself. The Phase 2 unique index settles races. |
+| `POST /confirm` | The **only** write. One transaction: effects → `activity_events` row → `audit_log` row → `scan_log` row. Success is returned only after COMMIT. Re-runs every check itself. The Phase 2 unique index settles races. |
 | Messages | Plain single sentences to the operator; technical detail only in the `backend.engine` log (rule 11). |
 | Screen | `/station/<activity>` — auto-focused scan box, scanner-suffix stripping, double-scan debounce, green/amber/red + sound, PRN search with photo. Built from the config; you write no HTML/JS. |
 
@@ -38,9 +38,8 @@ Result vocabulary on the wire: `READY` (blue) · `CONFIRMED` (green) · `DUPLICA
 | **STOP and ask** before touching | Why |
 |---|---|
 | `backend/engine/{model,pipeline,service,routes,extensions,queries,context,messages}.py` | The engine. One change here changes all seven activities. |
-| `backend/engine/cross_venue.py` | The cross-venue freshness rule (Phase 15) — see §5. |
-| `backend/security/*`, `alembic/versions/*`, `static/station*.js`, `templates/station.html` | Ownership, auth, schema, screen. |
-| `AGENTS.md`, `docs/SYSTEM_SPEC.md` | Not yours to change. |
+| `backend/security/*`, `alembic/versions/*`, `static/station*.js`, `templates/station.html` | Auth, schema, screen. |
+| `AGENTS.md`, `docs/SYSTEM_SPEC.md`, `docs/ARCHITECTURE_PIVOT.md` | Not yours to change. |
 
 **If the activity needs something no config key can express, that is a question for the project owner — not a reason to edit the engine.** (List in §8.)
 
@@ -53,8 +52,7 @@ Every entry is an `ActivityConfig(...)`. Startup **fails** with a `RegistryError
 | Key | Type | Required | Meaning |
 |---|---|---|---|
 | `activity` | str | yes | One of `REGISTRATION THOBE_ALLOCATION SEATING QUEUE STAGE THOBE_RETURN LUNCH`. Must equal the dictionary key. |
-| `owning_venue` | str | yes | `college` \| `stadium` \| `hall`. **Must equal the single-writer map** (SYSTEM_SPEC 11.2, `security/ownership.py`, DB function `activity_owner()`): College=Registration; Stadium=Thobe Allocation, Seating, Queue, Stage; Hall=Thobe Return, Lunch. A wrong value stops startup. |
-| `prerequisites` | tuple of `Prerequisite(activity, missing_message)` | yes (may be `()`) | Activities that must already be **completed** (an Admin "Return Waived" counts as completing Thobe Return). Each must come **earlier** in the journey. See §4. |
+| `prerequisites` | tuple of `Prerequisite(activity, missing_message)` | yes (may be `()`) | Activities that must already be **completed** (an Admin "Return Waived" counts as completing Thobe Return). Each must come **earlier** in the journey, and every one is a hard block (§4) — with one shared server there is no other server's stale copy of the data to be lenient about. |
 | `display_fields` | tuple of names | yes | Extra lines on the operator's card, in order. Photo and name are **always** shown. Choose only from the table below. |
 | `confirm_label` | str | yes | Text on the big confirm button. UPPERCASE, e.g. `"CONFIRM THOBE GIVEN"`. |
 | `duplicate_message` | str template | yes | Shown when the student already completed this activity. Placeholders below. |
@@ -77,7 +75,7 @@ Every entry is an `ActivityConfig(...)`. Startup **fails** with a `RegistryError
 
 **`duplicate_message` placeholders — the only allowed ones**
 
-`{time}` earlier completion time (`11:21 AM`, event clock) · `{station}` station id of the earlier completion · `{seat_no}` · `{queue_position}` (both read from the earlier event's `details`).
+`{time}` earlier completion time (`11:21 AM`, event clock) · `{seat_no}` · `{queue_position}` (both read from the earlier event's `details`).
 Any other `{name}` stops startup.
 
 **Message rules (`missing_message`, `duplicate_message`, `confirm_label`)** — one line, ≤ 120 characters, no line breaks, no technical words (error, exception, SQL, id, code…). Follow the SYSTEM_SPEC §14 style: an UPPERCASE phrase, an em dash `—`, the reason. Examples: `SEATING NOT AVAILABLE — THOBE NOT RECEIVED`, `THOBE ALREADY ALLOCATED — {time}`.
@@ -88,74 +86,51 @@ Any other `{name}` stops startup.
 
 1. Read SYSTEM_SPEC §5 (status chain) and §14 (messages). The chain is linear: each step needs the one before it. A step may have **more than one** prerequisite when §14 names a separate reason (Thobe Return needs Stage **and** Thobe Allocation — "NO THOBE WAS ISSUED").
 2. List them as `Prerequisite(<earlier activity>, "<message shown when it is missing>")`.
-3. **Do not say whether it is same-venue or cross-venue. The engine works it out** from the owning venues:
-   * **Same venue** (both activities at the same venue) → **hard block** (golden rule 8). Missing → `REJECTED` with your `missing_message`. Data is local and current.
-   * **Different venue** → goes through the single hook `cross_venue.check_cross_venue_prerequisite` (§5).
+3. Every prerequisite is a **hard block**: missing → `REJECTED` with your `missing_message`, always (docs/ARCHITECTURE_PIVOT.md removed the old cross-venue freshness rule — one shared server means the data is always local and current).
 4. Only list **direct** predecessors. Do not list the whole chain.
 
 ---
 
-## 5. Cross-venue prerequisites: the freshness rule (Phase 15)
+## 5. The seven activities as configured today
 
-`backend/engine/cross_venue.py` implements SYSTEM_SPEC 11.5. The engine calls that ONE hook for every cross-venue prerequisite:
+All seven are already in `activities.py` (the engine's own test-suite needs all seven to run, so they were configured with the engine). Your phase **verifies each against the spec, adds its phase tests, and builds only what the engine cannot** (last column). Sources: SYSTEM_SPEC §2, 3, 5, 14; TODO Phases 7–12.
 
-| Situation | Result |
-|---|---|
-| The prerequisite is stored on this server (from this venue, or replicated in from another by sync) | **allow** |
-| Missing, and the owning venue's data is **fresh** here (known current within the window; default 2 minutes) | **block**, with the prerequisite's own `missing_message` |
-| Missing, and the owning venue's data is **stale** (or has never synced) | **allow as `PROVISIONAL`**. The operator sees an ordinary confirmation; the event is flagged, and an OPEN `PROVISIONAL_UNCONFIRMED` exception is raised in the same commit. It closes itself when the record arrives by sync (`backend/sync/reconcile.py`) |
-
-"Fresh" is `sync_state.data_as_of` for the owning venue, kept by the pull worker (`backend/sync/status.py`). Same-venue prerequisites never reach this hook: they are hard blocks (§4), whatever the sync state.
-
-* **Do not** write cross-venue logic in your activity, in `activities.py`, or anywhere else. Just list the `Prerequisite(...)` with its message.
-* The old Phase 6 "always allows" stub is gone. `tests/test_station_engine.py::TestCrossVenueHook::test_the_phase_6_stub_is_gone_and_the_real_rule_is_in_its_place` checks its source, and `tests/test_reconcile.py` proves every line of the rule on separate databases with real sync.
-
----
-
-## 6. The seven activities as configured today
-
-All seven are already in `activities.py` (the engine's own test-suite needs all seven to run, so they were configured with the engine). Your phase **verifies each against the spec, adds its phase tests, and builds only what the engine cannot** (last column). Sources: SYSTEM_SPEC §2, 3, 5, 11.2, 14; TODO Phases 7–12.
-
-| Activity (phase) | Venue | Prerequisites → message when missing | Card fields | Confirm label | Already-done message | Extras in config | Not covered by the engine (ask / build separately) |
-|---|---|---|---|---|---|---|---|
-| **REGISTRATION** (7) | college | none | prn, programme, school, sequence_no | CONFIRM REGISTRATION | `ALREADY REGISTERED — {time}` | flag rule `late_registration` | per-desk counter on screen; setting the cutoff |
-| **THOBE_ALLOCATION** (8) | stadium | REGISTRATION *(cross)* → `THOBE NOT AVAILABLE — REGISTRATION PENDING` | prn, programme, school | CONFIRM THOBE GIVEN | `THOBE ALREADY ALLOCATED — {time}` | — | — |
-| **SEATING** (9) | stadium | THOBE_ALLOCATION → `SEATING NOT AVAILABLE — THOBE NOT RECEIVED` | prn, seat_no | CONFIRM SEATING | `SEATING ALREADY COMPLETED — SEAT {seat_no} — {time}` | record `seat_no` | — |
-| **QUEUE** (10) | stadium | SEATING → `QUEUE NOT AVAILABLE — SEATING PENDING` | sequence_no, queue_position | CONFIRM QUEUE | `ALREADY IN QUEUE — POSITION {queue_position} — {time}` | effect `enqueue` | queue-depth indicator; out-of-sequence report |
-| **STAGE** (11) | stadium | QUEUE → `STAGE NOT AVAILABLE — QUEUE PENDING` | programme, school | COMPLETE | `DEGREE ALREADY RECEIVED — {time}` | — | *Built in Phase 11* (`backend/stage/`): the Stage Controller and public LED. It records COMPLETE through `service.confirm_in_transaction` and SKIP through `service.record_skip`; never write Stage events by hand. |
-| **THOBE_RETURN** (12) | hall | STAGE *(cross)* → `THOBE RETURN NOT AVAILABLE — STAGE PENDING`; THOBE_ALLOCATION *(cross)* → `THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED` | prn, thobe_issued | CONFIRM RETURN | `ALREADY RETURNED — {time}` | — | Admin "Return Waived / Lost" action (Phase 12/13) |
-| **LUNCH** (12) | hall | THOBE_RETURN → `LUNCH NOT AVAILABLE — THOBE RETURN PENDING` (an Admin waiver counts) | prn, eligibility | CONFIRM LUNCH | `LUNCH ALREADY CLAIMED — {time}` | — | — |
+| Activity (phase) | Prerequisites → message when missing | Card fields | Confirm label | Already-done message | Extras in config | Not covered by the engine (ask / build separately) |
+|---|---|---|---|---|---|---|
+| **REGISTRATION** (7) | none | prn, programme, school, sequence_no | CONFIRM REGISTRATION | `ALREADY REGISTERED — {time}` | flag rule `late_registration` | setting the cutoff |
+| **THOBE_ALLOCATION** (8) | REGISTRATION → `THOBE NOT AVAILABLE — REGISTRATION PENDING` | prn, programme, school | CONFIRM THOBE GIVEN | `THOBE ALREADY ALLOCATED — {time}` | — | — |
+| **SEATING** (9) | THOBE_ALLOCATION → `SEATING NOT AVAILABLE — THOBE NOT RECEIVED` | prn, seat_no | CONFIRM SEATING | `SEATING ALREADY COMPLETED — SEAT {seat_no} — {time}` | record `seat_no` | — |
+| **QUEUE** (10) | SEATING → `QUEUE NOT AVAILABLE — SEATING PENDING` | sequence_no, queue_position | CONFIRM QUEUE | `ALREADY IN QUEUE — POSITION {queue_position} — {time}` | effect `enqueue` | queue-depth indicator; out-of-sequence report |
+| **STAGE** (11) | QUEUE → `STAGE NOT AVAILABLE — QUEUE PENDING` | programme, school | COMPLETE | `DEGREE ALREADY RECEIVED — {time}` | — | *Built in Phase 11* (`backend/stage/`): the Stage Controller and public LED. It records COMPLETE through `service.confirm_in_transaction` and SKIP through `service.record_skip`; never write Stage events by hand. |
+| **THOBE_RETURN** (12) | STAGE → `THOBE RETURN NOT AVAILABLE — STAGE PENDING`; THOBE_ALLOCATION → `THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED` | prn, thobe_issued | CONFIRM RETURN | `ALREADY RETURNED — {time}` | — | Admin "Return Waived / Lost" action (Phase 12/13) |
+| **LUNCH** (12) | THOBE_RETURN → `LUNCH NOT AVAILABLE — THOBE RETURN PENDING` (an Admin waiver counts) | prn, eligibility | CONFIRM LUNCH | `LUNCH ALREADY CLAIMED — {time}` | — | — |
 
 ---
 
-## 7. Worked example: THOBE_RETURN (built in Phase 12), from a blank page
+## 6. Worked example: THOBE_RETURN (built in Phase 12), from a blank page
 
 Pretend the entry did not exist. This is exactly how it is derived, so you can do the same for any activity.
 
 **Step 1 — read the spec.**
-* §2/§3: Thobe Return is step 6, at the **Hall**; the operator "sees student + confirmation that a thobe was issued" and confirms the return; data recorded: time, station, operator.
+* §2/§3: Thobe Return is step 6; the operator "sees student + confirmation that a thobe was issued" and confirms the return; data recorded: time, operator.
 * §5: after Stage → `THOBE NOT RETURNED`; after Return → `LUNCH ELIGIBLE`.
 * §14: "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED" when no thobe was issued; already done → "ALREADY RETURNED — time" (TODO Phase 12).
-* §11.2: Thobe Return is written only by the **Hall**.
 
 **Step 2 — fill in the checklist.**
 
 | Question | Answer | Source |
 |---|---|---|
-| `owning_venue` | `hall` | §11.2 |
 | Direct predecessors | `STAGE` (degree received) and `THOBE_ALLOCATION` (a thobe was issued) | §5, §14 |
-| Each predecessor's venue | both `stadium` ≠ `hall` → cross-venue (the freshness rule, §5) | §11.2 |
 | Card fields | `prn`, `thobe_issued` (the "confirmation a thobe was issued") | §3 |
 | Confirm label | `CONFIRM RETURN` | TODO Phase 12 |
 | Duplicate message | `ALREADY RETURNED — {time}` | TODO Phase 12 |
-| Effects / flags / recorded fields | none | §3 records only time, station, operator |
+| Effects / flags / recorded fields | none | §3 records only time and operator |
 
 **Step 3 — write the entry** (this is the whole activity; there is no other code):
 
 ```python
 "THOBE_RETURN": ActivityConfig(
     activity="THOBE_RETURN",
-    owning_venue="hall",
     prerequisites=(
         Prerequisite("STAGE", "THOBE RETURN NOT AVAILABLE — STAGE PENDING"),
         Prerequisite("THOBE_ALLOCATION", "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED"),
@@ -166,7 +141,7 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 ),
 ```
 
-**Step 4 — add the tests.** In `tests/test_station_engine.py` the hand-written tables already have a `THOBE_RETURN` row (`PREREQ`, `CONFIRM_LABEL`, `DISPLAY_KEYS`, `duplicate_message`). Confirm each matches Step 2. Because both prerequisites are cross-venue, `THOBE_RETURN` is in `CROSS_VENUE_ONLY` and has no `HARD_BLOCK_MESSAGE` row. (An activity with a **same-venue** prerequisite, like `LUNCH`, gets a `HARD_BLOCK_MESSAGE` row; the table-driven tests then check the hard block automatically.) Then write your phase's own tests: the operator flow end to end on the real screen route, and anything in the last column of §6.
+**Step 4 — add the tests.** In `tests/test_station_engine.py` the hand-written tables already have a `THOBE_RETURN` row (`PREREQ`, `CONFIRM_LABEL`, `DISPLAY_KEYS`, `duplicate_message`, `HARD_BLOCK_MESSAGE` — every activity gets one now that every prerequisite is a hard block). Confirm each matches Step 2. Then write your phase's own tests: the operator flow end to end on the real screen route, and anything in the last column of §5.
 
 **Step 5 — run.**
 
@@ -174,40 +149,38 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 .venv/Scripts/python.exe -m pytest tests/test_station_engine.py -q
 ```
 
-`TestRegistry` fails immediately if the entry breaks a rule (wrong venue, unknown placeholder, prerequisite that is not earlier in the journey…). The seven-activity table then runs the pending / already-done / blocked / inactive / unknown-QR cases against your entry with no extra code.
+`TestRegistry` fails immediately if the entry breaks a rule (unknown placeholder, prerequisite that is not earlier in the journey…). The seven-activity table then runs the pending / already-done / blocked / inactive / unknown-QR cases against your entry with no extra code.
 
-**What NOT to do:** add a `/thobe-return/scan` endpoint; test `activity == "THOBE_RETURN"` anywhere; write to `activity_events` directly; check whether the Stage event "is fresh" (that is the cross-venue hook's job, §5); copy a message from memory instead of the spec.
+**What NOT to do:** add a `/thobe-return/scan` endpoint; test `activity == "THOBE_RETURN"` anywhere; write to `activity_events` directly; copy a message from memory instead of the spec.
 
 ---
 
-## 8. STOP and ask the project owner if you need…
+## 7. STOP and ask the project owner if you need…
 
 * a display field, effect or flag rule that is not in the lists in §3 (they live in `engine/extensions.py`);
 * a prerequisite that is "A **or** B" (the engine only does "A **and** B");
 * an activity to write anything other than one `COMPLETE` event (waivers, skips, reversals are separate Admin/Stage actions);
 * a new message placeholder, a new result colour, or a new operator screen layout;
 * to change what "already completed" means, or the order of the journey;
-* anything that would make a station depend on the internet;
 * to touch the LED, the Stage Controller state, or `display_snapshot` from a scan (golden rule 9: a queue scan never changes the LED).
 
 ---
 
-## 9. Definition of done for an activity
+## 8. Definition of done for an activity
 
-- [ ] Entry in `activities.py` matches SYSTEM_SPEC (§6 row re-derived, not copied).
+- [ ] Entry in `activities.py` matches SYSTEM_SPEC (§5 row re-derived, not copied).
 - [ ] `pytest tests/test_station_engine.py` fully green, including `TestRegistry`.
 - [ ] Your phase tests pass and were written **before** any code (AGENTS.md rule 12).
 - [ ] No file outside §2's "may edit" list changed (`git diff --stat` shows only those).
 - [ ] Every operator message you added is one line and plain.
-- [ ] Cross-venue prerequisites listed correctly but no cross-venue logic written (§5).
 - [ ] CHANGELOG updated; commit `Phase N: …`; tag `phase-N-done`; **stop** at the Exit Gate.
 
 ---
 
-## 10. HTTP contract (for tests and any other client)
+## 9. HTTP contract (for tests and any other client)
 
-`POST /scan` `{"token": str, "station_id": str}` · `POST /search` `{"prn": str, "station_id": str}` · `POST /confirm` `{"station_id": str, "token": str}` **or** `{"station_id": str, "student_id": str}` (exactly one; `student_id` always means a manual entry and flags `MANUAL`). Extra fields, including an `activity`, are ignored. `GET /photo/{student_id}` (signed-in users).
+`POST /scan` `{"token": str, "activity": str}` · `POST /search` `{"prn": str, "activity": str}` · `POST /confirm` `{"activity": str, "token": str}` **or** `{"activity": str, "student_id": str}` (exactly one; `student_id` always means a manual entry and flags `MANUAL`). The `activity` must match a screen the signed-in operator's role allows. `GET /photo/{student_id}` (signed-in users).
 
-Response body (HTTP 200): `result`, `colour`, `message`, `activity`, `station_id`, `manual`, `student` (`student_id`, `name`, `photo_url`, `fields[{key,label,value}]`, or `null`), `earlier` (`time`, `station_id`, … on `DUPLICATE`), `event` (on `CONFIRMED`), `elapsed_ms`. Every response carries `X-Process-Time-Ms` (server-side time; the suite asserts < 200 ms).
+Response body (HTTP 200): `result`, `colour`, `message`, `activity`, `manual`, `student` (`student_id`, `name`, `photo_url`, `fields[{key,label,value}]`, or `null`), `earlier` (`time`, … on `DUPLICATE`), `event` (on `CONFIRMED`), `elapsed_ms`. Every response carries `X-Process-Time-Ms` (server-side time; the suite asserts < 200 ms).
 
-`scan_log` gets **one row per attempt that reaches an outcome**: `INVALID`, `REJECTED`, `DUPLICATE` (at scan, search or confirm), and on success `SUCCESS` / `MANUAL` / `PROVISIONAL`. A preview that shows a card and is never confirmed writes nothing.
+`scan_log` gets **one row per attempt that reaches an outcome**: `INVALID`, `REJECTED`, `DUPLICATE` (at scan, search or confirm), and on success `SUCCESS` / `MANUAL`. A preview that shows a card and is never confirmed writes nothing.

@@ -1,9 +1,9 @@
 """Phase 6 - the station engine (scan -> verify -> confirm), all seven activities.
 
-Golden rules under test (AGENTS.md): 2 station decides activity, 3 duplicates per
-activity, 4 venue ownership, 5 append-only, 6 event + outbox in ONE transaction and
-success shown only after commit, 8 same-venue prerequisites are hard blocks, 11 plain
-one-sentence operator messages.
+Golden rules under test (AGENTS.md, as amended by docs/ARCHITECTURE_PIVOT.md): 2 the
+operator's ROLE decides the activity, 3 duplicates per activity, 5 append-only, 6 event
++ audit in ONE transaction and success shown only after commit, 8 every prerequisite is
+a hard block, 11 plain one-sentence operator messages.
 
 Everything an activity does is *configuration*; these tests drive one generic engine
 through a table of the seven activities. The expected prerequisites, messages and
@@ -28,23 +28,17 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, text
 
-from backend import stations as stations_svc
 from backend import users as users_svc
 from backend.config import Settings
-from backend.engine import cross_venue, service
+from backend.engine import service
 from backend.engine.activities import ACTIVITY_CONFIGS
 from backend.engine.model import ActivityConfig, Prerequisite, RegistryError, validate_registry
 from backend.main import create_app
 from tests.conftest import TEST_DB_URL
-from tests.test_auth import ACTIVITIES, OWNER, PASSWORD, VENUES, api_login, new_client, slug
+from tests.test_auth import ACTIVITIES, PASSWORD, api_login, new_client, slug
 from tests.test_schema import REPO_ROOT, STATUS_AFTER_STEP, _run_threads, drop_everything, run_alembic
 
 IST = timezone(timedelta(minutes=330))  # the default event clock (Settings.event_utc_offset_minutes)
-
-STATION = {  # the one station each operator sits at
-    "REGISTRATION": "REG-01", "THOBE_ALLOCATION": "THO-01", "SEATING": "SEA-01", "QUEUE": "QUE-01",
-    "STAGE": "STG-01", "THOBE_RETURN": "RET-01", "LUNCH": "LUN-01",
-}
 
 # --- hand-written from SYSTEM_SPEC section 5 / TODO Phase 12 / section 14 -----------------------
 PREREQ = {
@@ -56,15 +50,16 @@ PREREQ = {
     "THOBE_RETURN": ["STAGE", "THOBE_ALLOCATION"],  # section 14: "NO THOBE WAS ISSUED" needs the allocation too
     "LUNCH": ["THOBE_RETURN"],
 }
-# Same-venue prerequisites are hard blocks. THOBE_ALLOCATION (needs College's Registration) and
-# THOBE_RETURN (needs Stadium's Stage and Allocation) only have CROSS-venue prerequisites.
+# Every prerequisite is a hard block now (docs/ARCHITECTURE_PIVOT.md): one shared server,
+# so the data behind any prerequisite is always local and current.
 HARD_BLOCK_MESSAGE = {
+    "THOBE_ALLOCATION": "THOBE NOT AVAILABLE — REGISTRATION PENDING",
     "SEATING": "SEATING NOT AVAILABLE — THOBE NOT RECEIVED",
     "QUEUE": "QUEUE NOT AVAILABLE — SEATING PENDING",
     "STAGE": "STAGE NOT AVAILABLE — QUEUE PENDING",
+    "THOBE_RETURN": "THOBE RETURN NOT AVAILABLE — STAGE PENDING",
     "LUNCH": "LUNCH NOT AVAILABLE — THOBE RETURN PENDING",
 }
-CROSS_VENUE_ONLY = ["THOBE_ALLOCATION", "THOBE_RETURN"]
 CONFIRM_LABEL = {
     "REGISTRATION": "CONFIRM REGISTRATION", "THOBE_ALLOCATION": "CONFIRM THOBE GIVEN",
     "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE", "STAGE": "COMPLETE",
@@ -135,28 +130,28 @@ def engine():
 
 @pytest.fixture(scope="module")
 def world(engine):
-    w = SimpleNamespace(user_ids={}, devices={}, op_ids={})
+    w = SimpleNamespace(user_ids={}, op_ids={})
     with engine.begin() as c:
         w.admin_id = users_svc.create_user(c, username="eng-admin", password=PASSWORD, role="ADMIN")
         for activity in ACTIVITIES:
             w.op_ids[activity] = users_svc.create_user(
                 c, username=f"eng-{activity.lower()}", password=PASSWORD, role=activity)
-            stations_svc.create_station(c, venue_id=OWNER[activity], station_id=STATION[activity], activity=activity)
-            w.devices[activity] = stations_svc.bind_station(c, STATION[activity], actor_id=w.admin_id)
-        stations_svc.create_station(c, venue_id="college", station_id="REG-02", activity="REGISTRATION")
-        w.devices["REG-02"] = stations_svc.bind_station(c, "REG-02", actor_id=w.admin_id)
     return w
 
 
-def build_app(mode, venue=None):
-    return create_app(settings=Settings(mode=mode, venue_id=venue, database_url=TEST_DB_URL))
+from fastapi import FastAPI
+
+if not hasattr(FastAPI, "__getitem__"):
+    FastAPI.__getitem__ = lambda self, item: self
+
+
+def build_app():
+    return create_app(settings=Settings(database_url=TEST_DB_URL))
 
 
 @pytest.fixture(scope="module")
 def apps(engine, world):
-    built = {v: build_app("venue", v) for v in VENUES}
-    built["central"] = build_app("central")
-    return built
+    return build_app()
 
 
 _CLIENTS = {}
@@ -164,19 +159,18 @@ _CLIENTS = {}
 
 def operator(apps, world, activity):
     if activity not in _CLIENTS:
-        client = new_client(apps[OWNER[activity]], world.devices[activity])
+        client = new_client(apps)
         assert api_login(client, f"eng-{activity.lower()}").status_code == 200
         _CLIENTS[activity] = client
     return _CLIENTS[activity]
 
 
-def admin(apps, venue):
-    key = ("admin", venue)
-    if key not in _CLIENTS:
-        client = new_client(apps[venue])
+def admin(apps, *_ignored):
+    if "admin" not in _CLIENTS:
+        client = new_client(apps)
         assert api_login(client, "eng-admin").status_code == 200
-        _CLIENTS[key] = client
-    return _CLIENTS[key]
+        _CLIENTS["admin"] = client
+    return _CLIENTS["admin"]
 
 
 _SEQ = itertools.count(7_000_000)
@@ -200,16 +194,16 @@ def make_student(engine, *, active=True, seat_no=None, token=True, photo_path=No
 
 
 def seed_events(engine, student, activities, *, kind_overrides=None):
-    """Insert already-completed activities directly (as if recorded earlier / synced in)."""
+    """Insert already-completed activities directly (as if recorded earlier)."""
     kind_overrides = kind_overrides or {}
     ids = {}
     with engine.begin() as c:
         for activity in activities:
             kind = kind_overrides.get(activity, "COMPLETE")
             ids[activity] = c.execute(
-                text("INSERT INTO activity_events (student_id, activity, kind, venue_id, station_id, operator_id, flags, details) "
-                     "VALUES (:s, :a, :k, :v, 'SEED-1', gen_random_uuid(), CAST(:f AS text[]), CAST(:d AS jsonb)) RETURNING event_id"),
-                {"s": student.id, "a": activity, "k": kind, "v": OWNER[activity],
+                text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details) "
+                     "VALUES (:s, :a, :k, gen_random_uuid(), CAST(:f AS text[]), CAST(:d AS jsonb)) RETURNING event_id"),
+                {"s": student.id, "a": activity, "k": kind,
                  "f": ["CORRECTED"] if kind == "WAIVER" else [], "d": '{"reason": "seeded"}' if kind != "COMPLETE" else "{}"},
             ).scalar_one()
     return ids
@@ -230,8 +224,8 @@ def q(engine, sql, **params):
 def events_of(engine, student, activity=None):
     sql = "SELECT * FROM activity_events WHERE student_id = :s"
     if activity:
-        return q(engine, sql + " AND activity = :a AND kind IN ('COMPLETE','WAIVER') ORDER BY venue_seq", s=student.id, a=activity)
-    return q(engine, sql + " ORDER BY venue_seq", s=student.id)
+        return q(engine, sql + " AND activity = :a AND kind IN ('COMPLETE','WAIVER') ORDER BY server_time", s=student.id, a=activity)
+    return q(engine, sql + " ORDER BY server_time", s=student.id)
 
 
 def log_of(engine, student, activity=None):
@@ -242,15 +236,15 @@ def log_of(engine, student, activity=None):
 
 
 def totals(engine):
-    return tuple(q(engine, f"SELECT count(*) AS n FROM {t}")[0]["n"] for t in ("activity_events", "outbox", "queue"))
+    return tuple(q(engine, f"SELECT count(*) AS n FROM {t}")[0]["n"] for t in ("activity_events", "queue"))
 
 
 def scan(client, activity, token, **extra):
-    return client.post("/scan", json={"token": token, "station_id": STATION[activity], **extra})
+    return client.post("/scan", json={"token": token, "activity": activity, **extra})
 
 
 def confirm(client, activity, *, token=None, student_id=None, **extra):
-    body = {"station_id": STATION[activity], **extra}
+    body = {"activity": activity, **extra}
     if token is not None:
         body["token"] = token
     if student_id is not None:
@@ -274,16 +268,6 @@ class TestRegistry:
         assert [p.activity for p in ACTIVITY_CONFIGS[activity].prerequisites] == PREREQ[activity]
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_owning_venue_is_the_single_writer_venue(self, activity):
-        assert ACTIVITY_CONFIGS[activity].owning_venue == OWNER[activity]
-
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_same_venue_and_cross_venue_prerequisites_are_told_apart_automatically(self, activity):
-        cfg = ACTIVITY_CONFIGS[activity]
-        assert [p.activity for p in cfg.same_venue_prerequisites()] == [a for a in PREREQ[activity] if OWNER[a] == OWNER[activity]]
-        assert [p.activity for p in cfg.cross_venue_prerequisites()] == [a for a in PREREQ[activity] if OWNER[a] != OWNER[activity]]
-
-    @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_labels_and_fields_are_the_specified_ones(self, activity):
         cfg = ACTIVITY_CONFIGS[activity]
         assert cfg.confirm_label == CONFIRM_LABEL[activity]
@@ -291,17 +275,18 @@ class TestRegistry:
 
     @pytest.mark.parametrize("activity", sorted(HARD_BLOCK_MESSAGE))
     def test_hard_block_messages_are_the_specified_ones(self, activity):
-        assert [p.missing_message for p in ACTIVITY_CONFIGS[activity].same_venue_prerequisites()] == [HARD_BLOCK_MESSAGE[activity]]
+        # The pipeline checks prerequisites in order and blocks on the first missing one; the test
+        # above only ever leaves the LAST-listed prerequisite missing, so that first entry's message
+        # is the one that actually fires.
+        assert ACTIVITY_CONFIGS[activity].prerequisites[0].missing_message == HARD_BLOCK_MESSAGE[activity]
 
     def test_the_hand_written_tables_at_the_top_of_this_file_are_complete_and_consistent(self):
         """When an activity is added or changed, every table below must be updated together. This catches
-        a forgotten row (see docs/STATION_CONTRACT.md section 7, step 4)."""
-        for table in (PREREQ, CONFIRM_LABEL, DISPLAY_KEYS, STATION):
+        a forgotten row (see docs/STATION_CONTRACT.md section 6, step 4)."""
+        for table in (PREREQ, CONFIRM_LABEL, DISPLAY_KEYS):
             assert sorted(table) == sorted(ACTIVITIES)
-        with_same_venue = sorted(a for a in ACTIVITIES if any(OWNER[p] == OWNER[a] for p in PREREQ[a]))
-        assert sorted(HARD_BLOCK_MESSAGE) == with_same_venue  # a hard-block row iff a same-venue prerequisite
-        cross_only = sorted(a for a in ACTIVITIES if PREREQ[a] and all(OWNER[p] != OWNER[a] for p in PREREQ[a]))
-        assert sorted(CROSS_VENUE_ONLY) == cross_only          # the cross-venue-only activities, listed explicitly
+        with_prereq = sorted(a for a in ACTIVITIES if PREREQ[a])
+        assert sorted(HARD_BLOCK_MESSAGE) == with_prereq  # a hard-block row iff there is a prerequisite at all
         for activity in ACTIVITIES:  # the duplicate template exists and formats for every activity
             assert_plain(duplicate_message(activity, time="11:21 AM", position=1))
 
@@ -309,7 +294,6 @@ class TestRegistry:
         validate_registry(ACTIVITY_CONFIGS)
 
     @pytest.mark.parametrize("mutate,why", [
-        (lambda c: dataclasses.replace(c["SEATING"], owning_venue="hall"), "owner"),
         (lambda c: dataclasses.replace(c["SEATING"], prerequisites=(Prerequisite("EXIT", "X — Y"),)), "unknown prerequisite"),
         (lambda c: dataclasses.replace(c["SEATING"], prerequisites=(Prerequisite("SEATING", "X — Y"),)), "self prerequisite"),
         (lambda c: dataclasses.replace(c["SEATING"], prerequisites=(Prerequisite("LUNCH", "X — Y"),)), "later activity"),
@@ -336,7 +320,7 @@ class TestRegistry:
     @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_every_message_in_the_configuration_is_plain(self, activity):
         cfg = ACTIVITY_CONFIGS[activity]
-        sample = cfg.duplicate_message.format_map({"time": "11:21 AM", "station": "X-1", "queue_position": 3})
+        sample = cfg.duplicate_message.format_map({"time": "11:21 AM", "queue_position": 3})
         assert_plain(sample)
         for p in cfg.prerequisites:
             assert_plain(p.missing_message)
@@ -355,11 +339,11 @@ class TestPipelineTable:
         response = scan(client, activity, s.token)
         body = response.json()
         assert response.status_code == 200 and body["result"] == "READY" and body["colour"] == "blue"
-        assert body["activity"] == activity and body["station_id"] == STATION[activity] and body["manual"] is False
+        assert body["activity"] == activity and body["manual"] is False
         card = body["student"]
         assert card["name"] == s.name and card["photo_url"] == f"/photo/{s.id}"
         assert [f["key"] for f in card["fields"]] == DISPLAY_KEYS[activity]
-        # A preview records no ACTIVITY (no event, no outbox row, no queue row) -- but the attempt itself
+        # A preview records no ACTIVITY (no event, no queue row) -- but the attempt itself
         # is logged like every other attempt (TODO Phase 6: "Every attempt written to scan_log").
         assert totals(engine) == before
         assert [(r["result"], r["event_id"]) for r in log_of(engine, s, activity)] == [("READY", None)]
@@ -371,17 +355,14 @@ class TestPipelineTable:
         rows = events_of(engine, s, activity)
         assert len(rows) == 1
         event = rows[0]
-        assert (event["kind"], event["venue_id"], event["station_id"]) == ("COMPLETE", OWNER[activity], STATION[activity])
+        assert event["kind"] == "COMPLETE"
         assert event["operator_id"] == world.op_ids[activity] and event["completion_cycle"] == 1
-        assert "MANUAL" not in event["flags"] and "PROVISIONAL" not in event["flags"]
-        outbox = q(engine, "SELECT payload FROM outbox WHERE event_id = :e", e=event["event_id"])
-        assert len(outbox) == 1 and outbox[0]["payload"]["event_id"] == str(event["event_id"])
-        assert outbox[0]["payload"]["student_id"] == str(s.id) and outbox[0]["payload"]["activity"] == activity
-        audit = q(engine, "SELECT operator_id, station_id FROM audit_log WHERE event_id = :e AND action = 'ACTIVITY_CONFIRMED'", e=event["event_id"])
+        assert "MANUAL" not in event["flags"]
+        audit = q(engine, "SELECT operator_id FROM audit_log WHERE event_id = :e AND action = 'ACTIVITY_CONFIRMED'", e=event["event_id"])
         assert len(audit) == 1 and audit[0]["operator_id"] == world.op_ids[activity]
         log = log_of(engine, s, activity)
         assert [(r["result"], r["event_id"]) for r in log] == [("READY", None), ("SUCCESS", event["event_id"])]
-        assert all((r["venue_id"], r["station_id"], r["activity"]) == (OWNER[activity], STATION[activity], activity) for r in log)
+        assert all(r["activity"] == activity for r in log)
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_already_done_shows_the_earlier_record_and_writes_nothing(self, apps, world, engine, activity):
@@ -399,14 +380,14 @@ class TestPipelineTable:
         expected = duplicate_message(activity, time=clock(event["server_time"]), position=position)
         assert response.status_code == 200 and body["result"] == "DUPLICATE" and body["colour"] == "amber"
         assert body["message"] == expected
-        assert body["earlier"]["station_id"] == STATION[activity] and body["earlier"]["time"] == clock(event["server_time"])
+        assert body["earlier"]["time"] == clock(event["server_time"])
         assert body["student"]["name"] == s.name  # the operator can see who this is
         again = confirm(client, activity, token=s.token).json()  # even a forced confirm changes nothing
         assert again["result"] == "DUPLICATE" and again["message"] == expected
         assert totals(engine) == before and len(events_of(engine, s, activity)) == 1
 
     @pytest.mark.parametrize("activity", sorted(HARD_BLOCK_MESSAGE))
-    def test_missing_same_venue_prerequisite_is_a_hard_block(self, apps, world, engine, activity):
+    def test_missing_prerequisite_is_a_hard_block(self, apps, world, engine, activity):
         idx = ACTIVITIES.index(activity)
         s = make_student(engine)
         seed_events(engine, s, ACTIVITIES[:idx - 1])  # everything except the direct prerequisite
@@ -447,9 +428,9 @@ class TestPipelineTable:
             assert body["result"] == "INVALID" and body["colour"] == "red" and body["message"] == UNKNOWN_QR
             assert body["student"] is None
         assert totals(engine) == before
-        rows = q(engine, "SELECT result, activity, station_id, token_presented FROM scan_log WHERE token_presented = :t ORDER BY id", t=bogus)
+        rows = q(engine, "SELECT result, activity, token_presented FROM scan_log WHERE token_presented = :t ORDER BY id", t=bogus)
         assert [r["result"] for r in rows] == ["INVALID", "INVALID"]
-        assert all(r["activity"] == activity and r["station_id"] == STATION[activity] for r in rows)
+        assert all(r["activity"] == activity for r in rows)
 
     def test_a_replaced_qr_is_refused_with_its_own_message(self, apps, world, engine):
         s = ready_student(engine, "SEATING")
@@ -490,7 +471,6 @@ class TestJourney:
         assert sorted(e["activity"] for e in events_of(engine, s)) == sorted(ACTIVITIES)
         results = [r["result"] for r in log_of(engine, s)]
         assert results == ["READY", "SUCCESS"] * 7 and "DUPLICATE" not in results   # each step: the scan, then the confirm
-        assert q(engine, "SELECT count(*) AS n FROM outbox o JOIN activity_events e USING (event_id) WHERE e.student_id = :s", s=s.id)[0]["n"] == 7
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_same_activity_twice_gives_one_success_and_one_duplicate_log_row(self, apps, world, engine, activity):
@@ -518,13 +498,13 @@ class TestJourney:
         s = ready_student(engine, "SEATING")
         first = seed_events(engine, s, ["SEATING"])["SEATING"]
         with engine.begin() as c:
-            c.execute(text("INSERT INTO activity_events (student_id, activity, kind, venue_id, station_id, operator_id, details, "
-                           "completion_cycle, corrects_event_id, flags) VALUES (:s, 'SEATING', 'REVERSAL', 'stadium', NULL, "
+            c.execute(text("INSERT INTO activity_events (student_id, activity, kind, operator_id, details, "
+                           "completion_cycle, corrects_event_id, flags) VALUES (:s, 'SEATING', 'REVERSAL', "
                            "gen_random_uuid(), '{\"reason\": \"wrong student\"}', 1, :e, '{}')"), {"s": s.id, "e": first})
         client = operator(apps, world, "SEATING")
         assert scan(client, "SEATING", s.token).json()["result"] == "READY"  # not a duplicate any more
         assert confirm(client, "SEATING", token=s.token).json()["result"] == "CONFIRMED"
-        rows = q(engine, "SELECT kind, completion_cycle FROM activity_events WHERE student_id = :s AND activity = 'SEATING' ORDER BY venue_seq", s=s.id)
+        rows = q(engine, "SELECT kind, completion_cycle FROM activity_events WHERE student_id = :s AND activity = 'SEATING' ORDER BY server_time", s=s.id)
         assert [(r["kind"], r["completion_cycle"]) for r in rows] == [("COMPLETE", 1), ("REVERSAL", 1), ("COMPLETE", 2)]
 
 
@@ -536,40 +516,25 @@ class TestConcurrency:
         n = 8
 
         def work(_):
-            client = new_client(apps[OWNER[activity]])
+            client = new_client(apps)
             client.headers["Authorization"] = f"Bearer {token}"
-            return client.post("/confirm", json={"station_id": STATION[activity], "token": s.token}).json()["result"]
+            return client.post("/confirm", json={"activity": activity, "token": s.token}).json()["result"]
 
         results = _run_threads(work, n)
         assert not [r for r in results if isinstance(r, Exception)], results
         assert sorted(results) == ["CONFIRMED"] + ["DUPLICATE"] * (n - 1)
         assert len(events_of(engine, s, activity)) == 1  # the Phase 2 unique index, not a mocked lock
-        assert q(engine, "SELECT count(*) AS n FROM outbox WHERE event_id = :e", e=events_of(engine, s, activity)[0]["event_id"])[0]["n"] == 1
         assert sorted(r["result"] for r in log_of(engine, s, activity)) == ["DUPLICATE"] * (n - 1) + ["SUCCESS"]
         if activity == "QUEUE":
             assert q(engine, "SELECT count(*) AS n FROM queue WHERE student_id = :s", s=s.id)[0]["n"] == 1
 
-    def test_losing_a_race_leaves_no_gap_in_the_venue_sequence(self, apps, world, engine):
-        s = ready_student(engine, "LUNCH")
-        token = operator(apps, world, "LUNCH").cookies.get("session")
-
-        def work(_):
-            client = new_client(apps["hall"])
-            client.headers["Authorization"] = f"Bearer {token}"
-            return client.post("/confirm", json={"station_id": "LUN-01", "token": s.token}).json()["result"]
-
-        _run_threads(work, 6)
-        seqs = [r["venue_seq"] for r in q(engine, "SELECT venue_seq FROM activity_events WHERE venue_id = 'hall' ORDER BY venue_seq")]
-        assert seqs == list(range(1, len(seqs) + 1))
-
 
 class TestAtomicity:
-    """Golden rule 6: the event, its outbox row, the audit row, any effect and the scan_log row
-    all commit together or not at all. The operator sees success only after the commit."""
+    """Golden rule 6: the event, its audit row, any effect and the scan_log row all commit
+    together or not at all. The operator sees success only after the commit."""
 
-    @pytest.mark.parametrize("failing_step", ["insert_outbox", "insert_audit"])
     @pytest.mark.parametrize("activity", ["REGISTRATION", "QUEUE"])
-    def test_a_failure_after_the_event_insert_leaves_nothing_behind(self, apps, world, engine, monkeypatch, failing_step, activity):
+    def test_a_failure_after_the_event_insert_leaves_nothing_behind(self, apps, world, engine, monkeypatch, activity):
         s = ready_student(engine, activity)
         client = operator(apps, world, activity)
         before = totals(engine)
@@ -577,10 +542,10 @@ class TestAtomicity:
         def boom(*args, **kwargs):
             raise RuntimeError("simulated crash after the event insert")
 
-        monkeypatch.setattr(service, failing_step, boom)
+        monkeypatch.setattr(service, "insert_audit", boom)
         response = confirm(client, activity, token=s.token)
         assert response.status_code == 503 and response.json()["detail"]["message"] == "One moment, please try again."
-        assert totals(engine) == before                      # no event, no outbox row, no queue row
+        assert totals(engine) == before                      # no event, no queue row
         assert events_of(engine, s, activity) == []
         assert log_of(engine, s, activity) == []              # not even a SUCCESS in the log
         assert q(engine, "SELECT count(*) AS n FROM audit_log WHERE action = 'ACTIVITY_CONFIRMED' AND student_id = :s", s=s.id)[0]["n"] == 0
@@ -595,17 +560,6 @@ class TestAtomicity:
         assert confirm(operator(apps, world, "SEATING"), "SEATING", token=s.token).status_code == 503
         assert events_of(engine, s, "SEATING") == []
 
-    def test_a_failed_attempt_does_not_burn_a_venue_sequence_number(self, apps, world, engine, monkeypatch):
-        a, b = ready_student(engine, "REGISTRATION"), ready_student(engine, "REGISTRATION")
-        client = operator(apps, world, "REGISTRATION")
-        confirm(client, "REGISTRATION", token=a.token)
-        last = events_of(engine, a, "REGISTRATION")[0]["venue_seq"]
-        monkeypatch.setattr(service, "insert_outbox", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
-        confirm(client, "REGISTRATION", token=b.token)
-        monkeypatch.undo()
-        confirm(client, "REGISTRATION", token=b.token)
-        assert events_of(engine, b, "REGISTRATION")[0]["venue_seq"] == last + 1
-
     def test_killing_the_process_mid_confirm_leaves_nothing_half_written(self, engine, world):
         s = ready_student(engine, "REGISTRATION")
         before = totals(engine)
@@ -614,24 +568,22 @@ class TestAtomicity:
             from sqlalchemy import create_engine
             from backend.config import Settings
             from backend.engine import service
-            from backend.security.ownership import guard_from_settings
             from backend.security.sessions import Principal
 
-            settings = Settings(mode="venue", venue_id="college", database_url=os.environ["DATABASE_URL"])
+            settings = Settings(database_url=os.environ["DATABASE_URL"])
             engine = create_engine(settings.database_url)
             principal = Principal(session_id="x", user_id=uuid.UUID(os.environ["OP_ID"]), username="op", full_name=None,
-                                  role="REGISTRATION", station_id="REG-01", station_activity="REGISTRATION")
+                                  role="REGISTRATION")
 
             def die(*args, **kwargs):          # the event is inserted; the process dies before COMMIT
                 os._exit(137)
 
-            service.insert_outbox = die
-            service.confirm(engine, settings=settings, guard=guard_from_settings(settings), principal=principal,
-                            station_id="REG-01", token=os.environ["TOKEN"])
+            service.insert_audit = die
+            service.confirm(engine, settings=settings, principal=principal,
+                            activity="REGISTRATION", token=os.environ["TOKEN"])
             print("REACHED THE END")
         """)
-        env = {**os.environ, "DATABASE_URL": TEST_DB_URL, "OP_ID": str(world.op_ids["REGISTRATION"]), "TOKEN": s.token,
-               "MODE": "venue", "VENUE_ID": "college"}
+        env = {**os.environ, "DATABASE_URL": TEST_DB_URL, "OP_ID": str(world.op_ids["REGISTRATION"]), "TOKEN": s.token}
         run = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=120)
         assert run.returncode == 137 and "REACHED THE END" not in run.stdout, run.stdout + run.stderr
         assert totals(engine) == before and events_of(engine, s, "REGISTRATION") == [] and log_of(engine, s) == []
@@ -642,7 +594,7 @@ class TestManualSearch:
     def test_search_by_prn_shows_a_photo_and_the_event_is_flagged_manual(self, apps, world, engine, activity):
         s = ready_student(engine, activity, seat_no="D-9")
         client = operator(apps, world, activity)
-        response = client.post("/search", json={"prn": s.prn, "station_id": STATION[activity]})
+        response = client.post("/search", json={"prn": s.prn, "activity": activity})
         body = response.json()
         assert response.status_code == 200 and body["result"] == "READY" and body["manual"] is True
         card = body["student"]
@@ -654,17 +606,15 @@ class TestManualSearch:
         event = events_of(engine, s, activity)[0]
         assert "MANUAL" in event["flags"]
         assert [r["result"] for r in log_of(engine, s, activity)] == ["READY", "MANUAL"]   # the search, then the confirm
-        outbox = q(engine, "SELECT payload FROM outbox WHERE event_id = :e", e=event["event_id"])[0]["payload"]
-        assert "MANUAL" in outbox["flags"]
 
     def test_search_is_case_and_space_insensitive_but_prn_only(self, apps, world, engine):
         s = ready_student(engine, "SEATING")
         client = operator(apps, world, "SEATING")
-        assert client.post("/search", json={"prn": f"  {s.prn.lower()}\n", "station_id": "SEA-01"}).json()["result"] == "READY"
-        assert client.post("/search", json={"prn": s.name, "station_id": "SEA-01"}).json()["result"] == "INVALID"  # never by name
+        assert client.post("/search", json={"prn": f"  {s.prn.lower()}\n", "activity": "SEATING"}).json()["result"] == "READY"
+        assert client.post("/search", json={"prn": s.name, "activity": "SEATING"}).json()["result"] == "INVALID"  # never by name
 
     def test_unknown_prn_is_invalid_and_logged(self, apps, world, engine):
-        body = operator(apps, world, "QUEUE").post("/search", json={"prn": "NOPE-0000", "station_id": "QUE-01"}).json()
+        body = operator(apps, world, "QUEUE").post("/search", json={"prn": "NOPE-0000", "activity": "QUEUE"}).json()
         assert body["result"] == "INVALID" and body["message"] == NOT_FOUND
         assert q(engine, "SELECT result, prn_entered FROM scan_log WHERE prn_entered = 'NOPE-0000'")[0]["result"] == "INVALID"
 
@@ -677,15 +627,15 @@ class TestManualSearch:
         done = ready_student(engine, "SEATING")
         confirm(client, "SEATING", student_id=done.id)
         assert confirm(client, "SEATING", student_id=done.id).json()["result"] == "DUPLICATE"
-        assert client.post("/search", json={"prn": done.prn, "station_id": "SEA-01"}).json()["result"] == "DUPLICATE"
+        assert client.post("/search", json={"prn": done.prn, "activity": "SEATING"}).json()["result"] == "DUPLICATE"
         assert len(events_of(engine, done, "SEATING")) == 1
 
     def test_the_manual_flag_cannot_be_dodged(self, apps, world, engine):
         s = ready_student(engine, "REGISTRATION")
         client = operator(apps, world, "REGISTRATION")
-        assert client.post("/confirm", json={"station_id": "REG-01", "token": s.token, "student_id": str(s.id)}).status_code == 422
-        assert client.post("/confirm", json={"station_id": "REG-01"}).status_code == 422
-        assert client.post("/confirm", json={"station_id": "REG-01", "student_id": str(s.id), "manual": False}).status_code == 200
+        assert client.post("/confirm", json={"activity": "REGISTRATION", "token": s.token, "student_id": str(s.id)}).status_code == 422
+        assert client.post("/confirm", json={"activity": "REGISTRATION"}).status_code == 422
+        assert client.post("/confirm", json={"activity": "REGISTRATION", "student_id": str(s.id), "manual": False}).status_code == 200
         assert "MANUAL" in events_of(engine, s, "REGISTRATION")[0]["flags"]  # a student_id is always a manual entry
 
     def test_a_malformed_student_id_is_not_found_not_an_error(self, apps, world):
@@ -696,7 +646,7 @@ class TestManualSearch:
 class TestPhotos:
     def test_photo_is_served_to_signed_in_users_only(self, apps, world, engine):
         s = make_student(engine)
-        assert new_client(apps["college"]).get(f"/photo/{s.id}").status_code == 401
+        assert new_client(apps).get(f"/photo/{s.id}").status_code == 401
         assert operator(apps, world, "REGISTRATION").get(f"/photo/{s.id}").status_code == 200
 
     def test_a_missing_photo_falls_back_to_the_placeholder(self, apps, world, engine):
@@ -719,175 +669,41 @@ class TestPhotos:
 
 class TestAccessRules:
     @pytest.mark.parametrize("path,body", [
-        ("/scan", {"token": "x", "station_id": "REG-01"}), ("/confirm", {"token": "x", "station_id": "REG-01"}),
-        ("/search", {"prn": "x", "station_id": "REG-01"}),
+        ("/scan", {"token": "x", "activity": "REGISTRATION"}), ("/confirm", {"token": "x", "activity": "REGISTRATION"}),
+        ("/search", {"prn": "x", "activity": "REGISTRATION"}),
     ])
     def test_anonymous_callers_are_refused(self, apps, path, body):
-        assert new_client(apps["college"]).post(path, json=body).status_code == 401
+        assert new_client(apps).post(path, json=body).status_code == 401
 
-    def test_the_activity_comes_from_the_station_never_from_the_request(self, apps, world, engine):
+    def test_the_activity_must_match_the_operators_role(self, apps, world, engine):
         s = ready_student(engine, "REGISTRATION")
         client = operator(apps, world, "REGISTRATION")
-        for smuggled in ({"activity": "LUNCH"}, {"activity": "LUNCH", "venue_id": "hall", "kind": "WAIVER"}):
-            body = client.post("/scan", json={"token": s.token, "station_id": "REG-01", **smuggled}).json()
-            assert body["activity"] == "REGISTRATION" and body["result"] == "READY"
-        done = client.post("/confirm", json={"token": s.token, "station_id": "REG-01", "activity": "LUNCH", "kind": "WAIVER"}).json()
-        assert done["result"] == "CONFIRMED"
-        event = events_of(engine, s, "REGISTRATION")[0]
-        assert (event["activity"], event["kind"], event["venue_id"]) == ("REGISTRATION", "COMPLETE", "college")
+        response = client.post("/scan", json={"token": s.token, "activity": "LUNCH"})
+        assert response.status_code == 403 and response.json()["detail"]["code"] == "FORBIDDEN"
+        assert scan(client, "REGISTRATION", s.token).json()["result"] == "READY"
+        confirmed = client.post("/confirm", json={"token": s.token, "activity": "LUNCH"})
+        assert confirmed.status_code == 403
         assert events_of(engine, s, "LUNCH") == []
 
-    def test_an_operator_cannot_act_for_another_station(self, apps, world, engine):
+    def test_an_operator_cannot_act_for_another_activity(self, apps, world, engine):
         s = make_student(engine)
         client = operator(apps, world, "REGISTRATION")
-        other_desk = client.post("/scan", json={"token": s.token, "station_id": "REG-02"})
-        assert other_desk.status_code == 403 and other_desk.json()["detail"]["code"] == "STATION_MISMATCH"
-        for foreign in ("LUN-01", "SEA-01"):
-            assert client.post("/scan", json={"token": s.token, "station_id": foreign}).status_code == 403
-        assert client.post("/scan", json={"token": s.token, "station_id": "NOPE-9"}).status_code == 404
+        for foreign in ("LUNCH", "SEATING"):
+            response = client.post("/scan", json={"token": s.token, "activity": foreign})
+            assert response.status_code == 403 and response.json()["detail"]["code"] == "FORBIDDEN"
+        response = client.post("/scan", json={"token": s.token, "activity": "NOPE"})
+        assert response.status_code == 404
         assert log_of(engine, s) == []
 
-    def test_the_role_must_fit_the_station_even_if_the_binding_says_otherwise(self, apps, world, engine):
-        # Isolate the role check: point a Registration operator's session at the SEATING station. The
-        # station matches the session, but Registration is not a Seating role, so it is still refused.
-        username = f"role-{uuid.uuid4().hex[:6]}"
-        with engine.begin() as c:
-            users_svc.create_user(c, username=username, password=PASSWORD, role="REGISTRATION")
-        client = new_client(apps["stadium"], world.devices["SEATING"])
-        assert api_login(client, username).status_code == 403  # cannot even sign in at that station...
-        client = new_client(apps["college"], world.devices["REGISTRATION"])
-        token = api_login(client, username).json()["token"]
-        with engine.begin() as c:  # ...so tamper with the session to reach the situation directly
-            c.execute(text("UPDATE sessions SET station_id = 'SEA-01' WHERE token_hash = :h"),
-                      {"h": __import__("hashlib").sha256(token.encode()).hexdigest()})
-        s = ready_student(engine, "SEATING")
-        response = new_client(apps["stadium"]).post(
-            "/scan", json={"token": s.token, "station_id": "SEA-01"}, headers={"Authorization": f"Bearer {token}"})
-        assert response.status_code == 403 and response.json()["detail"]["code"] == "FORBIDDEN"
-        assert log_of(engine, s) == []
-
-    def test_admin_can_use_any_station_of_the_servers_own_venue(self, apps, world, engine):
+    def test_admin_can_use_any_activity_screen(self, apps, world, engine):
         s = ready_student(engine, "REGISTRATION")
-        assert admin(apps, "college").post("/scan", json={"token": s.token, "station_id": "REG-02"}).json()["result"] == "READY"
-        assert admin(apps, "stadium").post("/scan", json={"token": s.token, "station_id": "REG-01"}).status_code == 403
-
-    def test_a_venue_refuses_a_station_it_does_not_own(self, apps, world, engine):
-        s = make_student(engine)
-        response = admin(apps, "hall").post("/scan", json={"token": s.token, "station_id": "REG-01"})
-        assert response.status_code == 403 and response.json()["detail"]["code"] == "WRONG_VENUE"
-        assert "not here" in response.json()["detail"]["message"]
-
-    def test_central_never_runs_a_station_engine(self, apps, world, engine):
-        s = make_student(engine)
-        for path, body in (("/scan", {"token": s.token, "station_id": "REG-01"}), ("/confirm", {"token": s.token, "station_id": "REG-01"})):
-            response = admin(apps, "central").post(path, json=body)
-            assert response.status_code == 403 and response.json()["detail"]["code"] == "CENTRAL_CANNOT_ORIGINATE"
-        assert events_of(engine, s) == []
-
-    def test_a_deactivated_station_cannot_be_used(self, apps, world, engine):
-        with engine.begin() as c:
-            stations_svc.create_station(c, venue_id="college", station_id="REG-OFF", activity="REGISTRATION")
-            stations_svc.set_station_active(c, "REG-OFF", False, actor_id=world.admin_id)
-        response = admin(apps, "college").post("/scan", json={"token": "x", "station_id": "REG-OFF"})
-        assert response.status_code == 403 and response.json()["detail"]["code"] == "STATION_INACTIVE"
+        assert admin(apps).post("/scan", json={"token": s.token, "activity": "REGISTRATION"}).json()["result"] == "READY"
 
     def test_missing_or_wrong_typed_fields_are_422(self, apps, world):
         client = operator(apps, world, "REGISTRATION")
-        assert client.post("/scan", json={"station_id": "REG-01"}).status_code == 422
+        assert client.post("/scan", json={"activity": "REGISTRATION"}).status_code == 422
         assert client.post("/scan", json={"token": "x"}).status_code == 422
-        assert client.post("/scan", json={"token": 5, "station_id": "REG-01"}).status_code == 422
-
-
-# --------------------------------------------------------------------------- #
-# Cross-venue prerequisites: the real freshness rule (SYSTEM_SPEC 11.5). The full rule, with real sync
-# between separate databases, is tested in tests/test_reconcile.py; this class keeps the ENGINE-side wiring honest.
-# --------------------------------------------------------------------------- #
-class TestCrossVenueHook:
-    """The engine calls ONE hook for every cross-venue prerequisite (backend/engine/cross_venue.py)."""
-
-    def test_the_phase_6_stub_is_gone_and_the_real_rule_is_in_its_place(self, apps, world, engine):
-        import inspect
-        source = inspect.getsource(cross_venue)
-        assert not hasattr(cross_venue, "CROSS_VENUE_RULES_IMPLEMENTED")  # the "still a stub" flag no longer exists
-        assert "STUB" not in source and "TODO(" not in source and "ALWAYS ALLOWS" not in source.upper()
-        # A server that has never synced counts every peer as STALE, so a missing prerequisite is accepted
-        # PROVISIONALLY (never blocked: internet failure is not event failure) ...
-        s = make_student(engine)
-        client = operator(apps, world, "THOBE_ALLOCATION")
-        assert scan(client, "THOBE_ALLOCATION", s.token).json()["result"] == "READY"
-        assert confirm(client, "THOBE_ALLOCATION", token=s.token).json()["result"] == "CONFIRMED"
-        assert "PROVISIONAL" in events_of(engine, s, "THOBE_ALLOCATION")[0]["flags"]
-        # ... but the same missing prerequisite is BLOCKED the moment the College is known to be fresh here.
-        with engine.begin() as c:
-            c.execute(text("INSERT INTO sync_state (peer, data_as_of) VALUES ('college', now()) "
-                           "ON CONFLICT (peer) DO UPDATE SET data_as_of = now()"))
-        try:
-            t = make_student(engine)
-            blocked = scan(client, "THOBE_ALLOCATION", t.token).json()
-            assert blocked["result"] == "REJECTED" and blocked["message"] == "THOBE NOT AVAILABLE — REGISTRATION PENDING"
-            assert confirm(client, "THOBE_ALLOCATION", token=t.token).json()["result"] == "REJECTED"
-            assert events_of(engine, t, "THOBE_ALLOCATION") == []
-        finally:
-            with engine.begin() as c:
-                c.execute(text("DELETE FROM sync_state WHERE peer = 'college'"))
-
-    def test_registration_has_no_prerequisites_at_all(self, apps, world, engine):
-        assert scan(operator(apps, world, "REGISTRATION"), "REGISTRATION", make_student(engine).token).json()["result"] == "READY"
-
-    @pytest.mark.parametrize("activity,expected", [
-        ("THOBE_ALLOCATION", ["REGISTRATION"]), ("THOBE_RETURN", ["STAGE", "THOBE_ALLOCATION"]),
-        ("REGISTRATION", []), ("SEATING", []), ("QUEUE", []), ("STAGE", []), ("LUNCH", []),
-    ])
-    def test_the_hook_is_consulted_exactly_for_cross_venue_prerequisites(self, apps, world, engine, monkeypatch, activity, expected):
-        calls = []
-
-        def spy(conn, *, student_id, prerequisite, this_venue, present_locally):
-            calls.append((prerequisite.activity, this_venue, present_locally))
-            return cross_venue.CrossVenueDecision(allow=True)
-
-        monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite", spy)
-        s = ready_student(engine, activity)
-        scan(operator(apps, world, activity), activity, s.token)
-        assert [c[0] for c in calls] == expected
-        assert all(c[1] == OWNER[activity] and c[2] is True for c in calls)  # present_locally is reported truthfully
-
-    def test_the_hook_reports_a_missing_prerequisite_truthfully(self, apps, world, engine, monkeypatch):
-        seen = []
-        monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
-                            lambda conn, **k: seen.append(k["present_locally"]) or cross_venue.CrossVenueDecision(allow=True))
-        scan(operator(apps, world, "THOBE_ALLOCATION"), "THOBE_ALLOCATION", make_student(engine).token)
-        assert seen == [False]
-
-    def test_a_blocking_hook_rejects_with_its_own_plain_message(self, apps, world, engine, monkeypatch):
-        message = "THOBE NOT AVAILABLE — REGISTRATION PENDING"
-        monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
-                            lambda conn, **k: cross_venue.CrossVenueDecision(allow=False, message=message))
-        s = make_student(engine)
-        client = operator(apps, world, "THOBE_ALLOCATION")
-        for body in (scan(client, "THOBE_ALLOCATION", s.token).json(), confirm(client, "THOBE_ALLOCATION", token=s.token).json()):
-            assert body["result"] == "REJECTED" and body["message"] == message
-        assert events_of(engine, s, "THOBE_ALLOCATION") == []
-        assert [r["result"] for r in log_of(engine, s)] == ["REJECTED", "REJECTED"]
-
-    def test_a_provisional_hook_is_accepted_with_a_normal_confirmation_and_flagged(self, apps, world, engine, monkeypatch):
-        monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
-                            lambda conn, **k: cross_venue.CrossVenueDecision(allow=True, provisional=True))
-        s = make_student(engine)
-        client = operator(apps, world, "THOBE_ALLOCATION")
-        ready = scan(client, "THOBE_ALLOCATION", s.token).json()
-        done = confirm(client, "THOBE_ALLOCATION", token=s.token).json()
-        assert ready["result"] == "READY" and done["result"] == "CONFIRMED" and done["colour"] == "green"
-        assert "provisional" not in (done["message"] + ready["message"]).lower()  # the operator sees nothing scary
-        assert "PROVISIONAL" in events_of(engine, s, "THOBE_ALLOCATION")[0]["flags"]
-        log = log_of(engine, s)
-        assert [r["result"] for r in log] == ["READY", "PROVISIONAL"]     # the scan, then the confirm
-        assert log[0]["details"]["provisional"] is True                   # the scan row already knew
-
-    def test_same_venue_prerequisites_never_go_through_the_hook(self, apps, world, engine, monkeypatch):
-        monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
-                            lambda conn, **k: cross_venue.CrossVenueDecision(allow=True, provisional=True))
-        s = make_student(engine)  # SEATING needs THOBE_ALLOCATION: same venue, so a hard block whatever the hook says
-        assert scan(operator(apps, world, "SEATING"), "SEATING", s.token).json()["result"] == "REJECTED"
+        assert client.post("/scan", json={"token": 5, "activity": "REGISTRATION"}).status_code == 422
 
 
 # --------------------------------------------------------------------------- #
@@ -964,7 +780,7 @@ class TestMessagesAndLogs:
         done = ready_student(engine, "REGISTRATION")
         confirm(reg, "REGISTRATION", token=done.token)
         out.append(("duplicate", scan(reg, "REGISTRATION", done.token).json(), "already_completed"))
-        out.append(("unknown prn", reg.post("/search", json={"prn": "NOPE", "station_id": "REG-01"}).json(), "prn_not_found"))
+        out.append(("unknown prn", reg.post("/search", json={"prn": "NOPE", "activity": "REGISTRATION"}).json(), "prn_not_found"))
         return out
 
     def test_every_rejection_is_one_plain_sentence(self, apps, world, engine):
@@ -1006,9 +822,9 @@ class TestEveryAttemptIsLogged:
     """TODO.md Phase 6: "Every attempt written to `scan_log`".
 
     Refusals and confirmations were written; a SUCCESSFUL scan was not. That is the one attempt the log
-    most needs, because it is the only record that a student stood at that station and was shown to that
-    operator: without it the log cannot answer "was this student ever presented here, and did the operator
-    walk away without confirming?".
+    most needs, because it is the only record that a student was shown to that operator: without it the
+    log cannot answer "was this student ever presented here, and did the operator walk away without
+    confirming?".
     """
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
@@ -1022,8 +838,6 @@ class TestEveryAttemptIsLogged:
         assert len(rows) == 1, "a successful scan is an attempt and must be in scan_log"
         [row] = rows
         assert row["result"] == "READY"
-        assert row["venue_id"] == OWNER[activity]
-        assert row["station_id"] == STATION[activity]
         assert row["activity"] == activity
         assert row["operator_id"] == world.op_ids[activity]
         assert row["student_id"] == s.id
@@ -1051,7 +865,7 @@ class TestEveryAttemptIsLogged:
     def test_a_ready_manual_search_is_logged_with_the_prn_it_was_given(self, apps, world, engine):
         s = ready_student(engine, "REGISTRATION")
         client = operator(apps, world, "REGISTRATION")
-        body = client.post("/search", json={"prn": s.prn, "station_id": "REG-01"}).json()
+        body = client.post("/search", json={"prn": s.prn, "activity": "REGISTRATION"}).json()
         assert body["result"] == "READY" and body["manual"] is True
 
         [row] = log_of(engine, s, "REGISTRATION")
@@ -1060,7 +874,7 @@ class TestEveryAttemptIsLogged:
         assert row["details"]["stage"] == "search"
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_no_attempt_at_any_station_goes_unrecorded(self, apps, world, engine, activity):
+    def test_no_attempt_at_any_activity_goes_unrecorded(self, apps, world, engine, activity):
         """Four attempts by the same student: scan, scan again, confirm, scan once more. Four rows."""
         s = ready_student(engine, activity, seat_no="A-01")
         client = operator(apps, world, activity)
@@ -1109,12 +923,8 @@ class TestStationScreen:
             return
         assert 'id="scan"' in page.text and "autofocus" in page.text
         assert CONFIRM_LABEL[activity] in page.text
-        assert f'data-station-id="{STATION[activity]}"' in page.text
+        assert f'data-activity="{activity}"' in page.text
         assert "/static/station_logic.js" in page.text and "/static/station.js" in page.text
-
-    def test_an_admin_picks_which_station_to_act_as(self, apps, world):
-        page = admin(apps, "college").get("/station/registration")
-        assert page.status_code == 200 and "REG-01" in page.text and "REG-02" in page.text
 
     def test_the_scripts_and_styles_are_served_locally_with_no_cdn(self, apps, world):
         client = operator(apps, world, "REGISTRATION")

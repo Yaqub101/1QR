@@ -1,6 +1,6 @@
-# The STANDBY laptop for one venue (SYSTEM_SPEC 18): a hot copy of the primary's database, kept up to date by
-# PostgreSQL streaming replication. The application is deliberately NOT started here: two application servers for
-# one venue must never run at once. scripts/failover.sh promotes this database and only then starts the app.
+# The STANDBY server (docs/ARCHITECTURE_PIVOT.md): a hot copy of the primary's database, kept up to date by
+# PostgreSQL streaming replication. The application is deliberately NOT started here: two application servers
+# must never run at once. scripts/failover.sh promotes this database and only then starts the app.
 #
 #   docker compose -f docker-compose.standby.yml up -d          # starts only the standby database
 #
@@ -16,7 +16,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-convocation_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-convocation_password}
       POSTGRES_DB: ${POSTGRES_DB:-convocation_db}
-      PRIMARY_HOST: ${PRIMARY_HOST:?set PRIMARY_HOST to the primary server's address (e.g. stadium.local)}
+      PRIMARY_HOST: ${PRIMARY_HOST:?set PRIMARY_HOST to the primary server's address}
       REPLICATION_USER: ${REPLICATION_USER:-replicator}
       REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-replicator_password}
     ports:
@@ -41,11 +41,7 @@ services:
     container_name: convocation_standby_app
     restart: unless-stopped
     environment:
-      MODE: ${MODE:-venue}
-      VENUE_ID: ${VENUE_ID:?set VENUE_ID to this venue}
       DATABASE_URL: ${DATABASE_URL:-postgresql://convocation_user:convocation_password@db:5432/convocation_db}
-      CENTRAL_URL: ${CENTRAL_URL:-}
-      VENUE_API_KEY: ${VENUE_API_KEY:-}
       EVENT_NAME: ${EVENT_NAME:-Annual Convocation 2026}
       LOG_DIR: /app/logs
     ports:

@@ -1,7 +1,7 @@
 """Create the initial Admin and Deputy Admin accounts (SYSTEM_SPEC section 4).
 
 Credentials come from the environment or an interactive prompt, never from a file
-in the repo. Run it once per server (each venue and central has its own users):
+in the repo. Run it once, against the one server's database:
 
     SEED_ADMIN_USERNAME=... SEED_ADMIN_PASSWORD=... \\
     SEED_DEPUTY_USERNAME=... SEED_DEPUTY_PASSWORD=... python -m backend.seed
@@ -110,7 +110,7 @@ def cli_prompt(label: str, secret: bool) -> str:
 
 
 class _DatabaseOnly(BaseSettings):
-    """The seed only needs the database URL, not MODE / VENUE_ID."""
+    """The seed only needs the database URL."""
 
     database_url: str = "postgresql://convocation_user:convocation_password@localhost:5432/convocation_db"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)

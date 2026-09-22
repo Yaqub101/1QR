@@ -45,29 +45,33 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 ## Status Overview
 
-| # | Phase | Milestone | Done |
+> **Architecture Pivot Note:** Per `docs/ARCHITECTURE_PIVOT.md`, the 3-venue distributed sync system was superseded by a single-server, role-based architecture. Phases 14 and 15 are **DROPPED**. Phases 5, 6, 17, and 18 are **SIMPLIFIED**.
+>
+> **Tracked Follow-up:** QUEUE concurrency deadlock is confirmed pre-existing and unrelated to this pivot; tracked as a follow-up item.
+
+| # | Phase | Milestone | Status |
 |---|---|---|---|
-| 1 | Repo, AGENTS.md, environment, Docker skeleton | M1 | ☐ |
-| 2 | Database schema and migrations | M1 | ☐ |
-| 3 | Incremental import, photos, display snapshot | M1 | ☐ |
-| 4 | QR tokens and convocation passes | M1 | ☐ |
-| 5 | Auth, roles, stations, venue ownership | M1 | ☐ |
-| 6 | Station engine (scan pipeline) | M1 | ☐ |
-| 7 | Registration (College) | M1 | ☐ |
-| 8 | Thobe Allocation | M1 | ☐ |
-| 9 | Seating | M1 | ☐ |
-| 10 | Queue | M2 | ☐ |
-| 11 | Stage Controller and public LED | M2 | ☐ |
-| 12 | Thobe Return and Lunch (Hall) | M3 | ☐ |
-| 13 | Admin: dashboard, corrections, exceptions, audit | M3 | ☐ |
-| 14 | Sync engine (outbox, push/pull, status) | M4 | ☐ |
-| 15 | Cross-location rules and reconciliation | M4 | ☐ |
-| 16 | Reports and exports | M5 | ☐ |
-| 17 | High availability: standby, failover, backups | M5 | ☐ |
-| 18 | Network, power and hardware setup | M5 | ☐ |
-| 19 | Chaos and outage testing | M5 | ☐ |
-| 20 | Three-location rehearsal, freeze, handover | M5 | ☐ |
-| 21 | Go/No-Go acceptance and sign-off | — | ☐ |
+| 1 | Repo, AGENTS.md, environment, Docker skeleton | M1 | Completed |
+| 2 | Database schema and migrations | M1 | Completed |
+| 3 | Incremental import, photos, display snapshot | M1 | Completed |
+| 4 | QR tokens and convocation passes | M1 | Completed |
+| 5 | Auth, roles, sessions (simplified: role-based, no venue binding) | M1 | Completed |
+| 6 | Station engine (simplified: role-based access, hard blocks) | M1 | Completed |
+| 7 | Registration | M1 | Completed |
+| 8 | Thobe Allocation | M1 | Completed |
+| 9 | Seating | M1 | Completed |
+| 10 | Queue | M2 | Completed |
+| 11 | Stage Controller and public LED | M2 | Completed |
+| 12 | Thobe Return and Lunch | M3 | Completed |
+| 13 | Admin: dashboard, corrections, exceptions, audit | M3 | Completed |
+| 14 | Sync engine (outbox, push/pull, status) | M4 | DROPPED (per ARCHITECTURE_PIVOT.md) |
+| 15 | Cross-location rules and reconciliation | M4 | DROPPED (per ARCHITECTURE_PIVOT.md) |
+| 16 | Reports and exports | M5 | Completed |
+| 17 | High availability: standby, failover, backups (simplified: single server standby) | M5 | Completed |
+| 18 | Network, power and hardware setup (simplified: single location) | M5 | Pending |
+| 19 | Outage and load testing (simplified: single server) | M5 | Pending |
+| 20 | Rehearsal, freeze, handover | M5 | Pending |
+| 21 | Go/No-Go acceptance and sign-off | — | Pending |
 
 ---
 
@@ -406,53 +410,15 @@ in, and nothing else.
 
 ---
 
-## Phase 14 — Sync Engine (Outbox, Push/Pull, Status)
+## Phase 14 — Sync Engine (Outbox, Push/Pull, Status) — DROPPED
 
-**Antigravity prompt:** "Implement transactional outbox sync per SYSTEM_SPEC section 9. Every event has a UUID and a per-venue sequence. Push unsent events to central with retries; pull other venues' events by cursor; inserts are idempotent by event_id. Show sync status. Write the idempotency and outage tests first."
-
-- [ ] Background worker: push outbox batches to central over HTTPS with back-off; central inserts each `event_id` once
-- [ ] Pull worker: fetch other venues' events after the cursor; insert idempotently; update `sync_state`
-- [ ] Per-venue API keys; TLS to central
-- [ ] Status per venue: 🟢 ONLINE / 🟡 OFFLINE (local mode, N waiting) / 🔵 SYNCING (x / y); shown to the Admin, and a small unlabelled dot for operators
-- [ ] Track the **last successful pull time per peer venue** ("data freshness"), configurable window (default 2 minutes)
-- [ ] Detect gaps in each venue's `venue_seq` and raise an exception
-- [ ] Central rebuild script: recreate central from venue data
-- [ ] Master patch and corrections travel by sync as events
-
-**Tests**
-- [ ] Sending the same batch three times creates no duplicates
-- [ ] Central offline for 30 minutes while scanning → after reconnect, all events arrive exactly once
-- [ ] Killing the app mid-sync loses nothing and duplicates nothing
-- [ ] A venue never accepts a foreign venue's write through the operator API, and accepts it through sync only as read-only history
-- [ ] Derived status is identical regardless of arrival order
-- [ ] Sync survives a change of internet route (simulated)
-
-**Exit Gate 14 (M4a)**
-- [ ] Three venue stacks and a central stack stay consistent through simulated outages
+> **DROPPED:** Per `docs/ARCHITECTURE_PIVOT.md`, the multi-venue sync engine (outbox, push/pull workers, venue_seq, sync status) is dropped. The architecture is now single server with direct PostgreSQL connection.
 
 ---
 
-## Phase 15 — Cross-Location Rules and Reconciliation
+## Phase 15 — Cross-Location Rules and Reconciliation — DROPPED
 
-**Antigravity prompt:** "Implement the cross-location prerequisite policy from SYSTEM_SPEC section 11.5. Same-venue prerequisites are always hard blocks. Cross-venue (Stadium needs Registration; Hall needs Thobe Allocation and Stage): present locally → allow; missing and the source venue is fresh → block; missing and stale → accept as PROVISIONAL with an exception for the Admin."
-
-- [ ] Prerequisite check uses local data plus the freshness window
-- [ ] Missing + fresh → block with a plain message; missing + stale → PROVISIONAL event (no scary message for the operator)
-- [ ] On sync, a provisional event whose prerequisite still doesn't exist raises an OPEN exception; confirmed ones close automatically
-- [ ] Duplicate (student, activity) arriving from a peer (should never happen) is stored and flagged CONFLICT — never silently merged
-- [ ] Events for a deactivated token raise an exception
-- [ ] Reconciliation job on central and each venue after sync
-
-**Tests**
-- [ ] Stadium offline from College, registration missing locally: provisional accept; after sync, exception auto-closes
-- [ ] Fresh peer + missing prerequisite → blocked
-- [ ] A truly unregistered student accepted provisionally produces an OPEN exception on reconciliation
-- [ ] Hall provisional Return when the Stadium's Stage event hasn't arrived
-- [ ] Injected duplicate creates a CONFLICT exception
-- [ ] Same-venue prerequisites are never provisional
-
-**Exit Gate 15 (M4 done)**
-- [ ] Simulated three-location outage scenario ends with correct data and only the expected exceptions; tag `m4-done`
+> **DROPPED:** Per `docs/ARCHITECTURE_PIVOT.md`, multi-venue cross-location reconciliation and provisional events are dropped. All prerequisites are local and hard blocks.
 
 ---
 

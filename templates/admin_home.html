@@ -2,7 +2,6 @@
 {% block title %}Admin{% endblock %}
 {% block body %}
 <h1>Admin</h1>
-<p class="muted">{% if settings.mode == "venue" %}{{ venue_label[settings.venue_id] }} server{% else %}Central server{% endif %}</p>
 <div class="grid">
   <a class="tile primary" href="/admin/dashboard">Dashboard</a>
   <a class="tile" href="/admin/import">Import Students<small>Upload the university's list, check it, then import</small></a>
@@ -12,9 +11,5 @@
   <a class="tile" href="/admin/audit">Audit trail</a>
   <a class="tile" href="/admin/reports">Reports and exports</a>
   <a class="tile" href="/admin/users">Users</a>
-  {% if settings.mode == "venue" %}
-  <a class="tile" href="/admin/stations">Stations</a>
-  <a class="tile primary" href="/admin/bind">Set up this laptop as a station</a>
-  {% endif %}
 </div>
 {% endblock %}

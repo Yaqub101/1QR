@@ -12,7 +12,6 @@
   {% if principal %}
   <span class="who">
     {{ principal.full_name or principal.username }} &middot; {{ role_label[principal.role] }}
-    {% if principal.station_id %} &middot; Station {{ principal.station_id }}{% endif %}
   </span>
   <form method="post" action="/logout"><button class="link" type="submit">Sign out</button></form>
   {% endif %}

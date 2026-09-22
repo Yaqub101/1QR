@@ -3,7 +3,8 @@
 Every rule below must hold at the DATABASE level: the tests talk to PostgreSQL
 with raw SQL and never go through the API layer, so a bug or a hostile request
 that bypasses the application still cannot break the rules (SYSTEM_SPEC
-sections 5, 9, 11, 15, 17; AGENTS.md golden rules 3, 4, 5).
+sections 5, 15, 17; AGENTS.md golden rules 3, 5, as amended by
+docs/ARCHITECTURE_PIVOT.md).
 
 The schema under test is built by the single documented command,
 ``alembic upgrade head``, run as a subprocess against the TEST database only.
@@ -44,16 +45,6 @@ ACTIVITIES = [
     "THOBE_RETURN",
     "LUNCH",
 ]
-OWNER = {  # SYSTEM_SPEC 11.2 single-writer rule
-    "REGISTRATION": "college",
-    "THOBE_ALLOCATION": "stadium",
-    "SEATING": "stadium",
-    "QUEUE": "stadium",
-    "STAGE": "stadium",
-    "THOBE_RETURN": "hall",
-    "LUNCH": "hall",
-}
-VENUES = ["college", "stadium", "hall"]
 
 # SYSTEM_SPEC section 5: label after completing each step (index 0 = nothing done)
 STATUS_AFTER_STEP = [
@@ -73,15 +64,13 @@ EXPECTED_TABLES = {
     "qr_tokens",
     "activity_events",
     "scan_log",
-    "stations",
     "users",
+    "sessions",
     "queue",
-    "outbox",
-    "sync_state",
     "exceptions",
     "audit_log",
     "settings",
-    "counters",  # gap-free per-venue counters backing venue_seq / queue_position
+    "counters",  # the gap-free counter backing queue_position
 }
 
 
@@ -164,37 +153,31 @@ def add_event(
     activity,
     *,
     kind="COMPLETE",
-    venue=None,
     flags=None,
     details=None,
     cycle=1,
     corrects=None,
-    station="STN-1",
     operator=None,
-    venue_seq=None,
     event_id=None,
 ):
-    """Insert one activity event; returns (event_id, venue_seq)."""
+    """Insert one activity event; returns event_id."""
     if details is None:
         details = {} if kind == "COMPLETE" else {"reason": "test reason"}
     if flags is None:
         flags = ["CORRECTED"] if kind == "WAIVER" else []
     row = conn.execute(
         text(
-            "INSERT INTO activity_events (event_id, student_id, activity, kind, venue_id, "
-            "venue_seq, station_id, operator_id, flags, details, completion_cycle, corrects_event_id) "
-            "VALUES (COALESCE(:event_id, gen_random_uuid()), :student_id, :activity, :kind, :venue, "
-            ":venue_seq, :station, :operator, CAST(:flags AS text[]), CAST(:details AS jsonb), "
-            ":cycle, :corrects) RETURNING event_id, venue_seq"
+            "INSERT INTO activity_events (event_id, student_id, activity, kind, "
+            "operator_id, flags, details, completion_cycle, corrects_event_id) "
+            "VALUES (COALESCE(:event_id, gen_random_uuid()), :student_id, :activity, :kind, "
+            ":operator, CAST(:flags AS text[]), CAST(:details AS jsonb), "
+            ":cycle, :corrects) RETURNING event_id"
         ),
         {
             "event_id": event_id,
             "student_id": student_id,
             "activity": activity,
             "kind": kind,
-            "venue": venue or OWNER[activity],
-            "venue_seq": venue_seq,
-            "station": station,
             "operator": operator or uuid.uuid4(),
             "flags": list(flags),
             "details": json.dumps(details),
@@ -202,7 +185,7 @@ def add_event(
             "corrects": corrects,
         },
     ).one()
-    return row.event_id, row.venue_seq
+    return row.event_id
 
 
 def status_of(conn, student_id):
@@ -235,25 +218,15 @@ class TestMigrations:
         assert EXPECTED_TABLES <= tables, f"missing tables: {EXPECTED_TABLES - tables}"
         assert "student_status" in views
 
-    def test_upgrade_is_repeatable_and_downgrade_leaves_nothing_behind(self, engine):
+    def test_upgrade_is_repeatable(self, engine):
         assert run_alembic("upgrade", "head").returncode == 0  # already at head: no-op
 
-        down = run_alembic("downgrade", "base")
-        assert down.returncode == 0, down.stdout + down.stderr
-        with engine.connect() as c:
-            leftover_tables = [r[0] for r in c.execute(text(
-                "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename <> 'alembic_version'"))]
-            leftover_views = [r[0] for r in c.execute(text("SELECT viewname FROM pg_views WHERE schemaname='public'"))]
-            leftover_funcs = [r[0] for r in c.execute(text(
-                "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'"))]
-            leftover_domains = [r[0] for r in c.execute(text(
-                "SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace "
-                "WHERE n.nspname='public' AND t.typtype='d'"))]
-        assert leftover_tables == [] and leftover_views == []
-        assert leftover_funcs == [] and leftover_domains == []
-
-        up = run_alembic("upgrade", "head")
-        assert up.returncode == 0, up.stdout + up.stderr
+    def test_the_pivot_migration_refuses_to_downgrade(self, engine):
+        """0012 (docs/ARCHITECTURE_PIVOT.md) is deliberately one-way: the venue/sync/station data
+        it drops cannot be reconstructed. Downgrading past it fails loudly, not silently."""
+        result = run_alembic("downgrade", "-1")
+        assert result.returncode != 0 and "NotImplementedError" in result.stderr
+        assert run_alembic("upgrade", "head").returncode == 0  # still at head: the failed downgrade rolled back
 
     def test_single_migration_head(self):
         from alembic.config import Config
@@ -272,11 +245,10 @@ class TestMigrations:
         assert any("UNIQUE" in d and "(prn)" in d for d in index_defs("students"))
         assert any("UNIQUE" in d and "(token)" in d for d in index_defs("qr_tokens"))
         assert any("UNIQUE" not in d and "(student_id, activity)" in d for d in index_defs("activity_events"))
-        assert any("UNIQUE" in d and "(venue_id, venue_seq)" in d for d in index_defs("activity_events"))
 
     def test_seeded_settings_row_exists(self, conn):
-        row = conn.execute(text("SELECT id, freshness_window_seconds FROM settings")).all()
-        assert [tuple(r) for r in row] == [(1, 120)]  # default freshness window: 2 minutes
+        row = conn.execute(text("SELECT id FROM settings")).all()
+        assert [tuple(r) for r in row] == [(1,)]
 
 
 # --------------------------------------------------------------------------- #
@@ -373,7 +345,7 @@ class TestQrTokens:
 
 
 # --------------------------------------------------------------------------- #
-# activity_events: duplicate prevention (SYSTEM_SPEC 15) and single writer (11.2)
+# activity_events: duplicate prevention (SYSTEM_SPEC 15)
 # --------------------------------------------------------------------------- #
 class TestActivityEventDuplicatePrevention:
     @pytest.mark.parametrize("activity", ACTIVITIES)
@@ -403,9 +375,9 @@ class TestActivityEventDuplicatePrevention:
 
     def test_replaying_the_same_event_id_is_rejected(self, conn):
         s = new_student(conn)
-        eid, seq = add_event(conn, s, "REGISTRATION")
+        eid = add_event(conn, s, "REGISTRATION")
         with db_error(conn, UNIQUE_VIOLATION):
-            add_event(conn, s, "REGISTRATION", event_id=eid, venue_seq=seq)
+            add_event(conn, s, "REGISTRATION", event_id=eid)
 
     def test_return_waiver_and_normal_return_are_mutually_exclusive(self, conn):
         s = new_student(conn)
@@ -418,27 +390,6 @@ class TestActivityEventDuplicatePrevention:
         add_event(conn, s, "STAGE", kind="SKIP")
         add_event(conn, s, "STAGE", kind="SKIP", details={"reason": "not ready"})
         add_event(conn, s, "STAGE", kind="COMPLETE")
-
-
-class TestActivityEventOwnership:
-    WRONG = [(a, v) for a in ACTIVITIES for v in VENUES if OWNER[a] != v]
-
-    @pytest.mark.parametrize("activity,venue", WRONG)
-    def test_event_from_a_non_owning_venue_is_rejected(self, conn, activity, venue):
-        s = new_student(conn)
-        with db_error(conn, CHECK_VIOLATION):
-            add_event(conn, s, activity, venue=venue)
-
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_event_from_the_owning_venue_is_accepted(self, conn, activity):
-        add_event(conn, new_student(conn), activity, venue=OWNER[activity])
-
-    def test_stations_follow_the_same_ownership_rule(self, conn):
-        conn.execute(text("INSERT INTO stations (station_id, venue_id, activity) VALUES ('HALL-LUNCH-1','hall','LUNCH')"))
-        with db_error(conn, CHECK_VIOLATION):
-            conn.execute(text("INSERT INTO stations (station_id, venue_id, activity) VALUES ('BAD-1','college','LUNCH')"))
-        with db_error(conn, UNIQUE_VIOLATION):
-            conn.execute(text("INSERT INTO stations (station_id, venue_id, activity) VALUES ('HALL-LUNCH-1','hall','LUNCH')"))
 
 
 class TestActivityEventShape:
@@ -458,13 +409,13 @@ class TestActivityEventShape:
             add_event(conn, s2, "REGISTRATION", flags=["MANUAL", "BOGUS"])
         with db_error(conn, NOT_NULL_VIOLATION):
             conn.execute(text(
-                "INSERT INTO activity_events (student_id, activity, venue_id, station_id, operator_id, flags) "
-                "VALUES (:s, 'REGISTRATION', 'college', 'STN-1', gen_random_uuid(), NULL)"), {"s": s3})
+                "INSERT INTO activity_events (student_id, activity, operator_id, flags) "
+                "VALUES (:s, 'REGISTRATION', gen_random_uuid(), NULL)"), {"s": s3})
 
     def test_unknown_activity_kind_and_student_are_rejected(self, conn):
         s = new_student(conn)
         with db_error(conn, CHECK_VIOLATION):
-            add_event(conn, s, "EXIT", venue="hall")
+            add_event(conn, s, "EXIT")
         with db_error(conn, CHECK_VIOLATION):
             add_event(conn, s, "LUNCH", kind="ERASE")
         with db_error(conn, FK_VIOLATION):
@@ -483,7 +434,7 @@ class TestActivityEventShape:
             add_event(conn, s, "STAGE", kind="SKIP", details={})
         with db_error(conn, CHECK_VIOLATION):
             add_event(conn, s, "THOBE_RETURN", kind="WAIVER", details={"reason": "   "})
-        eid, _ = add_event(conn, s, "SEATING")
+        eid = add_event(conn, s, "SEATING")
         with db_error(conn, CHECK_VIOLATION):
             add_event(conn, s, "SEATING", kind="REVERSAL", corrects=eid, details={})
 
@@ -492,15 +443,12 @@ class TestActivityEventShape:
         with db_error(conn, CHECK_VIOLATION):
             add_event(conn, s, "THOBE_RETURN", kind="WAIVER", flags=[])
 
-    def test_operator_is_mandatory_and_station_only_optional_for_admin_kinds(self, conn):
+    def test_operator_is_mandatory(self, conn):
         s = new_student(conn)
         with db_error(conn, NOT_NULL_VIOLATION):
             conn.execute(text(
-                "INSERT INTO activity_events (student_id, activity, venue_id, station_id, operator_id) "
-                "VALUES (:s, 'REGISTRATION', 'college', 'STN-1', NULL)"), {"s": s})
-        with db_error(conn, CHECK_VIOLATION):
-            add_event(conn, s, "REGISTRATION", station=None)
-        add_event(conn, s, "THOBE_RETURN", kind="WAIVER", station=None)  # Admin console has no station
+                "INSERT INTO activity_events (student_id, activity, operator_id) "
+                "VALUES (:s, 'REGISTRATION', NULL)"), {"s": s})
 
 
 class TestReversals:
@@ -508,11 +456,11 @@ class TestReversals:
 
     def test_reversal_then_new_completion_is_allowed(self, conn):
         s = new_student(conn)
-        first, _ = add_event(conn, s, "STAGE")
+        first = add_event(conn, s, "STAGE")
         add_event(conn, s, "STAGE", kind="REVERSAL", corrects=first, cycle=1)
         add_event(conn, s, "STAGE", cycle=2)  # accidental COMPLETE undone, then done properly
         rows = conn.execute(
-            text("SELECT kind, completion_cycle FROM activity_events WHERE student_id=:s ORDER BY venue_seq"),
+            text("SELECT kind, completion_cycle FROM activity_events WHERE student_id=:s ORDER BY server_time"),
             {"s": s}).all()
         assert [tuple(r) for r in rows] == [("COMPLETE", 1), ("REVERSAL", 1), ("COMPLETE", 2)]  # original kept
 
@@ -524,8 +472,8 @@ class TestReversals:
 
     def test_reversal_must_point_at_a_real_completion_of_the_same_student_and_activity(self, conn):
         s, other = new_student(conn), new_student(conn)
-        seating, _ = add_event(conn, s, "SEATING")
-        other_reg, _ = add_event(conn, other, "REGISTRATION")
+        seating = add_event(conn, s, "SEATING")
+        other_reg = add_event(conn, other, "REGISTRATION")
         with db_error(conn, CHECK_VIOLATION):
             add_event(conn, s, "SEATING", kind="REVERSAL", corrects=uuid.uuid4(), cycle=1)   # no such event
         with db_error(conn, CHECK_VIOLATION):
@@ -537,14 +485,14 @@ class TestReversals:
 
     def test_a_completion_can_only_be_reversed_once(self, conn):
         s = new_student(conn)
-        first, _ = add_event(conn, s, "QUEUE")
+        first = add_event(conn, s, "QUEUE")
         add_event(conn, s, "QUEUE", kind="REVERSAL", corrects=first, cycle=1)
         with db_error(conn, UNIQUE_VIOLATION):
             add_event(conn, s, "QUEUE", kind="REVERSAL", corrects=first, cycle=1)
 
     def test_new_completion_after_reversal_is_still_unique(self, conn):
         s = new_student(conn)
-        first, _ = add_event(conn, s, "QUEUE")
+        first = add_event(conn, s, "QUEUE")
         add_event(conn, s, "QUEUE", kind="REVERSAL", corrects=first, cycle=1)
         add_event(conn, s, "QUEUE", cycle=2)
         with db_error(conn, UNIQUE_VIOLATION):
@@ -556,10 +504,9 @@ class TestReversals:
 # --------------------------------------------------------------------------- #
 def add_audit(conn, action="EVENT_CONFIRMED", **cols):
     return conn.execute(
-        text("INSERT INTO audit_log (action, student_id, activity, venue_id, station_id, operator_id, reason) "
-             "VALUES (:action, :student_id, :activity, :venue_id, :station_id, :operator_id, :reason) RETURNING id"),
+        text("INSERT INTO audit_log (action, student_id, activity, operator_id, reason) "
+             "VALUES (:action, :student_id, :activity, :operator_id, :reason) RETURNING id"),
         {"action": action, "student_id": cols.get("student_id"), "activity": cols.get("activity"),
-         "venue_id": cols.get("venue_id"), "station_id": cols.get("station_id"),
          "operator_id": cols.get("operator_id"), "reason": cols.get("reason")},
     ).scalar_one()
 
@@ -567,7 +514,7 @@ def add_audit(conn, action="EVENT_CONFIRMED", **cols):
 class TestAuditLogAppendOnly:
     def test_insert_is_allowed(self, conn):
         s, u = new_student(conn), new_user(conn)
-        add_audit(conn, student_id=s, activity="REGISTRATION", venue_id="college", station_id="REG-1", operator_id=u)
+        add_audit(conn, student_id=s, activity="REGISTRATION", operator_id=u)
 
     def test_update_raises(self, conn):
         aid = add_audit(conn)
@@ -606,13 +553,13 @@ class TestAuditLogAppendOnly:
 class TestActivityEventsAppendOnly:
     def test_update_raises(self, conn):
         s = new_student(conn)
-        eid, _ = add_event(conn, s, "REGISTRATION")
+        eid = add_event(conn, s, "REGISTRATION")
         with db_error(conn, RESTRICT_VIOLATION, match="append-only"):
-            conn.execute(text("UPDATE activity_events SET station_id='FORGED' WHERE event_id=:e"), {"e": eid})
+            conn.execute(text("UPDATE activity_events SET flags='{}' WHERE event_id=:e"), {"e": eid})
 
     def test_delete_raises(self, conn):
         s = new_student(conn)
-        eid, _ = add_event(conn, s, "REGISTRATION")
+        eid = add_event(conn, s, "REGISTRATION")
         with db_error(conn, RESTRICT_VIOLATION, match="append-only"):
             conn.execute(text("DELETE FROM activity_events WHERE event_id=:e"), {"e": eid})
 
@@ -631,8 +578,7 @@ class TestActivityEventsAppendOnly:
 class TestScanLogAppendOnly:
     def _scan(self, conn, result="SUCCESS"):
         return conn.execute(
-            text("INSERT INTO scan_log (venue_id, station_id, activity, result) "
-                 "VALUES ('college', 'REG-1', 'REGISTRATION', :r) RETURNING id"), {"r": result}).scalar_one()
+            text("INSERT INTO scan_log (activity, result) VALUES ('REGISTRATION', :r) RETURNING id"), {"r": result}).scalar_one()
 
     @pytest.mark.parametrize("result", ["READY", "SUCCESS", "DUPLICATE", "INVALID", "REJECTED", "PROVISIONAL", "MANUAL"])
     def test_every_result_kind_can_be_logged(self, conn, result):
@@ -650,59 +596,6 @@ class TestScanLogAppendOnly:
             conn.execute(text("UPDATE scan_log SET result='SUCCESS' WHERE id=:i"), {"i": sid})
         with db_error(conn, RESTRICT_VIOLATION, match="append-only"):
             conn.execute(text("DELETE FROM scan_log WHERE id=:i"), {"i": sid})
-
-
-# --------------------------------------------------------------------------- #
-# venue_seq: a genuine gap-free per-venue counter (SYSTEM_SPEC 9)
-# --------------------------------------------------------------------------- #
-class TestVenueSeq:
-    def test_sequence_is_assigned_per_venue_starting_at_one(self, conn):
-        students = [new_student(conn) for _ in range(3)]
-        college = [add_event(conn, s, "REGISTRATION")[1] for s in students]
-        stadium = [add_event(conn, s, a)[1] for s, a in zip(students[:2], ["THOBE_ALLOCATION", "THOBE_ALLOCATION"])]
-        hall = [add_event(conn, students[0], "THOBE_RETURN")[1]]
-        assert college == [1, 2, 3]
-        assert stadium == [1, 2]   # each venue has its own independent counter
-        assert hall == [1]
-
-    def test_sequence_follows_insert_order_across_activities_of_one_venue(self, conn):
-        s = new_student(conn)
-        seqs = [add_event(conn, s, a)[1] for a in ["THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE"]]
-        assert seqs == [1, 2, 3, 4]
-
-    def test_replicated_event_keeps_the_sequence_it_was_authored_with(self, conn):
-        s = new_student(conn)
-        _, seq = add_event(conn, s, "REGISTRATION", venue_seq=500)
-        assert seq == 500
-
-    def test_two_events_cannot_share_a_venue_sequence(self, conn):
-        a, b = new_student(conn), new_student(conn)
-        add_event(conn, a, "REGISTRATION", venue_seq=42)
-        with db_error(conn, UNIQUE_VIOLATION):
-            add_event(conn, b, "REGISTRATION", venue_seq=42)
-
-    def test_sequence_must_be_positive(self, conn):
-        with db_error(conn, CHECK_VIOLATION):
-            add_event(conn, new_student(conn), "REGISTRATION", venue_seq=0)
-
-    def test_a_failed_insert_does_not_burn_a_sequence_number(self, conn):
-        s, t = new_student(conn), new_student(conn)
-        _, first = add_event(conn, s, "REGISTRATION")
-        with db_error(conn, UNIQUE_VIOLATION):
-            add_event(conn, s, "REGISTRATION")  # duplicate: rolled back
-        _, second = add_event(conn, t, "REGISTRATION")
-        assert (first, second) == (1, 2)  # no gap, or Phase 14 would report a false SEQ_GAP
-
-    def test_counters_can_only_move_forward_by_one_and_never_be_removed(self, conn):
-        add_event(conn, new_student(conn), "REGISTRATION")
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("UPDATE counters SET value = value - 1 WHERE name='venue_seq:college'"))
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("UPDATE counters SET value = value + 5 WHERE name='venue_seq:college'"))
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("DELETE FROM counters WHERE name='venue_seq:college'"))
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("TRUNCATE counters"))
 
 
 def _run_threads(fn, n):
@@ -732,27 +625,13 @@ class TestConcurrency:
         with engine.begin() as c:
             return [new_student(c) for _ in range(n)]
 
-    def test_concurrent_writers_get_gap_free_unique_venue_seqs(self, committed_db):
-        engine, n = committed_db, 24
-        students = self._students(engine, n)
-
-        def work(i):
-            with engine.begin() as c:
-                return add_event(c, students[i], "REGISTRATION")[1]
-
-        results = _run_threads(work, n)
-        assert not [r for r in results if isinstance(r, Exception)], results
-        assert sorted(results) == list(range(1, n + 1))
-        with engine.connect() as c:
-            assert c.execute(text("SELECT value FROM counters WHERE name='venue_seq:college'")).scalar_one() == n
-
-    def test_racing_duplicate_completions_leave_exactly_one_row_and_no_gap(self, committed_db):
+    def test_racing_duplicate_completions_leave_exactly_one_row(self, committed_db):
         engine, n = committed_db, 10
         (student,) = self._students(engine, 1)
 
         def work(_):
             with engine.begin() as c:
-                return add_event(c, student, "REGISTRATION")[1]
+                return add_event(c, student, "REGISTRATION")
 
         results = _run_threads(work, n)
         winners = [r for r in results if not isinstance(r, Exception)]
@@ -761,33 +640,6 @@ class TestConcurrency:
         assert all(r.orig.pgcode == UNIQUE_VIOLATION for r in losers)
         with engine.connect() as c:
             assert c.execute(text("SELECT count(*) FROM activity_events")).scalar_one() == 1
-            assert c.execute(text("SELECT venue_seq FROM activity_events")).scalar_one() == 1
-            assert c.execute(text("SELECT value FROM counters WHERE name='venue_seq:college'")).scalar_one() == 1
-
-    def test_rolled_back_writers_leave_no_gap_under_concurrency(self, committed_db):
-        engine, n = committed_db, 20
-        students = self._students(engine, n)
-
-        class Abort(Exception):
-            pass
-
-        def work(i):
-            try:
-                with engine.begin() as c:
-                    seq = add_event(c, students[i], "REGISTRATION")[1]
-                    if i % 2:
-                        raise Abort()  # application decides to roll back after the insert
-                    return seq
-            except Abort:
-                return None
-
-        results = _run_threads(work, n)
-        assert not [r for r in results if isinstance(r, Exception)], results
-        committed = sorted(r for r in results if r is not None)
-        assert committed == list(range(1, n // 2 + 1))
-        with engine.connect() as c:
-            stored = c.execute(text("SELECT venue_seq FROM activity_events ORDER BY venue_seq")).scalars().all()
-        assert stored == committed
 
     def test_concurrent_queue_confirmations_get_positions_one_to_n(self, committed_db):
         engine, n = committed_db, 15
@@ -840,65 +692,11 @@ class TestQueue:
 
 
 # --------------------------------------------------------------------------- #
-# outbox / sync_state / exceptions / settings / users / display_snapshot
+# exceptions / settings / users / display_snapshot
 # --------------------------------------------------------------------------- #
-class TestOutbox:
-    def _add(self, conn, event_id=None):
-        return conn.execute(
-            text("INSERT INTO outbox (event_id, payload) VALUES (COALESCE(:e, gen_random_uuid()), CAST(:p AS jsonb)) "
-                 "RETURNING id, event_id"),
-            {"e": event_id, "p": json.dumps({"k": "v"})}).one()
-
-    def test_one_outbox_row_per_event(self, conn):
-        row = self._add(conn)
-        with db_error(conn, UNIQUE_VIOLATION):
-            self._add(conn, event_id=row.event_id)
-
-    def test_new_rows_are_unsent(self, conn):
-        row = self._add(conn)
-        assert conn.execute(text("SELECT sent_at FROM outbox WHERE id=:i"), {"i": row.id}).scalar_one() is None
-
-    def test_can_be_marked_sent_once_but_not_rewritten(self, conn):
-        row = self._add(conn)
-        conn.execute(text("UPDATE outbox SET sent_at=now() WHERE id=:i"), {"i": row.id})
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("UPDATE outbox SET sent_at=NULL WHERE id=:i"), {"i": row.id})
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("UPDATE outbox SET sent_at=now() + interval '1 hour' WHERE id=:i"), {"i": row.id})
-
-    def test_payload_and_event_id_are_immutable(self, conn):
-        row = self._add(conn)
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("UPDATE outbox SET payload='{\"k\": \"changed\"}' WHERE id=:i"), {"i": row.id})
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("UPDATE outbox SET event_id=gen_random_uuid() WHERE id=:i"), {"i": row.id})
-
-    def test_unsent_rows_cannot_be_deleted_but_sent_rows_can(self, conn):
-        row = self._add(conn)
-        with db_error(conn, RESTRICT_VIOLATION, match="unsent"):
-            conn.execute(text("DELETE FROM outbox WHERE id=:i"), {"i": row.id})
-        with db_error(conn, RESTRICT_VIOLATION):
-            conn.execute(text("TRUNCATE outbox"))
-        conn.execute(text("UPDATE outbox SET sent_at=now() WHERE id=:i"), {"i": row.id})
-        conn.execute(text("DELETE FROM outbox WHERE id=:i"), {"i": row.id})
-
-
 class TestSmallTables:
-    @pytest.mark.parametrize("peer", ["central", "college", "stadium", "hall"])
-    def test_sync_state_accepts_known_peers_once(self, conn, peer):
-        conn.execute(text("INSERT INTO sync_state (peer) VALUES (:p)"), {"p": peer})
-        assert conn.execute(text("SELECT cursor FROM sync_state WHERE peer=:p"), {"p": peer}).scalar_one() == 0
-        with db_error(conn, UNIQUE_VIOLATION):
-            conn.execute(text("INSERT INTO sync_state (peer) VALUES (:p)"), {"p": peer})
-
-    def test_sync_state_rejects_unknown_peer_and_negative_cursor(self, conn):
-        with db_error(conn, CHECK_VIOLATION):
-            conn.execute(text("INSERT INTO sync_state (peer) VALUES ('moon')"))
-        with db_error(conn, CHECK_VIOLATION):
-            conn.execute(text("INSERT INTO sync_state (peer, cursor) VALUES ('hall', -1)"))
-
     def test_exceptions_start_open_and_resolution_is_consistent(self, conn):
-        eid = conn.execute(text("INSERT INTO exceptions (type) VALUES ('PROVISIONAL_UNCONFIRMED') RETURNING id")).scalar_one()
+        eid = conn.execute(text("INSERT INTO exceptions (type) VALUES ('RETURN_WAIVED') RETURNING id")).scalar_one()
         assert conn.execute(text("SELECT status FROM exceptions WHERE id=:i"), {"i": eid}).scalar_one() == "OPEN"
         with db_error(conn, CHECK_VIOLATION):  # RESOLVED must say when
             conn.execute(text("UPDATE exceptions SET status='RESOLVED' WHERE id=:i"), {"i": eid})
@@ -910,15 +708,13 @@ class TestSmallTables:
         with db_error(conn, CHECK_VIOLATION):
             conn.execute(text("INSERT INTO exceptions (type) VALUES ('  ')"))
         with db_error(conn, CHECK_VIOLATION):
-            conn.execute(text("INSERT INTO exceptions (type, status) VALUES ('CONFLICT', 'IGNORED')"))
+            conn.execute(text("INSERT INTO exceptions (type, status) VALUES ('RETURN_WAIVED', 'IGNORED')"))
 
-    def test_settings_is_a_single_row_with_a_positive_freshness_window(self, conn):
+    def test_settings_is_a_single_row(self, conn):
         with db_error(conn, CHECK_VIOLATION):
             conn.execute(text("INSERT INTO settings (id) VALUES (2)"))
         with db_error(conn, UNIQUE_VIOLATION):
             conn.execute(text("INSERT INTO settings (id) VALUES (1)"))
-        with db_error(conn, CHECK_VIOLATION):
-            conn.execute(text("UPDATE settings SET freshness_window_seconds = 0"))
 
     @pytest.mark.parametrize("role", ["ADMIN", "REGISTRATION", "THOBE_ALLOCATION", "SEATING",
                                       "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH"])
@@ -1024,7 +820,7 @@ class TestStudentStatus:
     def test_reversal_steps_the_status_back_and_recompletion_restores_it(self, conn):
         s = new_student(conn)
         complete_steps(conn, s, 4)
-        stage, _ = add_event(conn, s, "STAGE")
+        stage = add_event(conn, s, "STAGE")
         assert status_of(conn, s) == "THOBE NOT RETURNED"
         add_event(conn, s, "STAGE", kind="REVERSAL", corrects=stage, cycle=1)
         assert status_of(conn, s) == "DEGREE NOT RECEIVED"
@@ -1037,15 +833,15 @@ class TestStudentStatus:
             for _ in range(6):
                 s = new_student(conn)
                 order = ACTIVITIES[:n_done][:]
-                rng.shuffle(order)  # sync may deliver in any order
+                rng.shuffle(order)
                 for activity in order:
                     add_event(conn, s, activity)
                 assert status_of(conn, s) == STATUS_AFTER_STEP[n_done]
 
-    def test_out_of_order_provisional_event_shows_furthest_step_reached(self, conn):
-        # A Hall lunch accepted while the Stadium's events have not synced yet.
+    def test_a_flagged_event_shows_the_furthest_step_reached(self, conn):
+        # A flag on an event (e.g. MANUAL, LATE) never changes what the status view derives from it.
         s = new_student(conn)
-        add_event(conn, s, "LUNCH", flags=["PROVISIONAL"])
+        add_event(conn, s, "LUNCH", flags=["MANUAL"])
         assert status_of(conn, s) == "EXITED"
 
     def test_students_are_independent(self, conn):

@@ -9,14 +9,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 ACTIVE_COMPLETION_SQL = """
-    SELECT e.event_id, e.kind, e.server_time, e.station_id, e.details, e.completion_cycle
+    SELECT e.event_id, e.kind, e.server_time, e.details, e.completion_cycle
     FROM activity_events e
     WHERE e.student_id = :student_id AND e.activity = :activity AND e.kind IN ('COMPLETE','WAIVER')
       AND NOT EXISTS (
           SELECT 1 FROM activity_events r
           WHERE r.kind = 'REVERSAL' AND r.student_id = e.student_id AND r.activity = e.activity
             AND r.completion_cycle = e.completion_cycle)
-    ORDER BY e.completion_cycle DESC, e.venue_seq DESC
+    ORDER BY e.completion_cycle DESC
     LIMIT 1
 """
 

@@ -561,7 +561,7 @@ class TestAgainstTheRealFile:
                                                     dtype=str)["PRN No."].tolist()]
         _, _, _, preview = read_and_validate(engine, real_bytes, "real.xls")
         with engine.connect() as conn:
-            summary = commit_import(preview, conn, venue_id="college", filename="real.xls")
+            summary = commit_import(preview, conn, filename="real.xls")
         assert (summary.read, summary.created, summary.skipped, summary.errors) == (1201, 1200, 1, 0)
         assert scalar(engine, "SELECT count(*) FROM students WHERE prn = ANY(:p)", p=real_prns) == 1200
         assert scalar(engine, "SELECT count(*) FROM students WHERE prn = '202308116012'") == 1

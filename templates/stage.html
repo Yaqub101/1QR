@@ -1,16 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Stage{% endblock %}
 {% block body %}
-<div id="stage-root" data-station-id="{{ station_id or '' }}">
+<div id="stage-root">
   <h1>Stage</h1>
-
-  {% if principal.is_admin %}
-  <label class="admin-station">Acting as station
-    <select id="station-select">
-      {% for s in stations %}<option value="{{ s.station_id }}">{{ s.station_id }}</option>{% endfor %}
-    </select>
-  </label>
-  {% endif %}
 
   <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Connecting…</span></div>
   <p id="led" class="led-status">Audience screen: holding screen</p>

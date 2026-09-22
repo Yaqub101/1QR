@@ -11,13 +11,5 @@ from backend.engine.model import ActivityConfig
 class EngineContext:
     settings: Any        # backend.config.Settings
     principal: Any       # backend.security.sessions.Principal
-    station: dict        # {"station_id", "venue_id", "activity"} - the station decides the activity
+    activity: str         # which of the seven activities this request is for
     config: ActivityConfig
-
-    @property
-    def activity(self) -> str:
-        return self.station["activity"]
-
-    @property
-    def venue(self) -> str:
-        return self.settings.venue_id

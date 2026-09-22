@@ -15,10 +15,9 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.admin import corrections
 from tests.admin_support import add_event, add_student, error_code, parse_csv, physical_row, rows, scalar, table_fingerprint
-from tests.test_auth import ACTIVITIES, OWNER, PASSWORD, RESTRICT_VIOLATION, api_login, new_client
+from tests.test_auth import ACTIVITIES, PASSWORD, RESTRICT_VIOLATION, api_login, new_client
 from tests.test_schema import _run_threads
 from tests.test_station_engine import (  # noqa: F401  (engine / world / apps are pytest fixtures)
-    STATION,
     _CLIENTS,
     admin,
     apps,
@@ -71,7 +70,7 @@ def journey_upto(engine, activity, **kw):
 
 
 def counts(engine):
-    return {t: scalar(engine, f"SELECT count(*) FROM {t}") for t in ("activity_events", "outbox", "audit_log", "exceptions")}
+    return {t: scalar(engine, f"SELECT count(*) FROM {t}") for t in ("activity_events", "audit_log", "exceptions")}
 
 
 # =========================================================================== THE CORRECTION ENDPOINT
@@ -97,16 +96,15 @@ class TestReversalNeverMutatesHistory:
         new = rows(engine, "SELECT * FROM activity_events WHERE event_id = :e", e=new_id)[0]
         assert new["kind"] == "REVERSAL" and str(new["corrects_event_id"]) == str(original)          # references the original
         assert new["student_id"] == s.id and new["activity"] == "SEATING" and new["completion_cycle"] == 1
-        assert new["operator_id"] == world.admin_id and new["station_id"] is None                     # who: the Admin
+        assert new["operator_id"] == world.admin_id                                                   # who: the Admin
         assert new["details"]["reason"] == "seated in the wrong seat" and "CORRECTED" in new["flags"]  # why, flagged
         orig = rows(engine, "SELECT kind, flags FROM activity_events WHERE event_id = :e", e=original)[0]
         assert orig["kind"] == "COMPLETE" and "CORRECTED" not in orig["flags"]  # the original does NOT carry the flag: it was never edited
 
-    def test_the_correction_is_queued_for_sync_and_audited_in_the_same_commit(self, apps, engine, world):
+    def test_the_correction_is_audited_in_the_same_commit(self, apps, engine, world):
         s, ids = journey_upto(engine, "QUEUE")
         r = reverse(apps, "stadium", ids["SEATING"], "wrong seat").json()
         new = r["correction_event_id"]
-        assert scalar(engine, "SELECT count(*) FROM outbox WHERE event_id = :e AND sent_at IS NULL", e=new) == 1
         a = rows(engine, "SELECT * FROM audit_log WHERE event_id = :e", e=new)
         assert len(a) == 1 and a[0]["action"] == "ADMIN_REVERSAL" and a[0]["reason"] == "wrong seat"
         assert str(a[0]["corrects_event_id"]) == str(ids["SEATING"]) and a[0]["corrected_by"] == world.admin_id
@@ -156,11 +154,11 @@ class TestReversalNeverMutatesHistory:
         s, ids = journey_upto(engine, "QUEUE")
         operator_principal = SimpleNamespace(role="SEATING", user_id=world.op_ids["SEATING"])
         with pytest.raises(corrections.CorrectionError) as exc:
-            corrections.reverse_event(engine, guard=apps["stadium"].state.venue_guard, principal=operator_principal,
+            corrections.reverse_event(engine, principal=operator_principal,
                                       event_id=ids["SEATING"], reason="because")
         assert exc.value.status_code == 403
         with pytest.raises(corrections.CorrectionError) as exc:
-            corrections.waive_return(engine, guard=apps["hall"].state.venue_guard, principal=operator_principal, student_id=s.id, reason="x")
+            corrections.waive_return(engine, principal=operator_principal, student_id=s.id, reason="x")
         assert exc.value.status_code == 403
 
     def test_a_deputy_admin_has_identical_powers_and_is_named_in_the_trail(self, apps, engine, world):
@@ -222,19 +220,16 @@ class TestReversalNeverMutatesHistory:
         assert scan(registration, "REGISTRATION", s.token).json()["result"] == "READY"       # reopened, by a NEW row
         assert confirm(registration, "REGISTRATION", token=s.token).json()["result"] == "CONFIRMED"
         assert confirm(registration, "REGISTRATION", token=s.token).json()["result"] == "DUPLICATE"
-        cycles = rows(engine, "SELECT kind, completion_cycle FROM activity_events WHERE student_id = :s ORDER BY venue_seq", s=s.id)
+        cycles = rows(engine, "SELECT kind, completion_cycle FROM activity_events WHERE student_id = :s ORDER BY server_time", s=s.id)
         assert [(r["kind"], r["completion_cycle"]) for r in cycles] == [("COMPLETE", 1), ("REVERSAL", 1), ("COMPLETE", 2)]
         assert scalar(engine, "SELECT kind FROM activity_events WHERE event_id = :e", e=original) == "COMPLETE"  # cycle 1 still there
 
-    def test_a_correction_for_another_venues_activity_is_refused_with_a_plain_pointer(self, apps, engine):
-        s, ids = journey_upto(engine, "LUNCH")               # Thobe Return is owned by the Hall
+    def test_admin_can_reverse_any_activity_across_all_stations(self, apps, engine):
+        s, ids = journey_upto(engine, "LUNCH")
         before = counts(engine)
-        for venue in ("stadium", "college", "central"):
-            r = reverse(apps, venue, ids["THOBE_RETURN"])
-            assert r.status_code == 409 and error_code(r) == "APPLY_AT_OWNER", venue
-        assert "Hall server" in r.json()["detail"]["message"]
-        assert counts(engine) == before
-        assert reverse(apps, "hall", ids["THOBE_RETURN"]).status_code == 200
+        r = reverse(apps, "stadium", ids["THOBE_RETURN"])
+        assert r.status_code == 200
+        assert counts(engine)["activity_events"] == before["activity_events"] + 1
 
     def test_the_stage_queue_follows_a_reversal_but_the_led_is_never_touched(self, apps, engine):
         # Stage reversed: back to QUEUED at the old position.
@@ -329,11 +324,10 @@ class TestReturnWaived:
         assert r.json()["kind"] == "WAIVER" and r.json()["thobe_allocation_on_record"] is True
 
         event = rows(engine, "SELECT * FROM activity_events WHERE event_id = :e", e=r.json()["correction_event_id"])[0]
-        assert event["kind"] == "WAIVER" and event["activity"] == "THOBE_RETURN" and event["venue_id"] == "hall"
-        assert "CORRECTED" in event["flags"] and event["station_id"] is None and event["operator_id"] == world.admin_id
+        assert event["kind"] == "WAIVER" and event["activity"] == "THOBE_RETURN"
+        assert "CORRECTED" in event["flags"] and event["operator_id"] == world.admin_id
         assert event["details"]["reason"] == "student reports the thobe was lost" and event["completion_cycle"] == 1
         assert scalar(engine, "SELECT count(*) FROM activity_events") == before["activity_events"] + 1   # one new row, nothing else
-        assert scalar(engine, "SELECT count(*) FROM outbox WHERE event_id = :e", e=event["event_id"]) == 1
         audit = rows(engine, "SELECT * FROM audit_log WHERE event_id = :e", e=event["event_id"])[0]
         assert audit["action"] == "RETURN_WAIVED" and audit["corrected_by"] == world.admin_id and "CORRECTED" in audit["flags"]
         assert audit["reason"] == "student reports the thobe was lost" and audit["corrects_event_id"] == allocation  # links to the thobe written off
@@ -396,13 +390,12 @@ class TestReturnWaived:
         assert sorted(results) == [200, 409, 409, 409, 409], results
         assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s AND kind = 'WAIVER'", s=s.id) == 1
 
-    def test_it_is_only_applied_at_the_hall_server(self, apps, engine):
+    def test_admin_can_waive_from_any_session(self, apps, engine):
         s = self.make(engine)
         before = counts(engine)
-        for venue in ("college", "stadium", "central"):
-            r = waive(apps, venue, s)
-            assert r.status_code == 409 and error_code(r) == "APPLY_AT_OWNER" and "Hall server" in r.json()["detail"]["message"]
-        assert counts(engine) == before
+        r = waive(apps, "college", s)
+        assert r.status_code == 200
+        assert counts(engine)["activity_events"] == before["activity_events"] + 1
 
     def test_unknown_students_and_bad_ids(self, apps):
         assert waive(apps, "hall", "00000000-0000-0000-0000-000000000000").status_code == 404
@@ -530,9 +523,7 @@ class TestSearchAndJourney:
         assert stage["reversed_by_event_id"] == correction["event_id"] and correction["corrects_event_id"] == stage["event_id"]
         assert correction["reason"] == "pressed by accident" and correction["operator"] == "eng-admin"
         assert j["events"][0]["can_reverse"] and not stage["can_reverse"]
-        assert j["can_waive_return"] is True and j["waive_here"] is False   # no return yet, but Thobe Return is Hall-owned
-        hall = admin(apps, "hall").get(f"/admin/api/students/{s.id}").json()
-        assert hall["can_waive_return"] and hall["waive_here"] and hall["events"][0]["reverse_here"] is False
+        assert j["can_waive_return"] is True
 
     def test_the_journey_page_and_unknown_students(self, apps, engine):
         s, ids = journey_upto(engine, "SEATING")
@@ -561,7 +552,7 @@ class TestAudit:
         assert body["total"] == 1 and body["rows"][0]["action"] == "ADMIN_REVERSAL"
         row = body["rows"][0]
         assert row["corrected_by"] == "eng-admin" and row["reason"] == "audit view test" and row["corrects_event_id"] == str(ids["SEATING"])
-        assert row["prn"] == s.prn and row["activity"] == "SEATING" and row["venue"] == "stadium" and "CORRECTED" in row["flags"]
+        assert row["prn"] == s.prn and row["activity"] == "SEATING" and "CORRECTED" in row["flags"]
         assert client.get("/admin/api/audit", params={"action": "ADMIN_REVERSAL", "limit": 1}).json()["rows"].__len__() == 1
         assert client.get("/admin/api/audit", params={"action": "NO_SUCH_ACTION"}).json()["total"] == 0
         assert client.get("/admin/api/audit", params={"since": "not a date"}).status_code == 400

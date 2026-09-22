@@ -17,12 +17,11 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
 
-from backend import stations as stations_svc
 from backend import users as users_svc
 from backend.engine import service
 from backend.snapshot import begin_master_patch_txn
 from backend.stage import led as led_mod
-from tests.test_auth import OWNER, PASSWORD, api_login, new_client
+from tests.test_auth import PASSWORD, api_login, new_client
 from tests.test_schema import RESTRICT_VIOLATION, _run_threads, db_error
 from tests.test_station_engine import (  # noqa: F401  (engine/world/apps are pytest fixtures)
     _CLIENTS,
@@ -56,10 +55,8 @@ def stage(engine, world, apps):
     """Two Stage laptops: STG-01 (main) and STG-02 (backup), each with its own operator and session."""
     with engine.begin() as c:
         users_svc.create_user(c, username="stage-backup", password=PASSWORD, role="STAGE")
-        stations_svc.create_station(c, venue_id="stadium", station_id="STG-02", activity="STAGE")
-        device = stations_svc.bind_station(c, "STG-02", actor_id=world.admin_id)
     main = operator(apps, world, "STAGE")
-    backup = new_client(apps["stadium"], device)
+    backup = new_client(apps)
     assert api_login(backup, "stage-backup").status_code == 200
     return SimpleNamespace(main=main, backup=backup, main_token=main.cookies.get("session"),
                            backup_token=backup.cookies.get("session"))
@@ -109,7 +106,7 @@ def claim(stage):
 
 
 def led(apps):
-    return new_client(apps["stadium"]).get("/led/state")
+    return new_client(apps).get("/led/state")
 
 
 def stage_stat(engine, student):
@@ -252,10 +249,9 @@ class TestCompleteAndSkip:
         response = act(stage.main, "complete")
         assert response.status_code == 200
         event = events_of(engine, first, "STAGE")
-        assert len(event) == 1 and event[0]["kind"] == "COMPLETE" and event[0]["station_id"] == "STG-01"
+        assert len(event) == 1 and event[0]["kind"] == "COMPLETE"
         assert "MANUAL" not in event[0]["flags"]  # the controller identified them; nobody typed a PRN
         assert events_of(engine, waiting, "STAGE") == []  # only reached the Queue: no Stage record
-        assert q(engine, "SELECT count(*) AS n FROM outbox WHERE event_id = :e", e=event[0]["event_id"])[0]["n"] == 1
         assert stage_stat(engine, first) == "DONE" and stage_stat(engine, waiting) == "QUEUED"
         assert q(engine, "SELECT status FROM student_status WHERE student_id = :s", s=first.id)[0]["status"] == "THOBE NOT RETURNED"
         assert led(apps).json()["mode"] == "HOME"  # a holding screen between students
@@ -277,7 +273,7 @@ class TestCompleteAndSkip:
         def boom(*a, **k):
             raise RuntimeError("simulated crash after the event insert")
 
-        monkeypatch.setattr(service, "insert_outbox", boom)
+        monkeypatch.setattr(service, "insert_audit", boom)
         response = act(stage.main, "complete")
         assert response.status_code == 503 and response.json()["detail"]["message"] == "One moment, please try again."
         monkeypatch.undo()
@@ -344,7 +340,7 @@ class TestRapidDoublePress:
 
 
 def stage_call(apps, token, path, station="STG-01", **body):
-    client = new_client(apps["stadium"])
+    client = new_client(apps)
     client.headers["Authorization"] = f"Bearer {token}"
     return client.post(f"/stage/{path}", json={"station_id": station, **body})
 
@@ -372,8 +368,8 @@ class TestSingleController:
                            ("skip", {"reason": "x"}), ("display", {"student_id": str(students[1].id)}), ("search", {"q": "x"})]:
             r = act(stage.main, path, **body)
             assert r.status_code == 409 and r.json()["detail"]["code"] == "NOT_CONTROLLER", (path, r.status_code, r.text)
-        mine = stage.main.get("/stage/state", params={"station_id": "STG-01"}).json()
-        assert mine["you_control"] is False and mine["controller"]["station_id"] == "STG-02"
+        mine = stage.main.get("/stage/state").json()
+        assert mine["you_control"] is False and mine["controller"]["username"] == "stage-backup"
         assert events_of(engine, students[0], "STAGE") == []                       # A's locked-out COMPLETE did nothing
 
         # B now runs the show; A can take it back deliberately
@@ -386,8 +382,8 @@ class TestSingleController:
     def test_take_over_is_audited_with_who_replaced_whom(self, apps, world, engine, stage):
         claim(stage)
         act(stage.backup, "takeover", station="STG-02")
-        row = q(engine, "SELECT operator_id, station_id, details FROM audit_log WHERE action = 'STAGE_TAKEOVER' ORDER BY id DESC LIMIT 1")[0]
-        assert row["station_id"] == "STG-02" and row["details"]["replaced_station"] == "STG-01"
+        row = q(engine, "SELECT operator_id, details FROM audit_log WHERE action = 'STAGE_TAKEOVER' ORDER BY id DESC LIMIT 1")[0]
+        assert row["details"]["replaced_session"] is not None
 
     def test_a_dead_controller_does_not_block_the_backup(self, apps, world, engine, stage):
         claim(stage)
@@ -402,12 +398,12 @@ class TestSingleController:
     def test_an_admin_can_take_over_but_a_queue_operator_cannot(self, apps, world, engine, stage):
         claim(stage)
         assert act(operator(apps, world, "QUEUE"), "takeover", station="QUE-01").status_code == 403
-        assert act(admin(apps, "stadium"), "takeover", station="STG-01").status_code == 200
+        assert act(admin(apps), "takeover", station="STG-01").status_code == 200
         assert act(stage.main, "home").status_code == 409
 
-    def test_the_stage_screen_is_stadium_only(self, apps, world):
-        for venue in ("college", "hall", "central"):
-            assert admin(apps, venue).post("/stage/control", json={"station_id": "STG-01"}).status_code == 403
+    def test_non_stage_operators_cannot_control_the_stage(self, apps, world):
+        for role in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "THOBE_RETURN", "LUNCH"):
+            assert act(operator(apps, world, role), "control").status_code == 403
 
 
 
@@ -454,7 +450,7 @@ class TestPublicLed:
         students = queued(engine, apps, world, 6)
         claim(stage)
         act(stage.main, "display-next")
-        anon = new_client(apps["stadium"])
+        anon = new_client(apps)
         response = anon.get("/led/state")
         assert response.status_code == 200
         assert_led_clean(response.text, students[0])
@@ -469,11 +465,11 @@ class TestPublicLed:
         students = queued(engine, apps, world, 2)
         claim(stage)
         act(stage.main, "display-next")
-        page = new_client(apps["stadium"]).get("/led")
+        page = new_client(apps).get("/led")
         assert page.status_code == 200 and "<form" not in page.text and "<button" not in page.text and "<input" not in page.text
         for secret in (students[0].prn, str(students[0].id)):
             assert secret not in page.text
-        events = bounded_stream(engine, apps["stadium"].state.settings)
+        events = bounded_stream(engine, apps.state.settings)
         first = next(events)
         assert first.startswith("event: state\ndata: ") and first.endswith("\n\n")
         assert_led_clean(first.split("data: ", 1)[1], students[0])
@@ -489,7 +485,7 @@ class TestPublicLed:
             c.execute(text("UPDATE display_snapshot SET photo_path = :p WHERE student_id = :s"), {"p": str(picture), "s": s.id})
         claim(stage)
         act(stage.main, "display-next")
-        anon = new_client(apps["stadium"])
+        anon = new_client(apps)
         url = anon.get("/led/state").json()["student"]["photo_url"]
         assert str(s.id) not in url and s.prn not in url
         photo = anon.get(url)
@@ -512,15 +508,14 @@ class TestPublicLed:
         body = led(apps).json()
         assert body["mode"] == "HOME" and body["holding"] == {"title": "Annual Convocation 2026", "text": "Welcome, graduates"}
 
-    def test_the_led_exists_only_at_the_stadium(self, apps):
-        for venue in ("college", "hall", "central"):
-            client = new_client(apps[venue])
-            assert client.get("/led").status_code == 404 and client.get("/led/state").status_code == 404
+    def test_the_stage_state_refuses_non_stage_operators(self, apps, world):
+        for role in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "THOBE_RETURN", "LUNCH"):
+            assert operator(apps, world, role).get("/stage/state").status_code == 403
 
     def test_the_event_stream_announces_every_change_and_keeps_the_connection_alive(self, apps, world, engine, stage):
         students = queued(engine, apps, world, 2)
         claim(stage)
-        events = bounded_stream(engine, apps["stadium"].state.settings)
+        events = bounded_stream(engine, apps.state.settings)
         assert json.loads(next(events).split("data: ", 1)[1])["mode"] == "HOME"       # initial paint
         act(stage.main, "display-next")
         shown = next(events)                                                           # the very next poll sees it
@@ -531,7 +526,7 @@ class TestPublicLed:
 
     def test_the_stream_route_is_server_sent_events(self, apps):
         from backend.stage import routes as stage_routes
-        response = stage_routes.led_events_response(apps["stadium"])
+        response = stage_routes.led_events_response(apps)
         assert response.media_type == "text/event-stream" and response.headers["cache-control"] == "no-store"
 
 
@@ -549,7 +544,7 @@ class TestStageScreen:
     def test_the_static_files_are_served_locally(self, apps, world, stage):
         for path in ("/static/stage.js", "/static/led.js", "/static/led.css"):
             assert stage.main.get(path).status_code == 200
-        assert new_client(apps["stadium"]).get("/static/led.js").status_code == 200  # the LED page needs it without a login
+        assert new_client(apps).get("/static/led.js").status_code == 200  # the LED page needs it without a login
 
     def test_the_private_state_needs_a_stage_role_and_shows_the_three_positions(self, apps, world, engine, stage):
         students = queued(engine, apps, world, 3)
@@ -558,5 +553,5 @@ class TestStageScreen:
         state = stage.main.get("/stage/state", params={"station_id": "STG-01"}).json()
         assert state["you_control"] is True and state["queue_depth"] == 2
         assert all(k in state["current"] for k in ("name", "photo_url", "programme", "school", "has_display_data"))
-        assert new_client(apps["stadium"]).get("/stage/state").status_code == 401
+        assert new_client(apps).get("/stage/state").status_code == 401
         assert operator(apps, world, "QUEUE").get("/stage/state", params={"station_id": "QUE-01"}).status_code == 403

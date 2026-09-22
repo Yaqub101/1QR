@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# failover.sh - make THIS laptop the venue server, because the primary is dead.
+# failover.sh - make THIS laptop the server, because the primary is dead.
 #
-#   ./scripts/failover.sh --venue stadium            do it
-#   ./scripts/failover.sh --venue stadium --dry-run  show every step, change nothing
+#   ./scripts/failover.sh              do it
+#   ./scripts/failover.sh --dry-run    show every step, change nothing
 #
 # BEST EFFORT. It was written and syntax-checked, and its steps are exercised in --dry-run by the test suite, but it
 # has NOT been run against two real machines: the development environment has no second computer, no router and no
@@ -10,17 +10,17 @@
 # rehearse it on the real equipment (Exit Gate 17 asks for someone other than the developer to do that).
 #
 # What it does, in order (target: under 2 minutes):
-#   1. Check that the old server is really down. Two servers answering for one venue is the worst thing that can
+#   1. Check that the old server is really down. Two servers answering at once is the worst thing that can
 #      happen (it splits the record in two), so if the old address still answers, it STOPS.
 #   2. Promote the standby database: it stops copying from the old server and becomes the real database.
 #   3. Start the application on this laptop.
-#   4. Take over the server's address, so stations find the new server by the same name they always used.
+#   4. Take over the server's address, so operators find the new server by the same name they always used.
 #   5. Check the server is healthy.
 #
 # Settings (environment variables; sensible defaults):
-#   PRIMARY_ADDR   the name stations use for the server               default: <venue>.local
-#   COMPOSE_FILE   the standby's compose file                          default: docker-compose.standby.yml
-#   HEALTH_URL     where to check the new server is up                 default: http://localhost:8000/health
+#   PRIMARY_ADDR   the name operators use for the server                default: convocation.local
+#   COMPOSE_FILE   the standby's compose file                           default: docker-compose.standby.yml
+#   HEALTH_URL     where to check the new server is up                  default: http://localhost:8000/health
 #   TAKEOVER_IP    (optional, Linux) IP address to take over, e.g. 192.168.10.20
 #   TAKEOVER_IFACE (optional, Linux) network interface to put it on, e.g. eth0
 #
@@ -28,19 +28,17 @@
 
 set -euo pipefail
 
-VENUE=""
 DRY=0
 FORCE=0
 
 usage() {
-  echo "Usage: $0 --venue college|stadium|hall [--dry-run] [--force]"
+  echo "Usage: $0 [--dry-run] [--force]"
   echo "  --dry-run  show every step and change nothing"
   echo "  --force    continue even though the old server still answers (only if you are SURE it is switched off)"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --venue) VENUE="${2:-}"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     --force) FORCE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -48,12 +46,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-case "$VENUE" in
-  college|stadium|hall) ;;
-  *) echo "Please say which venue: --venue college, stadium or hall."; usage; exit 2 ;;
-esac
-
-PRIMARY_ADDR="${PRIMARY_ADDR:-${VENUE}.local}"
+PRIMARY_ADDR="${PRIMARY_ADDR:-convocation.local}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.standby.yml}"
 HEALTH_URL="${HEALTH_URL:-http://localhost:8000/health}"
 TAKEOVER_IP="${TAKEOVER_IP:-}"
@@ -63,7 +56,7 @@ STARTED=$(date +%s)
 say()  { echo; echo "== $*"; }
 run()  { if [ "$DRY" -eq 1 ]; then echo "   would run: $*"; else echo "   \$ $*"; "$@"; fi; }
 
-echo "FAILOVER for the $VENUE venue"
+echo "FAILOVER"
 [ "$DRY" -eq 1 ] && echo "DRY RUN - nothing will be changed."
 
 say "Step 1 of 5: Check that the old server is really down"
@@ -74,7 +67,7 @@ elif ping -c 2 -W 2 "$PRIMARY_ADDR" >/dev/null 2>&1; then
     echo "   WARNING: $PRIMARY_ADDR still answers, continuing only because of --force."
   else
     echo "   $PRIMARY_ADDR STILL ANSWERS. The old server is not down."
-    echo "   Do not continue. Two servers for one venue would split the record in two."
+    echo "   Do not continue. Two servers at once would split the record in two."
     echo "   Switch the old server off (or unplug its network cable), then run this again."
     exit 3
   fi
@@ -105,8 +98,8 @@ if [ -n "$TAKEOVER_IP" ] && [ -n "$TAKEOVER_IFACE" ] && command -v ip >/dev/null
   if command -v arping >/dev/null 2>&1; then run arping -U -c 3 -I "$TAKEOVER_IFACE" "$TAKEOVER_IP"; fi
 else
   echo "   This script cannot move the address for you on this machine. Do ONE of these:"
-  echo "   a) In the router, point the name $PRIMARY_ADDR at THIS laptop's address (best: nothing to do on the stations)."
-  echo "   b) On each station laptop, add this line to its hosts file:   <this laptop's address>   $PRIMARY_ADDR"
+  echo "   a) In the router, point the name $PRIMARY_ADDR at THIS laptop's address (best: nothing to do on the operator laptops)."
+  echo "   b) On each operator laptop, add this line to its hosts file:   <this laptop's address>   $PRIMARY_ADDR"
   echo "   (Set TAKEOVER_IP and TAKEOVER_IFACE to let this script take a fixed IP itself on Linux.)"
 fi
 
@@ -128,5 +121,5 @@ echo
 if [ "$DRY" -eq 1 ]; then
   echo "DRY RUN finished. Nothing was changed."
 else
-  echo "DONE in ${ELAPSED} seconds (target: under 120). Stations reconnect on their own once they can reach $PRIMARY_ADDR."
+  echo "DONE in ${ELAPSED} seconds (target: under 120). Operators reconnect on their own once they can reach $PRIMARY_ADDR."
 fi

@@ -160,8 +160,7 @@ def commit_batch(request: Request, batch_id: str, principal: Principal = Depends
                         error=f"{len(preview.errors)} row(s) still have to be fixed, so nothing was written.")
 
     with engine.connect() as conn:
-        summary = commit_import(preview, conn, operator_id=principal.user_id,
-                                venue_id=settings.venue_id, filename=batch.filename)
+        summary = commit_import(preview, conn, operator_id=principal.user_id, filename=batch.filename)
 
     photos = None
     if batch.photo_dir and pathlib.Path(batch.photo_dir).is_dir():

@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 from sqlalchemy import text
 
@@ -141,8 +141,7 @@ def _requested(changes: Mapping[str, Any]) -> dict:
 
 
 # ------------------------------------------------------------------ the action
-def apply_master_patch(engine, *, student_id, changes: Mapping[str, Any], reason, operator_id,
-                       venue_id: Optional[str] = None) -> MasterPatchResult:
+def apply_master_patch(engine, *, student_id, changes: Mapping[str, Any], reason, operator_id) -> MasterPatchResult:
     """Change a frozen student's master fields, with a reason, in one audited transaction."""
     reason = clean_reason(reason)
     wanted = _requested(changes)
@@ -178,7 +177,7 @@ def apply_master_patch(engine, *, student_id, changes: Mapping[str, Any], reason
             conn.execute(text(f"UPDATE display_snapshot SET {sets}, frozen_at = now() WHERE student_id = :id"),
                          {**snapshot_moves, "id": current["id"]})
 
-        write_audit(conn, "MASTER_PATCH", operator_id=operator_id, venue_id=venue_id, reason=reason,
+        write_audit(conn, "MASTER_PATCH", operator_id=operator_id, reason=reason,
                     student_id=current["id"],
                     details={"prn": current["prn"], "changes": changed, "snapshot_refreshed": bool(snapshot_moves)})
 

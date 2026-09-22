@@ -24,9 +24,6 @@ from backend import master_patch as master_patch_svc
 from backend import passes as passes_svc
 from backend import qr_tokens
 from backend.audit import write_audit
-from backend.sync import reconcile as reconcile_svc
-from backend.sync import status as sync_status
-from backend.security import ownership
 from backend.security.deps import http_error, require_admin
 from backend.security.sessions import Principal
 from backend.web import redirect, render
@@ -89,36 +86,6 @@ def api_dashboard(request: Request):
         return dashboard.snapshot(conn, request.app.state.settings)
 
 
-class WindowBody(BaseModel):
-    seconds: int
-
-
-@router.post("/api/reconcile")
-def api_reconcile(request: Request):
-    """Run reconciliation now (it also runs after every sync): closes provisional items whose record has arrived,
-    raises the ones that have not, and checks every venue's numbering for holes."""
-    return reconcile_svc.reconcile(request.app.state.engine)
-
-
-@router.get("/api/sync")
-def api_sync(request: Request):
-    settings = request.app.state.settings
-    with request.app.state.engine.connect() as conn:
-        return dashboard.venue_health(conn, settings)
-
-
-@router.put("/api/sync/freshness-window")
-def api_freshness_window(request: Request, body: WindowBody, principal: Principal = Depends(require_admin)):
-    """How long a peer's data counts as fresh (SYSTEM_SPEC 11.5; default 120 s). Logged."""
-    if not 10 <= body.seconds <= 3600:
-        raise http_error(400, "BAD_WINDOW", "Please choose between 10 seconds and 1 hour.")
-    with request.app.state.engine.begin() as conn:
-        old = sync_status.freshness_window(conn)
-        conn.execute(text("UPDATE settings SET freshness_window_seconds = :s WHERE id = 1"), {"s": body.seconds})
-        write_audit(conn, "FRESHNESS_WINDOW_CHANGED", operator_id=principal.user_id, details={"from": old, "to": body.seconds})
-    return {"ok": True, "freshness_window_seconds": body.seconds}
-
-
 @router.get("/api/students")
 def api_students(request: Request, q: str = ""):
     with request.app.state.engine.connect() as conn:
@@ -128,7 +95,7 @@ def api_students(request: Request, q: str = ""):
 @router.get("/api/students/{student_id}")
 def api_student(request: Request, student_id: str):
     with request.app.state.engine.connect() as conn:
-        data = students_svc.journey(conn, student_id, request.app.state.settings, request.app.state.venue_guard)
+        data = students_svc.journey(conn, student_id, request.app.state.settings)
     if data is None:
         raise http_error(404, "STUDENT_NOT_FOUND", "That student does not exist.")
     return data
@@ -137,7 +104,7 @@ def api_student(request: Request, student_id: str):
 @router.post("/api/corrections/reverse")
 def api_reverse(request: Request, body: ReverseBody, principal: Principal = Depends(require_admin)):
     try:
-        return corrections.reverse_event(request.app.state.engine, guard=request.app.state.venue_guard, principal=principal,
+        return corrections.reverse_event(request.app.state.engine, principal=principal,
                                          event_id=body.event_id, reason=body.reason)
     except CorrectionError as exc:
         raise _fail(exc)
@@ -146,7 +113,7 @@ def api_reverse(request: Request, body: ReverseBody, principal: Principal = Depe
 @router.post("/api/corrections/waive-return")
 def api_waive(request: Request, body: WaiveBody, principal: Principal = Depends(require_admin)):
     try:
-        return corrections.waive_return(request.app.state.engine, guard=request.app.state.venue_guard, principal=principal,
+        return corrections.waive_return(request.app.state.engine, principal=principal,
                                         student_id=body.student_id, reason=body.reason)
     except CorrectionError as exc:
         raise _fail(exc)
@@ -156,10 +123,6 @@ def api_waive(request: Request, body: WaiveBody, principal: Principal = Depends(
 # download is logged. The audit log records ids and counts, never a token.
 def _token_fail(exc: qr_tokens.TokenError):
     return http_error(exc.status_code, exc.code, exc.message)
-
-
-def _venue_of(request: Request):
-    return request.app.state.settings.venue_id      # None on the central server
 
 
 def _page_param(name: str, raw: Optional[str], *, minimum: int) -> Optional[int]:
@@ -187,7 +150,7 @@ def _safe(name: str) -> str:
 @router.post("/api/qr/generate-missing")
 def api_generate_missing(request: Request, principal: Principal = Depends(require_admin)):
     """Give every ACTIVE student who has no QR one. Safe to press twice: the second time creates nothing."""
-    result = qr_tokens.generate_missing_tokens(request.app.state.engine, operator_id=principal.user_id, venue_id=_venue_of(request))
+    result = qr_tokens.generate_missing_tokens(request.app.state.engine, operator_id=principal.user_id)
     return {"created": result.created, "active_students": result.active_students, "with_token": result.with_token}
 
 
@@ -195,7 +158,7 @@ def api_generate_missing(request: Request, principal: Principal = Depends(requir
 def api_reissue_qr(request: Request, student_id: str, body: ReissueBody, principal: Principal = Depends(require_admin)):
     try:
         result = qr_tokens.reissue_token(request.app.state.engine, student_id=student_id, reason=body.reason,
-                                         operator_id=principal.user_id, venue_id=_venue_of(request))
+                                         operator_id=principal.user_id)
     except qr_tokens.TokenError as exc:
         raise _token_fail(exc)
     return {"ok": True, "old_token_id": result.old_token_id, "new_token_id": result.new_token_id,
@@ -220,7 +183,7 @@ def _one_pass(request: Request, student_id: str, principal: Principal) -> Respon
     data = passes_svc.to_pass_data(rows_)[0]
     result = passes_svc.render_single(data, title)
     with engine.begin() as conn:    # logged before the file is handed over: a download that cannot be logged is not served
-        write_audit(conn, "PASS_DOWNLOADED", operator_id=principal.user_id, venue_id=_venue_of(request), student_id=student_id,
+        write_audit(conn, "PASS_DOWNLOADED", operator_id=principal.user_id, student_id=student_id,
                     details={"prn": data.prn, "warnings": [w.code for w in result.warnings]})
     return _pdf(result.pdf, f"pass-{_safe(data.prn)}.pdf", len(result.warnings))
 
@@ -251,7 +214,7 @@ def api_passes(request: Request, school: Optional[str] = None, offset: Optional[
         raise _token_fail(exc)
     result = passes_svc.render_sheets(data, title)
     with engine.begin() as conn:
-        write_audit(conn, "PASSES_DOWNLOADED", operator_id=principal.user_id, venue_id=_venue_of(request),
+        write_audit(conn, "PASSES_DOWNLOADED", operator_id=principal.user_id,
                     details={"count": result.count, "school": school, "offset": first, "limit": count,
                              "warnings": [{"prn": w.prn, "code": w.code} for w in result.warnings[:200]],
                              "warning_count": len(result.warnings)})
@@ -406,12 +369,11 @@ def passes_download_single(request: Request, student_id: str, principal: Princip
 @router.get("/students/{student_id}")
 def student_page(request: Request, student_id: str, principal: Principal = Depends(require_admin)):
     with request.app.state.engine.connect() as conn:
-        data = students_svc.journey(conn, student_id, request.app.state.settings, request.app.state.venue_guard)
+        data = students_svc.journey(conn, student_id, request.app.state.settings)
         qr = qr_tokens.status_for(conn, student_id) if data is not None else None
     if data is None:
         raise http_error(404, "STUDENT_NOT_FOUND", "That student does not exist.")
     return render(request, "admin_student.html", principal=principal, j=data, qr=qr,
-                  here=request.app.state.settings.venue_id, venue_of=ownership.ACTIVITY_OWNER,
                   patch_fields=master_patch_svc.PATCHABLE_FIELDS, patch_source=PATCH_SOURCE)
 
 
@@ -422,7 +384,7 @@ def api_master_patch(request: Request, student_id: str, body: MasterPatchBody,
     try:
         result = master_patch_svc.apply_master_patch(
             request.app.state.engine, student_id=student_id, changes=body.changes, reason=body.reason,
-            operator_id=principal.user_id, venue_id=_venue_of(request))
+            operator_id=principal.user_id)
     except master_patch_svc.MasterPatchError as exc:
         raise http_error(exc.status_code, exc.code, exc.message)
     return {"ok": True, "student_id": result.student_id, "prn": result.prn, "changed": result.changed,
@@ -440,7 +402,7 @@ async def master_patch_form(request: Request, student_id: str, principal: Princi
     try:
         result = master_patch_svc.apply_master_patch(
             request.app.state.engine, student_id=student_id, changes=changes, reason=form.get("reason", ""),
-            operator_id=principal.user_id, venue_id=_venue_of(request))
+            operator_id=principal.user_id)
     except master_patch_svc.MasterPatchError as exc:
         return redirect(f"/admin/students/{student_id}", error=exc.message)
     changed = ", ".join(master_patch_svc.PATCHABLE_FIELDS[f] for f in result.changed)
@@ -451,7 +413,7 @@ async def master_patch_form(request: Request, student_id: str, principal: Princi
 def reissue_form(request: Request, student_id: str, reason: str = Form(""), principal: Principal = Depends(require_admin)):
     try:
         qr_tokens.reissue_token(request.app.state.engine, student_id=student_id, reason=reason,
-                                operator_id=principal.user_id, venue_id=_venue_of(request))
+                                operator_id=principal.user_id)
     except qr_tokens.TokenError as exc:
         return redirect(f"/admin/students/{student_id}", error=exc.message)
     return redirect(f"/admin/students/{student_id}", msg="A new QR has been issued. The old one no longer works. Print the new pass.")
@@ -461,7 +423,7 @@ def reissue_form(request: Request, student_id: str, reason: str = Form(""), prin
 def reverse_form(request: Request, student_id: str, event_id: str = Form(...), reason: str = Form(""),
                  principal: Principal = Depends(require_admin)):
     try:
-        result = corrections.reverse_event(request.app.state.engine, guard=request.app.state.venue_guard, principal=principal,
+        result = corrections.reverse_event(request.app.state.engine, principal=principal,
                                            event_id=event_id, reason=reason)
     except CorrectionError as exc:
         return redirect(f"/admin/students/{student_id}", error=exc.message)
@@ -471,7 +433,7 @@ def reverse_form(request: Request, student_id: str, event_id: str = Form(...), r
 @router.post("/students/{student_id}/waive-return")
 def waive_form(request: Request, student_id: str, reason: str = Form(""), principal: Principal = Depends(require_admin)):
     try:
-        result = corrections.waive_return(request.app.state.engine, guard=request.app.state.venue_guard, principal=principal,
+        result = corrections.waive_return(request.app.state.engine, principal=principal,
                                           student_id=student_id, reason=reason)
     except CorrectionError as exc:
         return redirect(f"/admin/students/{student_id}", error=exc.message)

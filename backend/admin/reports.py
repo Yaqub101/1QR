@@ -83,7 +83,7 @@ def activity_report(activity: str) -> Callable:
             WITH {ACTIVE_CTE}
             SELECT s.prn, s.name, s.school, s.programme, s.sequence_no,
                    CASE WHEN a.event_id IS NULL THEN 'Not Completed' ELSE 'Completed' END AS state,
-                   a.server_time AS completed_at, a.station_id, a.kind AS record_kind, a.flags,
+                   a.server_time AS completed_at, a.kind AS record_kind, a.flags,
                    CASE WHEN a.event_id IS NOT NULL THEN ''
                         WHEN n.kind = 'SKIP' THEN 'Skipped: ' || coalesce(n.reason, '')
                         WHEN n.kind = 'REVERSAL' THEN 'Reversed by Admin: ' || coalesce(n.reason, '')
@@ -93,13 +93,13 @@ def activity_report(activity: str) -> Callable:
             LEFT JOIN LATERAL (
                 SELECT e.kind, e.details->>'reason' AS reason FROM activity_events e
                 WHERE e.student_id = s.id AND e.activity = :activity AND e.kind IN ('SKIP','REVERSAL')
-                ORDER BY e.server_time DESC, e.venue_seq DESC LIMIT 1) n ON a.event_id IS NULL
+                ORDER BY e.server_time DESC LIMIT 1) n ON a.event_id IS NULL
             ORDER BY s.sequence_no NULLS LAST, s.name""", {"activity": activity}, off)
         completed = sum(1 for r in rows if r["state"] == "Completed")
         totals = {"total": len(rows), "completed": completed, "not_completed": len(rows) - completed}
         if status != "all":
             rows = [r for r in rows if r["state"] == ("Completed" if status == "completed" else "Not Completed")]
-        cols = STUDENT_COLS + [("state", "Status"), ("completed_at", "Completed at"), ("station_id", "Station"),
+        cols = STUDENT_COLS + [("state", "Status"), ("completed_at", "Completed at"),
                                ("record_kind", "Record"), ("flags", "Flags"), ("note", "Note")]
         return Report(f"activity-{activity.lower().replace('_', '-')}", f"{ACTIVITY_LABEL[activity]}: completed / not completed",
                       cols, rows, totals, "A Thobe Return waiver counts as completed (Record = WAIVER)." if activity == "THOBE_RETURN" else "")
@@ -175,15 +175,15 @@ def stage_outcomes(conn, settings, params) -> Report:
     rows = _rows(conn, """
         SELECT e.server_time AS at, s.prn, s.name, s.school, s.programme,
                CASE e.kind WHEN 'SKIP' THEN 'Skipped' ELSE 'Completed' END AS outcome,
-               e.details->>'reason' AS reason, e.station_id,
+               e.details->>'reason' AS reason,
                CASE WHEN e.kind = 'COMPLETE' AND EXISTS (SELECT 1 FROM activity_events r WHERE r.kind = 'REVERSAL'
                         AND r.student_id = e.student_id AND r.activity = e.activity AND r.completion_cycle = e.completion_cycle)
                     THEN 'Reversed by Admin' ELSE '' END AS note
         FROM activity_events e JOIN students s ON s.id = e.student_id
-        WHERE e.activity = 'STAGE' AND e.kind IN ('COMPLETE','SKIP') ORDER BY e.server_time, e.venue_seq""", {}, settings.event_utc_offset_minutes)
+        WHERE e.activity = 'STAGE' AND e.kind IN ('COMPLETE','SKIP') ORDER BY e.server_time""", {}, settings.event_utc_offset_minutes)
     return Report("stage-outcomes", "Stage: completed and skipped (with reasons)",
                   [("at", "Time"), ("prn", "PRN"), ("name", "Name"), ("school", "School"), ("programme", "Programme"),
-                   ("outcome", "Outcome"), ("reason", "Skip reason"), ("station_id", "Station"), ("note", "Note")], rows,
+                   ("outcome", "Outcome"), ("reason", "Skip reason"), ("note", "Note")], rows,
                   {"completed": sum(1 for r in rows if r["outcome"] == "Completed"), "skipped": sum(1 for r in rows if r["outcome"] == "Skipped")})
 
 
@@ -191,18 +191,18 @@ def stage_outcomes(conn, settings, params) -> Report:
 def flagged(key: str, title: str, flag: str, activity: Optional[str] = None) -> Callable:
     def build(conn, settings, params) -> Report:
         rows = _rows(conn, f"""
-            SELECT e.server_time AS at, s.prn, s.name, e.activity, e.kind, e.station_id, u.username AS operator, e.flags,
+            SELECT e.server_time AS at, s.prn, s.name, e.activity, e.kind, u.username AS operator, e.flags,
                    CASE WHEN e.kind IN ('COMPLETE','WAIVER') AND EXISTS (SELECT 1 FROM activity_events r WHERE r.kind = 'REVERSAL'
                             AND r.student_id = e.student_id AND r.activity = e.activity AND r.completion_cycle = e.completion_cycle)
                         THEN 'Reversed by Admin' ELSE '' END AS note
             FROM activity_events e JOIN students s ON s.id = e.student_id LEFT JOIN users u ON u.id = e.operator_id
             WHERE :flag = ANY (e.flags) {"AND e.activity = :activity" if activity else ""}
-            ORDER BY e.server_time, e.venue_seq""", {"flag": flag, **({"activity": activity} if activity else {})},
+            ORDER BY e.server_time""", {"flag": flag, **({"activity": activity} if activity else {})},
                      settings.event_utc_offset_minutes)
         for r in rows:
             r["activity"] = ACTIVITY_LABEL[r["activity"]]
         return Report(key, title, [("at", "Time"), ("prn", "PRN"), ("name", "Name"), ("activity", "Activity"), ("kind", "Record"),
-                                   ("station_id", "Station"), ("operator", "Operator"), ("flags", "Flags"), ("note", "Note")],
+                                   ("operator", "Operator"), ("flags", "Flags"), ("note", "Note")],
                       rows, {"count": len(rows)})
     return build
 
@@ -210,29 +210,29 @@ def flagged(key: str, title: str, flag: str, activity: Optional[str] = None) -> 
 def corrections(conn, settings, params) -> Report:
     rows = _rows(conn, """
         SELECT c.server_time AS at, c.kind, c.activity, s.prn, s.name, u.username AS admin, c.details->>'reason' AS reason,
-               c.corrects_event_id AS original_event_id, o.server_time AS original_time, o.station_id AS original_station,
+               c.corrects_event_id AS original_event_id, o.server_time AS original_time,
                c.event_id AS correction_event_id
         FROM activity_events c JOIN students s ON s.id = c.student_id LEFT JOIN users u ON u.id = c.operator_id
         LEFT JOIN activity_events o ON o.event_id = c.corrects_event_id
-        WHERE c.kind IN ('REVERSAL','WAIVER') ORDER BY c.server_time, c.venue_seq""", {}, settings.event_utc_offset_minutes)
+        WHERE c.kind IN ('REVERSAL','WAIVER') ORDER BY c.server_time""", {}, settings.event_utc_offset_minutes)
     for r in rows:
         r["activity"] = ACTIVITY_LABEL[r["activity"]]
         r["kind"] = "Reversal" if r["kind"] == "REVERSAL" else "Return waived / lost"
     return Report("corrections", "Admin corrections",
                   [("at", "Time"), ("kind", "Correction"), ("activity", "Activity"), ("prn", "PRN"), ("name", "Name"),
                    ("admin", "Admin"), ("reason", "Reason"), ("original_event_id", "Corrects event"),
-                   ("original_time", "Original recorded at"), ("original_station", "Original station"),
+                   ("original_time", "Original recorded at"),
                    ("correction_event_id", "Correction event")], rows, {"corrections": len(rows)})
 
 
 def exceptions_report(conn, settings, params) -> Report:
     data = exceptions_svc.list_exceptions(conn, settings, limit=1000)
     rows = [{"id": x["id"], "created_at": x["created_at"], "type": x["type"], "status": x["status"], "prn": x["prn"] or "",
-             "name": x["name"] or "", "venue": x["venue"] or "", "reason": x["reason"] or "", "resolved_by": x["resolved_by"] or "",
+             "name": x["name"] or "", "reason": x["reason"] or "", "resolved_by": x["resolved_by"] or "",
              "resolved_at": x["resolved_at"] or "", "resolution_note": x["resolution_note"] or ""} for x in data["exceptions"]]
     return Report("exceptions", "Exceptions",
                   [("id", "Id"), ("created_at", "Raised at"), ("type", "Type"), ("status", "Status"), ("prn", "PRN"), ("name", "Name"),
-                   ("venue", "Venue"), ("reason", "Reason"), ("resolved_by", "Resolved by"), ("resolved_at", "Resolved at"),
+                   ("reason", "Reason"), ("resolved_by", "Resolved by"), ("resolved_at", "Resolved at"),
                    ("resolution_note", "Resolution note")], rows,
                   {"open": sum(1 for r in rows if r["status"] == "OPEN"), "resolved": sum(1 for r in rows if r["status"] == "RESOLVED")})
 
@@ -275,18 +275,17 @@ def student_history(conn, settings, params) -> Report:
     sid = params.get("student_id")
     if not sid:
         raise BadReportRequest("Please choose a student.")
-    from backend.security.ownership import guard_from_settings
-    data = students_svc.journey(conn, sid, settings, guard_from_settings(settings))
+    data = students_svc.journey(conn, sid, settings)
     if data is None:
         raise BadReportRequest("That student does not exist.")
-    rows = [{"time": e["time"], "activity": e["activity_label"], "kind": e["kind"], "state": e["state"], "venue": e["venue"],
-             "station_id": e["station_id"] or "", "operator": e["operator"] or "", "flags": ", ".join(e["flags"]),
+    rows = [{"time": e["time"], "activity": e["activity_label"], "kind": e["kind"], "state": e["state"],
+             "operator": e["operator"] or "", "flags": ", ".join(e["flags"]),
              "reason": e["reason"] or "", "corrects_event_id": e["corrects_event_id"] or "", "event_id": e["event_id"]}
             for e in data["events"]]
     s = data["student"]
     return Report("student-history", f"Full history: {s['name']} ({s['prn']})",
-                  [("time", "Time"), ("activity", "Activity"), ("kind", "Record"), ("state", "State"), ("venue", "Venue"),
-                   ("station_id", "Station"), ("operator", "Operator"), ("flags", "Flags"), ("reason", "Reason"),
+                  [("time", "Time"), ("activity", "Activity"), ("kind", "Record"), ("state", "State"),
+                   ("operator", "Operator"), ("flags", "Flags"), ("reason", "Reason"),
                    ("corrects_event_id", "Corrects event"), ("event_id", "Event id")], rows, {"events": len(rows)})
 
 
@@ -308,7 +307,7 @@ REPORTS: dict[str, tuple[str, str, Callable]] = {  # key -> (group, description,
     "waived-thobes": ("Thobes", "Return Waived / Lost approvals, with reasons.", waived_thobes),
     "thobe-count": ("Thobes", "Issued, returned, waived and outstanding, for the physical stock check.", thobe_count),
     "late-registrations": ("Flags", "Registrations flagged LATE.", flagged("late-registrations", "Late registrations", "LATE", "REGISTRATION")),
-    "provisional": ("Flags", "Events accepted as PROVISIONAL.", flagged("provisional", "Provisional entries", "PROVISIONAL")),
+    "provisional": ("Flags", "Events confirmed provisionally.", flagged("provisional", "Provisional events", "PROVISIONAL")),
     "manual": ("Flags", "Events entered by manual PRN search.", flagged("manual", "Manual entries", "MANUAL")),
     "corrections": ("Admin", "Every reversal and waiver, with the reason and the record it corrects.", corrections),
     "exceptions": ("Admin", "Every exception, open or resolved.", exceptions_report),

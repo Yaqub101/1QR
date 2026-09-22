@@ -30,7 +30,7 @@ function harness() {
     return replies.length ? replies.shift() : { state: STATE(true) };
   };
   let handlers = null;
-  const screen = createStageScreen({ els, post, connect: (h) => { handlers = h; return () => {}; }, stationId: "STG-01", doc: { createElement: () => el() } });
+  const screen = createStageScreen({ els, post, connect: (h) => { handlers = h; return () => {}; }, doc: { createElement: () => el() } });
   screen.start();
   return {
     els, calls, screen, replies,
@@ -41,7 +41,7 @@ function harness() {
 
 const CARD = (name) => ({ student_id: "id-" + name, name, photo_url: "/photo/" + name, programme: "B.Tech", school: "Eng", has_display_data: true });
 const STATE = (youControl, extra = {}) => ({
-  version: 1, you_control: youControl, controller: { station_id: youControl ? "STG-01" : "STG-02" }, led_mode: "SHOWING",
+  version: 1, you_control: youControl, controller: { username: youControl ? "eng-stage" : "other-stage" }, led_mode: "SHOWING",
   current: CARD("Asha"), next: CARD("Ravi"), after_next: CARD("Meena"), previous: null, queue_depth: 2, ...extra,
 });
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -104,7 +104,7 @@ test("SKIP without a reason sends nothing and says why; with a reason it sends i
   assert.equal(h.els.message.textContent, "Please give a reason for skipping.");
   h.els.skipReason.value = "  Not present at the stage ";
   h.els.skip.click(); await flush();
-  assert.deepEqual(h.calls[0], { url: "/stage/skip", body: { station_id: "STG-01", reason: "Not present at the stage" } });
+  assert.deepEqual(h.calls[0], { url: "/stage/skip", body: { reason: "Not present at the stage" } });
 });
 
 test("when another laptop has taken over, every action is disabled and TAKE OVER appears; clicks do nothing", async () => {
@@ -122,7 +122,7 @@ test("TAKE OVER asks the server, then the screen becomes active again", async ()
   h.state(STATE(false));
   h.replies.push({ state: STATE(true) });
   h.els.takeOver.click(); await flush();
-  assert.deepEqual(h.calls[0], { url: "/stage/takeover", body: { station_id: "STG-01" } });
+  assert.deepEqual(h.calls[0], { url: "/stage/takeover", body: {} });
   assert.equal(h.els.displayNext.disabled, false);
   assert.equal(h.els.takeOver.hidden, true);
 });

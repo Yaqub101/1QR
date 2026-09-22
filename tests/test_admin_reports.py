@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 from backend.stage import state as stage_state
 from tests.admin_support import ORDER, S1, S2, S3, add_event, add_student, build_dataset, parse_csv, rows, scalar
-from tests.test_auth import ACTIVITIES, OWNER
+from tests.test_auth import ACTIVITIES
 from tests.test_station_engine import (  # noqa: F401  (engine / world / apps are pytest fixtures)
     _CLIENTS,
     admin,
@@ -150,12 +150,10 @@ class TestDashboardCounts:
         assert (e["provisional_events"], e["manual_entries"], e["duplicate_attempts"], e["blocked_attempts"]) == (1, 2, 3, 2)
         assert e["corrections"] == 3  # B's reversal, J's waiver, L's reversal
 
-    def test_venue_health_reports_pending_records(self, apps, engine):
+    def test_server_health_reports_database_and_backup_status(self, apps):
         h = dash(apps)["health"]
-        assert h["pending_records"] == scalar(engine, "SELECT count(*) FROM outbox WHERE sent_at IS NULL") == 3
-        assert h["status"].startswith("LOCAL") and h["standby"] and h["mode"] == "venue"
-        central = get(apps, "central", "/admin/api/dashboard").json()["health"]
-        assert central["mode"] == "central" and central["server"] == "Central"
+        assert h["database"] == "up"
+        assert "last_backup_at" in h
 
     def test_the_dashboard_pages_render_the_same_numbers(self, apps):
         page = get(apps, "hall", "/admin/dashboard")

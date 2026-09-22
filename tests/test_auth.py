@@ -1,14 +1,12 @@
-"""Phase 5 - auth, roles, stations, venue ownership.
+"""Phase 5 - auth, roles, sessions.
 
-Golden rules under test (AGENTS.md):
-  2. The station decides the activity. Operators never choose it.
-  4. Each activity has exactly one owning venue. Reject other writes.
+Golden rules under test (AGENTS.md, as amended by docs/ARCHITECTURE_PIVOT.md):
+  2. The operator's ROLE decides the activity. There is no station binding any more.
   11. Operator messages are one plain sentence.
 
-SYSTEM_SPEC section 4 (roles) and 11.2 (single writer) are the source of truth.
-The expected-access table below is written out by hand from section 4 and does
-NOT import backend.security.permissions, so the implementation is checked
-against the spec, not against itself.
+SYSTEM_SPEC section 4 (roles) is the source of truth. The expected-access table below
+is written out by hand from section 4 and does NOT import backend.security.permissions,
+so the implementation is checked against the spec, not against itself.
 
 Session policy assumed for a multi-hour event day (documented in the report):
   * idle timeout   120 minutes, sliding (any request renews it)
@@ -18,7 +16,6 @@ import hashlib
 import re
 import subprocess
 import sys
-import time
 import uuid
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -28,12 +25,11 @@ from fastapi import Depends
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
-from backend import stations as stations_svc
 from backend import users as users_svc
 from backend.config import Settings
 from backend.main import create_app
-from backend.security import ownership, passwords, permissions
-from backend.security.deps import require_can_originate, require_user
+from backend.security import passwords, permissions
+from backend.security.deps import require_user
 from backend.seed import SeedError, seed_admins
 from tests.conftest import TEST_DB_URL
 from tests.test_schema import (
@@ -48,18 +44,10 @@ from tests.test_schema import (
 
 PASSWORD = "Test-Pass-2026!"  # test-only constant, never a real credential
 SESSION_COOKIE = "session"
-DEVICE_COOKIE = "station_device"
-COOKIE_DOMAIN = "testserver.local"  # what http.cookiejar uses for host "testserver"
 
 ACTIVITIES = [
     "REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH",
 ]
-OWNER = {
-    "REGISTRATION": "college",
-    "THOBE_ALLOCATION": "stadium", "SEATING": "stadium", "QUEUE": "stadium", "STAGE": "stadium",
-    "THOBE_RETURN": "hall", "LUNCH": "hall",
-}
-VENUES = ["college", "stadium", "hall"]
 
 # key -> role. Section 4: seven operator roles + Central Event Admin + the named deputy.
 # (That is 9 identities; the request said "8 roles" - see report.)
@@ -89,17 +77,7 @@ SPEC_ACTIVITY_PAGES = {
     "ADMIN": set(ACTIVITIES),        # "All seven pages"
     "DEPUTY_ADMIN": set(ACTIVITIES),  # "identical powers"
 }
-SPEC_ADMIN_CONSOLE = {"ADMIN", "DEPUTY_ADMIN"}  # dashboard, corrections, users, sync ... Admin only
-
-STATIONS = [  # station_id, activity
-    ("REG-01", "REGISTRATION"), ("REG-02", "REGISTRATION"),
-    ("THO-01", "THOBE_ALLOCATION"), ("SEA-01", "SEATING"), ("QUE-01", "QUEUE"), ("STG-01", "STAGE"),
-    ("RET-01", "THOBE_RETURN"), ("LUN-01", "LUNCH"),
-]
-STATION_FOR_ROLE = {  # the station an operator of this role sits at in the matrix
-    "REGISTRATION": "REG-01", "THOBE_ALLOCATION": "THO-01", "SEATING": "SEA-01", "QUEUE": "QUE-01",
-    "STAGE": "STG-01", "THOBE_RETURN": "RET-01", "LUNCH": "LUN-01",
-}
+SPEC_ADMIN_CONSOLE = {"ADMIN", "DEPUTY_ADMIN"}  # dashboard, corrections, users ... Admin only
 
 
 def slug(activity: str) -> str:
@@ -126,39 +104,32 @@ def engine():
 
 @pytest.fixture(scope="module")
 def world(engine):
-    """Nine accounts (one per identity) and the station layout of all three venues."""
-    w = SimpleNamespace(user_ids={}, devices={})
+    """Nine accounts, one per identity. Any of them can sign in from any browser."""
+    w = SimpleNamespace(user_ids={})
     with engine.begin() as c:
         for key, role in IDENTITIES.items():
             w.user_ids[key] = users_svc.create_user(
                 c, username=f"{key}-user", password=PASSWORD, role=role, full_name=key.replace("_", " ").title())
-        for station_id, activity in STATIONS:
-            stations_svc.create_station(c, venue_id=OWNER[activity], station_id=station_id, activity=activity)
-            w.devices[station_id] = stations_svc.bind_station(c, station_id, actor_id=w.user_ids["admin"])
     return w
 
 
-def build_app(mode, venue=None):
-    settings = Settings(mode=mode, venue_id=venue, database_url=TEST_DB_URL)
-    return create_app(settings=settings)
+def build_app():
+    return create_app(settings=Settings(database_url=TEST_DB_URL))
 
 
 @pytest.fixture(scope="module")
 def apps(engine, world):
-    built = {v: build_app("venue", v) for v in VENUES}
-    built["central"] = build_app("central")
-    for app in built.values():  # a stand-in for "any later write endpoint": auth + ownership guard
-        @app.post("/_probe/{activity}", dependencies=[Depends(require_user), Depends(require_can_originate())])
-        def probe(activity: str):
-            return {"ok": True}
-    return built
+    app = build_app()
+
+    @app.post("/_probe/{activity}", dependencies=[Depends(require_user)])
+    def probe(activity: str):
+        return {"ok": True}
+
+    return app
 
 
-def new_client(app, device=None):
-    client = TestClient(app)
-    if device:
-        client.cookies.set(DEVICE_COOKIE, device, domain=COOKIE_DOMAIN)
-    return client
+def new_client(app):
+    return TestClient(app)
 
 
 def api_login(client, username, password=PASSWORD, **extra):
@@ -168,16 +139,14 @@ def api_login(client, username, password=PASSWORD, **extra):
 _CLIENTS = {}
 
 
-def signed_in(apps, world, venue, key):
-    """A cached, logged-in client for identity `key` at venue `venue`."""
-    if (venue, key) not in _CLIENTS:
-        role = IDENTITIES[key]
-        device = world.devices[STATION_FOR_ROLE[role]] if role in OPERATOR_ROLES else None
-        client = new_client(apps[venue], device)
+def signed_in(apps, world, key):
+    """A cached, logged-in client for identity `key`."""
+    if key not in _CLIENTS:
+        client = new_client(apps)
         response = api_login(client, f"{key}-user")
         assert response.status_code == 200, response.text
-        _CLIENTS[(venue, key)] = client
-    return _CLIENTS[(venue, key)]
+        _CLIENTS[key] = client
+    return _CLIENTS[key]
 
 
 def fresh_user(engine, role="LUNCH", password=PASSWORD, active=True, prefix="tmp"):
@@ -289,7 +258,7 @@ class TestRoleModel:
 # --------------------------------------------------------------------------- #
 class TestLogin:
     def test_wrong_password_and_unknown_user_get_the_same_answer(self, apps, world):
-        client = new_client(apps["college"])
+        client = new_client(apps)
         wrong_pw = api_login(client, "admin-user", "Definitely-wrong-1")
         no_user = api_login(client, "nobody-here", PASSWORD)
         assert wrong_pw.status_code == no_user.status_code == 401
@@ -297,27 +266,27 @@ class TestLogin:
         assert wrong_pw.json() == no_user.json()  # cannot tell which usernames exist
 
     def test_login_is_case_insensitive_on_username(self, apps, world):
-        assert api_login(new_client(apps["college"]), "ADMIN-USER").status_code == 200
+        assert api_login(new_client(apps), "ADMIN-USER").status_code == 200
 
     def test_disabled_user_cannot_log_in_even_with_the_correct_password(self, apps, engine, world):
         username, _ = fresh_user(engine, role="ADMIN", active=False)
-        response = api_login(new_client(apps["hall"]), username, PASSWORD)
+        response = api_login(new_client(apps), username, PASSWORD)
         assert response.status_code == 403
         assert detail_code(response) == "ACCOUNT_DISABLED"
 
-    def test_disabled_operator_cannot_log_in_at_a_bound_station(self, apps, engine, world):
+    def test_disabled_operator_cannot_log_in(self, apps, engine, world):
         username, _ = fresh_user(engine, role="LUNCH", active=False)
-        response = api_login(new_client(apps["hall"], world.devices["LUN-01"]), username)
+        response = api_login(new_client(apps), username)
         assert response.status_code == 403 and detail_code(response) == "ACCOUNT_DISABLED"
 
     def test_a_disabled_account_does_not_reveal_itself_to_a_wrong_password(self, apps, engine, world):
         username, _ = fresh_user(engine, role="ADMIN", active=False)
-        response = api_login(new_client(apps["hall"]), username, "Definitely-wrong-1")
+        response = api_login(new_client(apps), username, "Definitely-wrong-1")
         assert response.status_code == 401 and detail_code(response) == "BAD_CREDENTIALS"
 
     def test_disabling_a_user_ends_their_existing_session_immediately(self, apps, engine, world):
         username, uid = fresh_user(engine, role="LUNCH")
-        client = new_client(apps["hall"], world.devices["LUN-01"])
+        client = new_client(apps)
         assert api_login(client, username).status_code == 200
         assert client.get("/api/me").status_code == 200
         with engine.begin() as c:
@@ -325,28 +294,27 @@ class TestLogin:
         assert client.get("/api/me").status_code == 401
         with engine.begin() as c:
             users_svc.set_user_active(c, uid, True, actor_id=world.user_ids["admin"])
-        assert api_login(new_client(apps["hall"], world.devices["LUN-01"]), username).status_code == 200
+        assert api_login(new_client(apps), username).status_code == 200
 
     def test_a_switched_off_account_is_refused_even_if_no_one_revoked_its_session(self, apps, engine, world):
         # Second layer: validity is re-checked against the user row on every request, so a direct
         # database change (or a code path that forgets to revoke) still cuts the session off.
         username, uid = fresh_user(engine, role="LUNCH")
-        client = new_client(apps["hall"], world.devices["LUN-01"])
+        client = new_client(apps)
         api_login(client, username)
         assert client.get("/api/me").status_code == 200
         with engine.begin() as c:
             c.execute(text("UPDATE users SET active = false WHERE id = :i"), {"i": uid})
         assert client.get("/api/me").status_code == 401
 
-    def test_login_reports_who_and_where_but_never_the_password_hash(self, apps, world):
-        response = api_login(new_client(apps["college"], world.devices["REG-01"]), "registration-user")
+    def test_login_reports_who_but_never_the_password_hash(self, apps, world):
+        response = api_login(new_client(apps), "registration-user")
         body = response.json()
-        assert body["user"]["role"] == "REGISTRATION" and body["station_id"] == "REG-01"
-        assert body["activity"] == "REGISTRATION"
+        assert body["user"]["role"] == "REGISTRATION"
         assert "password" not in response.text.lower() and "argon2" not in response.text
 
     def test_the_browser_form_login_sets_a_cookie_and_redirects(self, apps, world):
-        client = new_client(apps["college"], world.devices["REG-01"])
+        client = new_client(apps)
         response = client.post("/login", data={"username": "registration-user", "password": PASSWORD},
                                follow_redirects=False)
         assert response.status_code == 303 and response.headers["location"] == "/station/registration"
@@ -355,29 +323,29 @@ class TestLogin:
         assert "httponly" in set_cookie and "samesite=strict" in set_cookie
 
     def test_the_form_login_page_and_failed_form_login_show_a_plain_sentence(self, apps):
-        client = new_client(apps["college"])
+        client = new_client(apps)
         assert client.get("/login").status_code == 200
         failed = client.post("/login", data={"username": "admin-user", "password": "nope-nope-nope"})
         assert failed.status_code == 401 and "Wrong username or password." in failed.text
 
     def test_admin_lands_on_the_admin_console_and_root_redirects_by_role(self, apps, world):
-        admin = signed_in(apps, world, "college", "admin")
+        admin = signed_in(apps, world, "admin")
         assert admin.get("/", follow_redirects=False).headers["location"] == "/admin"
-        operator = signed_in(apps, world, "stadium", "seating")
+        operator = signed_in(apps, world, "seating")
         assert operator.get("/", follow_redirects=False).headers["location"] == "/station/seating"
-        assert new_client(apps["college"]).get("/", follow_redirects=False).headers["location"] == "/login"
+        assert new_client(apps).get("/", follow_redirects=False).headers["location"] == "/login"
 
 
 class TestSessions:
-    def _login(self, apps, world, engine, role="LUNCH", venue="hall", station="LUN-01"):
+    def _login(self, apps, world, engine, role="LUNCH"):
         username, _ = fresh_user(engine, role=role)
-        client = new_client(apps[venue], world.devices[station])
+        client = new_client(apps)
         response = api_login(client, username)
         assert response.status_code == 200
         return client, response.json()["token"]
 
     def test_documented_timeouts_are_the_defaults(self):
-        settings = Settings(mode="venue", venue_id="hall", database_url=TEST_DB_URL)
+        settings = Settings(database_url=TEST_DB_URL)
         assert settings.session_idle_minutes == 120   # 2 hours idle
         assert settings.session_max_hours == 12       # one event day
 
@@ -420,17 +388,17 @@ class TestSessions:
         client, token = self._login(apps, world, engine)
         assert client.post("/api/logout").status_code == 200
         assert client.get("/api/me").status_code == 401
-        replay = new_client(apps["hall"])
+        replay = new_client(apps)
         assert replay.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
 
     def test_bearer_token_works_like_the_cookie(self, apps, world, engine):
         _, token = self._login(apps, world, engine)
-        other = new_client(apps["hall"])
+        other = new_client(apps)
         response = other.get("/api/me", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200 and response.json()["role"] == "LUNCH"
 
     def test_garbage_tokens_are_rejected_plainly(self, apps):
-        client = new_client(apps["hall"])
+        client = new_client(apps)
         for headers in ({"Authorization": "Bearer nonsense"}, {"Authorization": "Basic abc"}, {}):
             response = client.get("/api/me", headers=headers)
             assert response.status_code == 401 and detail_code(response) in {"NOT_SIGNED_IN", "SESSION_EXPIRED"}
@@ -445,67 +413,59 @@ class TestSessions:
 
 
 # --------------------------------------------------------------------------- #
-# The role matrix: 9 identities x every protected endpoint, per venue server
+# The role matrix: 9 identities x every protected endpoint
 # --------------------------------------------------------------------------- #
 STATION_PAGES = [("GET", f"/station/{slug(a)}") for a in ACTIVITIES]
 ADMIN_ENDPOINTS = [
-    ("GET", "/admin"), ("GET", "/admin/users"), ("GET", "/admin/stations"), ("GET", "/admin/bind"),
-    ("POST", "/admin/users"), ("POST", "/admin/stations"),
+    ("GET", "/admin"), ("GET", "/admin/users"),
+    ("POST", "/admin/users"),
     ("POST", "/admin/import/preview"), ("POST", "/admin/import/commit"),
     ("POST", "/admin/photos/link"), ("POST", "/admin/master-pack/import"),
 ]
 ENDPOINTS = [("GET", "/api/me")] + STATION_PAGES + ADMIN_ENDPOINTS
 
 
-def _viable(venue, key):
-    role = IDENTITIES[key]
-    return role in ADMIN_ROLES or OWNER[role] == venue
-
-
-def expected_allowed(role, venue, path):
-    """Spec section 4 + section 11.2, independent of the implementation."""
+def expected_allowed(role, path):
+    """Spec section 4, independent of the implementation."""
     if path == "/api/me":
         return True
     if path.startswith("/station/"):
         activity = next(a for a in ACTIVITIES if slug(a) == path.rsplit("/", 1)[1])
-        return activity in SPEC_ACTIVITY_PAGES[role] and OWNER[activity] == venue
+        return activity in SPEC_ACTIVITY_PAGES[role]
     return role in SPEC_ADMIN_CONSOLE
 
 
 MATRIX = [
-    pytest.param(venue, key, method, path, id=f"{venue}-{key}-{method}-{path}")
-    for venue in VENUES for key in IDENTITIES if _viable(venue, key) for method, path in ENDPOINTS
+    pytest.param(key, method, path, id=f"{key}-{method}-{path}")
+    for key in IDENTITIES for method, path in ENDPOINTS
 ]
 
 
 class TestRoleMatrix:
-    @pytest.mark.parametrize("venue,key,method,path", MATRIX)
-    def test_each_role_reaches_exactly_its_own_endpoints(self, apps, world, venue, key, method, path):
-        client = signed_in(apps, world, venue, key)
+    @pytest.mark.parametrize("key,method,path", MATRIX)
+    def test_each_role_reaches_exactly_its_own_endpoints(self, apps, world, key, method, path):
+        client = signed_in(apps, world, key)
         response = client.request(method, path)
         role = IDENTITIES[key]
-        if expected_allowed(role, venue, path):
+        if expected_allowed(role, path):
             assert response.status_code not in (401, 403), (response.status_code, response.text[:200])
         else:
             assert response.status_code == 403, (response.status_code, response.text[:200])
 
-    @pytest.mark.parametrize("venue", VENUES)
     @pytest.mark.parametrize("method,path", ENDPOINTS[1:])
-    def test_anonymous_callers_get_401_everywhere(self, apps, venue, method, path):
-        assert new_client(apps[venue]).request(method, path).status_code == 401
+    def test_anonymous_callers_get_401_everywhere(self, apps, method, path):
+        assert new_client(apps).request(method, path).status_code == 401
 
-    @pytest.mark.parametrize("venue", VENUES)
-    def test_admin_and_deputy_get_identical_answers_to_every_request(self, apps, world, venue):
+    def test_admin_and_deputy_get_identical_answers_to_every_request(self, apps, world):
         statuses = {}
         for key in ("admin", "deputy"):
-            client = signed_in(apps, world, venue, key)
+            client = signed_in(apps, world, key)
             statuses[key] = [client.request(m, p).status_code for m, p in ENDPOINTS]
         assert statuses["admin"] == statuses["deputy"]
-        assert 403 in statuses["admin"]  # (a venue does not own every activity: WRONG_VENUE)
-        assert 200 in statuses["admin"]
+        assert all(s not in (401, 403) for s in statuses["admin"])  # admin/deputy reach everything
 
     def test_a_registration_operator_reaches_only_registration(self, apps, world):
-        client = signed_in(apps, world, "college", "registration")
+        client = signed_in(apps, world, "registration")
         assert client.get("/station/registration").status_code == 200
         for other in ACTIVITIES[1:]:
             assert client.get(f"/station/{slug(other)}").status_code == 403
@@ -514,23 +474,21 @@ class TestRoleMatrix:
 
     @pytest.mark.parametrize("key", [k for k, r in IDENTITIES.items() if r in OPERATOR_ROLES])
     def test_operators_are_locked_out_of_the_phase_3_admin_endpoints(self, apps, world, key):
-        venue = OWNER[IDENTITIES[key]]
-        client = signed_in(apps, world, venue, key)
+        client = signed_in(apps, world, key)
         assert client.post("/admin/snapshot/freeze").status_code == 403
         assert client.get("/admin/master-pack/export").status_code == 403
         assert client.post("/admin/import/commit").status_code == 403
 
     @pytest.mark.parametrize("key", ["admin", "deputy"])
     def test_admin_and_deputy_can_use_the_phase_3_endpoints(self, apps, world, key):
-        client = signed_in(apps, world, "college", key)
+        client = signed_in(apps, world, key)
         assert client.post("/admin/snapshot/freeze").status_code == 200
         assert client.post("/admin/photos/link").status_code == 422  # reached the handler: form is empty
 
     def test_every_route_is_protected_unless_deliberately_public(self, engine, world):
-        app = build_app("venue", "college")
+        app = build_app()
         public = {("GET", "/"), ("GET", "/login"), ("POST", "/login"), ("POST", "/api/login"), ("GET", "/health"),
-                  # Phase 11: the audience screen. Deliberately public; serves only the approved LED payload
-                  # and exists only at the Stadium (tests/test_stage.py::TestPublicLed).
+                  # Phase 11: the audience screen. Deliberately public; serves only the approved LED payload.
                   ("GET", "/led"), ("GET", "/led/state"), ("GET", "/led/events"), ("GET", "/led/photo/{key}")}
         visited = set()
         # OpenAPI lists every route however it was mounted (included routers are nested objects).
@@ -545,342 +503,18 @@ class TestRoleMatrix:
                 visited.add((method, template))
         # The sweep must really have reached the admin, station and account routes (a silently
         # empty sweep once looked like a pass), including every Phase 3 admin endpoint.
-        assert {("GET", "/api/me"), ("GET", "/station/{activity}"), ("POST", "/admin/bind/{station_id}"),
+        assert {("GET", "/api/me"), ("GET", "/station/{activity}"),
                 ("POST", "/admin/users/{user_id}/active"), ("POST", "/admin/snapshot/freeze"),
                 ("GET", "/admin/master-pack/export"), ("POST", "/logout")} <= visited
-        assert len(visited) >= 20
+        assert len(visited) >= 15
 
 
 # --------------------------------------------------------------------------- #
-# Stations: one venue, one activity, bound to one laptop
-# --------------------------------------------------------------------------- #
-class TestStationModel:
-    def test_station_creation_rejects_an_activity_the_venue_does_not_own(self, engine):
-        with engine.begin() as c:
-            with pytest.raises(users_svc.AccountError) as exc:
-                stations_svc.create_station(c, venue_id="college", station_id="X-LUN", activity="LUNCH")
-        assert exc.value.code == "WRONG_VENUE"
-
-    def test_a_station_can_never_change_venue_or_activity(self, engine, world):
-        with engine.connect() as conn:
-            outer = conn.begin()
-            try:
-                with db_error(conn, RESTRICT_VIOLATION):
-                    conn.execute(text("UPDATE stations SET activity='SEATING' WHERE station_id='REG-01'"))
-                with db_error(conn, RESTRICT_VIOLATION):
-                    conn.execute(text("UPDATE stations SET venue_id='hall' WHERE station_id='THO-01'"))
-                with db_error(conn, RESTRICT_VIOLATION):
-                    conn.execute(text("UPDATE stations SET station_id='RENAMED' WHERE station_id='REG-01'"))
-            finally:
-                outer.rollback()
-
-    def test_one_laptop_cannot_be_bound_to_two_stations_at_the_database_level(self, engine, world):
-        with engine.connect() as conn:
-            outer = conn.begin()
-            try:
-                token_hash = conn.execute(text("SELECT device_token_hash FROM stations WHERE station_id='REG-01'")).scalar_one()
-                with db_error(conn, UNIQUE_VIOLATION):
-                    conn.execute(text("UPDATE stations SET device_token_hash=:h, bound_at=now(), bound_by=:u "
-                                      "WHERE station_id='REG-02'"), {"h": token_hash, "u": world.user_ids["admin"]})
-            finally:
-                outer.rollback()
-
-    def test_a_binding_always_records_when_and_by_whom(self, engine, world):
-        with engine.connect() as conn:
-            outer = conn.begin()
-            try:
-                with db_error(conn, CHECK_VIOLATION):  # a hash with no bound_at / bound_by
-                    conn.execute(text("UPDATE stations SET bound_at=NULL WHERE station_id='REG-01'"))
-                with db_error(conn, CHECK_VIOLATION):  # a binding time with no hash
-                    conn.execute(text("UPDATE stations SET device_token_hash=NULL WHERE station_id='REG-01'"))
-            finally:
-                outer.rollback()
-
-    def test_the_device_token_is_stored_hashed(self, engine, world):
-        with engine.connect() as c:
-            stored = c.execute(text("SELECT device_token_hash FROM stations WHERE station_id='REG-01'")).scalar_one()
-        assert stored == sha256(world.devices["REG-01"]) and stored != world.devices["REG-01"]
-
-    def test_operator_activity_comes_from_the_station_not_from_the_operator(self, apps, world):
-        client = new_client(apps["hall"], world.devices["LUN-01"])
-        response = api_login(client, "lunch-user", activity="THOBE_RETURN", station_id="RET-01")  # ignored
-        assert response.status_code == 200
-        assert response.json()["station_id"] == "LUN-01" and response.json()["activity"] == "LUNCH"
-        me = client.get("/api/me").json()
-        assert me["activity"] == "LUNCH" and me["station_id"] == "LUN-01"
-        assert client.get("/station/thobe-return").status_code == 403
-
-    def test_what_an_operator_can_reach_follows_the_station_binding_itself(self, apps, world, engine):
-        # Isolate the binding: point a LUNCH operator's session at a THOBE_RETURN station. The
-        # role still says LUNCH, but the station now decides, so the Lunch screen is refused.
-        username, _ = fresh_user(engine, role="LUNCH")
-        client = new_client(apps["hall"], world.devices["LUN-01"])
-        token = api_login(client, username).json()["token"]
-        assert client.get("/station/lunch").status_code == 200
-        with engine.begin() as c:
-            c.execute(text("UPDATE sessions SET station_id = 'RET-01' WHERE token_hash = :h"), {"h": sha256(token)})
-        response = client.get("/station/lunch")
-        assert response.status_code == 403 and detail_code(response) == "STATION_MISMATCH"
-        assert client.get("/api/me").json()["activity"] == "THOBE_RETURN"
-
-    def test_the_station_page_shows_the_bound_station_and_operator(self, apps, world):
-        page = signed_in(apps, world, "stadium", "seating").get("/station/seating")
-        assert page.status_code == 200 and "SEA-01" in page.text and "Seating" in page.text
-
-    def test_an_operator_cannot_sign_in_at_a_station_for_another_activity(self, apps, world):
-        client = new_client(apps["hall"], world.devices["RET-01"])  # a THOBE_RETURN station
-        response = api_login(client, "lunch-user")                  # a LUNCH operator
-        assert response.status_code == 403 and detail_code(response) == "STATION_MISMATCH"
-
-    def test_an_operator_on_an_unbound_laptop_cannot_sign_in(self, apps, world):
-        response = api_login(new_client(apps["hall"]), "lunch-user")
-        assert response.status_code == 403 and detail_code(response) == "NO_STATION"
-
-    def test_a_laptop_bound_at_another_venue_is_unbound_here(self, apps, world):
-        response = api_login(new_client(apps["college"], world.devices["LUN-01"]), "registration-user")
-        assert response.status_code == 403 and detail_code(response) == "NO_STATION"
-
-    def test_a_forged_device_cookie_is_treated_as_unbound(self, apps):
-        response = api_login(new_client(apps["hall"], "f" * 43), "lunch-user")
-        assert response.status_code == 403 and detail_code(response) == "NO_STATION"
-
-    def test_a_deactivated_station_locks_out_its_operator_at_once(self, apps, world, engine):
-        with engine.begin() as c:
-            stations_svc.create_station(c, venue_id="hall", station_id="LUN-TMP", activity="LUNCH")
-            device = stations_svc.bind_station(c, "LUN-TMP", actor_id=world.user_ids["admin"])
-        username, _ = fresh_user(engine, role="LUNCH")
-        client = new_client(apps["hall"], device)
-        assert api_login(client, username).status_code == 200
-        with engine.begin() as c:
-            stations_svc.set_station_active(c, "LUN-TMP", False, actor_id=world.user_ids["admin"])
-        assert client.get("/api/me").status_code == 401
-        assert detail_code(api_login(new_client(apps["hall"], device), username)) == "NO_STATION"
-
-    def test_admin_may_sign_in_on_any_laptop_bound_or_not(self, apps, world):
-        assert api_login(new_client(apps["hall"]), "admin-user").status_code == 200
-        bound = api_login(new_client(apps["college"], world.devices["REG-01"]), "deputy-user")
-        assert bound.status_code == 200 and bound.json()["activity"] is None  # admin is not limited by the station
-
-
-class TestBindingFlow:
-    """Admin action, meant to be finished in a handful of taps when a laptop dies."""
-
-    def _admin(self, apps, venue="college"):
-        client = new_client(apps[venue])
-        assert api_login(client, "admin-user").status_code == 200
-        return client
-
-    def test_rebinding_a_spare_laptop_takes_three_requests(self, apps, world, engine):
-        started = time.monotonic()
-        spare = self._admin(apps)                                               # 1. Admin signs in on the spare
-        bind = spare.post("/admin/bind/REG-02", follow_redirects=False)         # 2. taps the station
-        assert bind.status_code == 303 and "msg" in redirect_query(bind)
-        assert DEVICE_COOKIE in bind.headers["set-cookie"]
-        device = spare.cookies.get(DEVICE_COOKIE)
-        username, _ = fresh_user(engine, role="REGISTRATION")
-        operator = new_client(apps["college"], device)
-        response = api_login(operator, username)                                # 3. operator signs in
-        assert response.status_code == 200 and response.json()["station_id"] == "REG-02"
-        assert time.monotonic() - started < 30
-        world.devices["REG-02"] = device  # keep later tests consistent
-
-    def test_the_bind_page_lists_stations_in_big_buttons_and_shows_this_laptop(self, apps, world):
-        admin = self._admin(apps)
-        page = admin.get("/admin/bind")
-        assert page.status_code == 200
-        for station_id in ("REG-01", "REG-02"):
-            assert station_id in page.text
-        assert "THO-01" not in page.text  # a College server only lists College stations
-
-    def test_rebinding_a_station_retires_the_old_laptop_and_its_session(self, apps, world, engine):
-        old_device = world.devices["THO-01"]
-        username, _ = fresh_user(engine, role="THOBE_ALLOCATION")
-        old_laptop = new_client(apps["stadium"], old_device)
-        assert api_login(old_laptop, username).status_code == 200
-        spare = new_client(apps["stadium"])
-        api_login(spare, "admin-user")
-        assert spare.post("/admin/bind/THO-01", follow_redirects=False).status_code == 303
-        new_device = spare.cookies.get(DEVICE_COOKIE)
-        assert new_device and new_device != old_device
-        assert old_laptop.get("/api/me").status_code == 401                         # kicked off
-        assert detail_code(api_login(new_client(apps["stadium"], old_device), username)) == "NO_STATION"
-        assert api_login(new_client(apps["stadium"], new_device), username).status_code == 200
-        world.devices["THO-01"] = new_device
-
-    def test_binding_a_laptop_to_a_new_station_frees_its_old_station(self, apps, world, engine):
-        with engine.begin() as c:
-            stations_svc.create_station(c, venue_id="stadium", station_id="QUE-02", activity="QUEUE")
-            stations_svc.create_station(c, venue_id="stadium", station_id="QUE-03", activity="QUEUE")
-        laptop = new_client(apps["stadium"])
-        api_login(laptop, "admin-user")
-        laptop.post("/admin/bind/QUE-02", follow_redirects=False)
-        first = laptop.cookies.get(DEVICE_COOKIE)
-        laptop.post("/admin/bind/QUE-03", follow_redirects=False)
-        with engine.connect() as c:
-            rows = dict(c.execute(text("SELECT station_id, device_token_hash FROM stations WHERE station_id IN ('QUE-02','QUE-03')")).all())
-        assert rows["QUE-02"] is None and rows["QUE-03"] == sha256(laptop.cookies.get(DEVICE_COOKIE))
-        assert laptop.cookies.get(DEVICE_COOKIE) != first
-
-    def test_unbinding_a_station_leaves_no_working_laptop(self, apps, world, engine):
-        with engine.begin() as c:
-            stations_svc.create_station(c, venue_id="hall", station_id="LUN-02", activity="LUNCH")
-            device = stations_svc.bind_station(c, "LUN-02", actor_id=world.user_ids["admin"])
-        admin = self._admin(apps, "hall")
-        assert admin.post("/admin/unbind/LUN-02", follow_redirects=False).status_code == 303
-        username, _ = fresh_user(engine, role="LUNCH")
-        assert detail_code(api_login(new_client(apps["hall"], device), username)) == "NO_STATION"
-
-    def test_binding_an_inactive_or_foreign_station_is_refused_with_a_plain_message(self, apps, world, engine):
-        admin = self._admin(apps, "college")
-        foreign = admin.post("/admin/bind/LUN-01", follow_redirects=False)         # a Hall station on the College server
-        assert "error" in redirect_query(foreign)
-        with engine.begin() as c:
-            stations_svc.create_station(c, venue_id="college", station_id="REG-OFF", activity="REGISTRATION")
-            stations_svc.set_station_active(c, "REG-OFF", False, actor_id=world.user_ids["admin"])
-        inactive = admin.post("/admin/bind/REG-OFF", follow_redirects=False)
-        query = redirect_query(inactive)
-        assert "error" in query and query["error"][0].endswith(".")
-        with engine.connect() as c:  # nothing was bound by the refused requests
-            assert c.execute(text("SELECT device_token_hash FROM stations WHERE station_id='REG-OFF'")).scalar_one() is None
-            assert c.execute(text("SELECT device_token_hash FROM stations WHERE station_id='LUN-01'")).scalar_one() == sha256(world.devices["LUN-01"])
-
-    def test_binding_and_unbinding_are_audited(self, apps, world, engine):
-        with engine.connect() as c:
-            actions = {r[0] for r in c.execute(text("SELECT action FROM audit_log WHERE operator_id=:u"), {"u": world.user_ids["admin"]})}
-        assert {"STATION_BOUND", "STATION_UNBOUND"} <= actions
-
-
-# --------------------------------------------------------------------------- #
-# Venue ownership: golden rule 4, service level and as a reusable dependency
-# --------------------------------------------------------------------------- #
-class TestVenueOwnershipService:
-    def guard(self, venue):
-        return ownership.VenueGuard(mode="venue", venue_id=venue)
-
-    def test_the_map_matches_the_database_function(self, engine, world):
-        with engine.connect() as c:
-            db_map = {a: c.execute(text("SELECT activity_owner(:a)"), {"a": a}).scalar_one() for a in ACTIVITIES}
-        assert ownership.ACTIVITY_OWNER == db_map == OWNER
-
-    def test_hall_rejects_registration(self):
-        with pytest.raises(ownership.WrongVenueError):
-            self.guard("hall").ensure_can_originate("REGISTRATION")
-
-    @pytest.mark.parametrize("activity", ["THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH"])
-    def test_college_rejects_everything_but_registration(self, activity):
-        with pytest.raises(ownership.WrongVenueError):
-            self.guard("college").ensure_can_originate(activity)
-
-    @pytest.mark.parametrize("activity", ["REGISTRATION", "THOBE_RETURN", "LUNCH"])
-    def test_stadium_rejects_registration_and_the_hall_activities(self, activity):
-        with pytest.raises(ownership.WrongVenueError):
-            self.guard("stadium").ensure_can_originate(activity)
-
-    @pytest.mark.parametrize("venue", VENUES)
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_every_venue_accepts_exactly_its_own_activities(self, venue, activity):
-        guard = self.guard(venue)
-        if OWNER[activity] == venue:
-            guard.ensure_can_originate(activity)
-            assert guard.owns(activity)
-        else:
-            with pytest.raises(ownership.WrongVenueError) as exc:
-                guard.ensure_can_originate(activity)
-            assert exc.value.owner == OWNER[activity] and not guard.owns(activity)
-
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_central_never_originates_a_venue_owned_write(self, activity):
-        central = ownership.VenueGuard(mode="central", venue_id=None)
-        with pytest.raises(ownership.CentralCannotOriginateError):
-            central.ensure_can_originate(activity)
-        assert central.owns(activity) is False
-
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_central_accepts_corrections_by_routing_them_to_the_owning_venue(self, activity):
-        route = ownership.VenueGuard(mode="central", venue_id=None).route_correction(activity)
-        assert route.apply_here is False and route.owner_venue == OWNER[activity]
-
-    @pytest.mark.parametrize("venue", VENUES)
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_a_venue_applies_its_own_corrections_and_forwards_the_rest(self, venue, activity):
-        route = self.guard(venue).route_correction(activity)
-        assert route.owner_venue == OWNER[activity] and route.apply_here == (OWNER[activity] == venue)
-
-    def test_unknown_activities_are_refused(self):
-        with pytest.raises(ownership.UnknownActivityError):
-            self.guard("hall").ensure_can_originate("EXIT")
-
-    def test_the_guard_builds_from_settings(self):
-        guard = ownership.guard_from_settings(Settings(mode="venue", venue_id="stadium", database_url=TEST_DB_URL))
-        assert guard.owns("QUEUE") and not guard.owns("LUNCH")
-
-    def test_rejection_messages_are_one_plain_sentence(self):
-        with pytest.raises(ownership.WrongVenueError) as exc:
-            self.guard("hall").ensure_can_originate("REGISTRATION")
-        message = exc.value.message
-        assert message == "Registration is recorded at the College server, not here."
-        with pytest.raises(ownership.CentralCannotOriginateError) as exc:
-            ownership.VenueGuard(mode="central", venue_id=None).ensure_can_originate("LUNCH")
-        assert "\n" not in exc.value.message and exc.value.message.endswith(".")
-
-
-class TestVenueOwnershipHttp:
-    """The same guard, used as a dependency on a stand-in write endpoint (`/_probe/{activity}`)."""
-
-    @pytest.mark.parametrize("venue", VENUES)
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_write_path_dependency_accepts_owned_and_rejects_foreign_activities(self, apps, world, venue, activity):
-        response = signed_in(apps, world, venue, "admin").post(f"/_probe/{slug(activity)}")
-        if OWNER[activity] == venue:
-            assert response.status_code == 200
-        else:
-            assert response.status_code == 403 and detail_code(response) == "WRONG_VENUE"
-            assert "not here" in response.json()["detail"]["message"]
-
-    def test_central_rejects_every_write_even_from_the_admin(self, apps, world):
-        admin = signed_in(apps, world, "central", "admin")
-        for activity in ACTIVITIES:
-            response = admin.post(f"/_probe/{slug(activity)}")
-            assert response.status_code == 403 and detail_code(response) == "CENTRAL_CANNOT_ORIGINATE"
-
-    def test_an_unknown_activity_is_a_404_not_a_500(self, apps, world):
-        assert signed_in(apps, world, "hall", "admin").post("/_probe/exit").status_code == 404
-
-
-class TestCentralMode:
-    def test_admin_and_deputy_can_sign_in_and_read(self, apps, world):
-        for key in ("admin", "deputy"):
-            client = signed_in(apps, world, "central", key)
-            me = client.get("/api/me")
-            assert me.status_code == 200 and me.json()["role"] == IDENTITIES[key]
-
-    def test_operators_sign_in_at_their_own_venue_not_at_central(self, apps, world):
-        client = new_client(apps["central"], world.devices["LUN-01"])
-        response = api_login(client, "lunch-user")
-        assert response.status_code == 403 and detail_code(response) == "OPERATORS_NOT_HERE"
-
-    @pytest.mark.parametrize("activity", ACTIVITIES)
-    def test_station_screens_do_not_exist_at_central(self, apps, world, activity):
-        response = signed_in(apps, world, "central", "admin").get(f"/station/{slug(activity)}")
-        assert response.status_code == 403 and detail_code(response) == "CENTRAL_CANNOT_ORIGINATE"
-
-    @pytest.mark.parametrize("path", ["/admin/stations", "/admin/bind"])
-    def test_stations_are_managed_on_venue_servers_only(self, apps, world, path):
-        response = signed_in(apps, world, "central", "admin").get(path)
-        assert response.status_code == 409 and detail_code(response) == "NOT_A_VENUE"
-
-    def test_central_still_serves_the_admin_console_and_user_management(self, apps, world):
-        client = signed_in(apps, world, "central", "admin")
-        assert client.get("/admin").status_code == 200
-        assert client.get("/admin/users").status_code == 200
-
-
-# --------------------------------------------------------------------------- #
-# Admin screens: user management, station management
+# Admin screens: user management
 # --------------------------------------------------------------------------- #
 class TestUserManagement:
-    def _admin(self, apps, key="admin", venue="college"):
-        client = new_client(apps[venue])
+    def _admin(self, apps, key="admin"):
+        client = new_client(apps)
         assert api_login(client, f"{key}-user").status_code == 200
         return client
 
@@ -896,7 +530,7 @@ class TestUserManagement:
         assert "msg" in redirect_query(response)
         row = self._row(engine, username)
         assert row["role"] == "LUNCH" and row["active"] and row["password_hash"].startswith("$argon2id$")
-        assert api_login(new_client(apps["hall"], world.devices["LUN-01"]), username, "lunch-desk-1").status_code == 200
+        assert api_login(new_client(apps), username, "lunch-desk-1").status_code == 200
 
     def test_the_deputy_can_manage_users_exactly_like_the_admin(self, apps, world, engine):
         username = f"dep-{uuid.uuid4().hex[:6]}"
@@ -937,19 +571,19 @@ class TestUserManagement:
     def test_deputy_can_switch_off_the_admin_and_the_admin_can_come_back_via_the_deputy(self, apps, world, engine):
         deputy = self._admin(apps, "deputy")
         deputy.post(f"/admin/users/{world.user_ids['admin']}/active", data={"active": "0"}, follow_redirects=False)
-        assert detail_code(api_login(new_client(apps["college"]), "admin-user")) == "ACCOUNT_DISABLED"
+        assert detail_code(api_login(new_client(apps), "admin-user")) == "ACCOUNT_DISABLED"
         deputy.post(f"/admin/users/{world.user_ids['admin']}/active", data={"active": "1"}, follow_redirects=False)
-        assert api_login(new_client(apps["college"]), "admin-user").status_code == 200
+        assert api_login(new_client(apps), "admin-user").status_code == 200
 
     def test_password_reset_replaces_the_password_and_ends_old_sessions(self, apps, world, engine):
         username, uid = fresh_user(engine, role="LUNCH")
-        laptop = new_client(apps["hall"], world.devices["LUN-01"])
+        laptop = new_client(apps)
         api_login(laptop, username)
         response = self._admin(apps).post(f"/admin/users/{uid}/password", data={"password": "brand-new-pass-1"}, follow_redirects=False)
         assert "msg" in redirect_query(response)
         assert laptop.get("/api/me").status_code == 401
-        assert api_login(new_client(apps["hall"], world.devices["LUN-01"]), username, PASSWORD).status_code == 401
-        assert api_login(new_client(apps["hall"], world.devices["LUN-01"]), username, "brand-new-pass-1").status_code == 200
+        assert api_login(new_client(apps), username, PASSWORD).status_code == 401
+        assert api_login(new_client(apps), username, "brand-new-pass-1").status_code == 200
 
     def test_user_actions_are_audited_under_the_individuals_own_login(self, apps, world, engine):
         username, uid = fresh_user(engine, role="STAGE")
@@ -1033,42 +667,6 @@ class TestUserManagement:
         assert page.status_code == 200 and "argon2" not in page.text and "lunch-user" in page.text
 
 
-class TestStationManagement:
-    def _admin(self, apps, venue):
-        client = new_client(apps[venue])
-        api_login(client, "admin-user")
-        return client
-
-    def test_admin_creates_a_station_for_an_activity_this_venue_owns(self, apps, world, engine):
-        station_id = f"SEA-{uuid.uuid4().hex[:4].upper()}"
-        response = self._admin(apps, "stadium").post("/admin/stations", data={"station_id": station_id, "activity": "SEATING"}, follow_redirects=False)
-        assert "msg" in redirect_query(response)
-        with engine.connect() as c:
-            row = c.execute(text("SELECT venue_id, activity, active, device_token_hash FROM stations WHERE station_id=:s"), {"s": station_id}).one()
-        assert (row.venue_id, row.activity, row.active, row.device_token_hash) == ("stadium", "SEATING", True, None)
-
-    def test_a_venue_refuses_a_station_for_someone_elses_activity(self, apps, world, engine):
-        response = self._admin(apps, "college").post("/admin/stations", data={"station_id": "LUN-BAD", "activity": "LUNCH"}, follow_redirects=False)
-        query = redirect_query(response)
-        assert "error" in query and query["error"][0].endswith(".")
-        with engine.connect() as c:
-            assert c.execute(text("SELECT count(*) FROM stations WHERE station_id='LUN-BAD'")).scalar_one() == 0
-
-    def test_duplicate_and_blank_station_ids_are_refused(self, apps, world):
-        admin = self._admin(apps, "college")
-        assert "error" in redirect_query(admin.post("/admin/stations", data={"station_id": "REG-01", "activity": "REGISTRATION"}, follow_redirects=False))
-        assert "error" in redirect_query(admin.post("/admin/stations", data={"station_id": "  ", "activity": "REGISTRATION"}, follow_redirects=False))
-
-    def test_the_station_list_shows_only_this_venues_stations_and_their_state(self, apps, world):
-        page = self._admin(apps, "hall").get("/admin/stations")
-        assert "RET-01" in page.text and "LUN-01" in page.text and "REG-01" not in page.text
-
-    def test_station_changes_are_audited(self, apps, world, engine):
-        with engine.connect() as c:
-            actions = {r[0] for r in c.execute(text("SELECT action FROM audit_log"))}
-        assert "STATION_CREATED" in actions
-
-
 # --------------------------------------------------------------------------- #
 # Seed script: credentials come from the environment or a prompt, never the repo
 # --------------------------------------------------------------------------- #
@@ -1097,8 +695,8 @@ class TestSeedScript:
     def test_seeded_accounts_can_sign_in(self, engine, apps):
         tag = uuid.uuid4().hex[:6]
         seed_admins(engine, env=self._env(tag))
-        assert api_login(new_client(apps["college"]), f"admin.{tag}", "Admin-Seed-Pass-1").status_code == 200
-        assert api_login(new_client(apps["college"]), f"deputy.{tag}", "Deputy-Seed-Pass-1").status_code == 200
+        assert api_login(new_client(apps), f"admin.{tag}", "Admin-Seed-Pass-1").status_code == 200
+        assert api_login(new_client(apps), f"deputy.{tag}", "Deputy-Seed-Pass-1").status_code == 200
 
     def test_running_it_twice_changes_nothing(self, engine):
         tag = uuid.uuid4().hex[:6]
@@ -1149,7 +747,7 @@ class TestSeedScript:
     def test_the_command_line_script_works_end_to_end_without_prompting(self, engine):
         tag = uuid.uuid4().hex[:6]
         import os
-        env = {**os.environ, **self._env(tag), "DATABASE_URL": TEST_DB_URL, "MODE": "venue", "VENUE_ID": "college"}
+        env = {**os.environ, **self._env(tag), "DATABASE_URL": TEST_DB_URL}
         run = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "seed_admins.py")], cwd=REPO_ROOT, env=env,
                              capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
         assert run.returncode == 0, run.stdout + run.stderr
@@ -1160,7 +758,7 @@ class TestSeedScript:
     def test_the_command_line_script_fails_cleanly_when_it_cannot_prompt(self, engine):
         import os
         env = {k: v for k, v in os.environ.items() if not k.startswith("SEED_")}
-        env.update({"DATABASE_URL": TEST_DB_URL, "MODE": "venue", "VENUE_ID": "college"})
+        env.update({"DATABASE_URL": TEST_DB_URL})
         run = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "seed_admins.py")], cwd=REPO_ROOT, env=env,
                              capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
         assert run.returncode != 0 and "SEED_ADMIN_PASSWORD" in run.stderr and "Traceback" not in run.stderr
@@ -1207,13 +805,14 @@ class TestAuthSchema:
         with db_error(conn, "23503"):
             conn.execute(text("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('h2', gen_random_uuid(), now() + interval '1 hour')"))
 
+
 class TestUserDeactivation:
     def test_deactivated_user_cannot_log_in(self, engine, apps, world):
         from backend import users
         with engine.begin() as conn:
             op_id = users.create_user(conn, username="reg-op", password=PASSWORD, role="REGISTRATION", actor_id=world.user_ids["admin"])
             users.set_user_active(conn, op_id, False, actor_id=world.user_ids["admin"])
-        client = new_client(apps["college"], world.devices["REG-01"])
+        client = new_client(apps)
         response = api_login(client, "reg-op")
         assert response.status_code == 403
         assert detail_code(response) == "ACCOUNT_DISABLED"
@@ -1224,7 +823,7 @@ class TestUserDeactivation:
         with engine.begin() as conn:
             # Set ALL admins except the main admin to inactive
             conn.execute(text("UPDATE users SET active=False WHERE role IN ('ADMIN', 'DEPUTY_ADMIN') AND id != :i"), {"i": world.user_ids["admin"]})
-            
+
             # Cannot deactivate the original admin since it's the last one
             with pytest.raises(AccountError) as exc:
                 users.set_user_active(conn, world.user_ids["admin"], False, actor_id=world.user_ids["deputy"])

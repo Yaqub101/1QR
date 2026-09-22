@@ -41,7 +41,6 @@ from tests.admin_support import error_code, rows, scalar
 from tests.test_auth import ACTIVITIES
 from tests.test_schema import _run_threads
 from tests.test_station_engine import (  # noqa: F401  (engine / world / apps are pytest fixtures)
-    STATION,
     _CLIENTS,
     admin,
     apps,
@@ -78,8 +77,7 @@ def _fresh_client_cache(world):
 @pytest.fixture(scope="module", autouse=True)
 def _admin_signed_in(apps, world, _fresh_client_cache):
     """Sign everyone in once, up front: signing in writes audit rows and the tests compare audit counts."""
-    for venue in ("college", "central"):
-        admin(apps, venue)
+    admin(apps)
     for activity in ACTIVITIES:
         operator(apps, world, activity)
 
@@ -291,8 +289,7 @@ class TestGenerateMissingTokens:
         before = (scalar(engine, "SELECT count(*) FROM qr_tokens"), audit_count(engine))
         new_student(engine)
         assert operator(apps, world, "REGISTRATION").post("/admin/api/qr/generate-missing").status_code == 403
-        anonymous = apps["college"]
-        assert TestClient(anonymous).post("/admin/api/qr/generate-missing").status_code == 401
+        assert TestClient(apps).post("/admin/api/qr/generate-missing").status_code == 401
         assert (scalar(engine, "SELECT count(*) FROM qr_tokens"), audit_count(engine)) == before
 
 
@@ -426,7 +423,6 @@ class TestReissue:
         e = entries[0]
         assert e["operator_id"] == world.admin_id
         assert e["reason"] == "Student lost the pass"                              # whitespace tidied, wording kept
-        assert e["venue_id"] == "college"
         assert e["details"]["old_token_id"] == r.json()["old_token_id"] and e["details"]["new_token_id"] == r.json()["new_token_id"]
         assert old not in str(e) and active_token(engine, issued) not in str(e)    # ids, never the secrets, in an exportable log
 
@@ -466,7 +462,7 @@ class TestReissue:
 
     def test_two_simultaneous_reissues_still_leave_exactly_one_active_token(self, engine, world, issued):
         results = _run_threads(lambda i: qr_tokens.reissue_token(engine, student_id=issued.id, reason=f"both admins clicked {i}",
-                                                                 operator_id=world.admin_id, venue_id="college"), 2)
+                                                                 operator_id=world.admin_id), 2)
         assert not [r for r in results if isinstance(r, Exception)], results
         tokens = token_rows(engine, issued)
         assert len(tokens) == 3 and [t["active"] for t in tokens].count(True) == 1     # one active, two in history, none lost
@@ -478,26 +474,31 @@ class TestReissue:
         monkeypatch.setattr(qr_tokens, "write_audit", boom)
         before = token_table_fingerprint(engine)
         with pytest.raises(RuntimeError):
-            qr_tokens.reissue_token(engine, student_id=issued.id, reason="test", operator_id=world.admin_id, venue_id="college")
+            qr_tokens.reissue_token(engine, student_id=issued.id, reason="test", operator_id=world.admin_id)
         assert token_table_fingerprint(engine) == before                         # the old token is still the one active token
         assert active_token(engine, issued) == issued.token
 
     def test_reissue_touches_no_activity_history(self, apps, engine, issued):
         events = scalar(engine, "SELECT count(*) FROM activity_events")
-        outbox = scalar(engine, "SELECT count(*) FROM outbox")
         assert reissue(apps, issued).status_code == 200
-        assert (scalar(engine, "SELECT count(*) FROM activity_events"), scalar(engine, "SELECT count(*) FROM outbox")) == (events, outbox)
+        assert scalar(engine, "SELECT count(*) FROM activity_events") == events
 
     def test_only_the_admin_can_reissue(self, apps, engine, world, issued):
         before = (token_table_fingerprint(engine), audit_count(engine))
         for activity in ACTIVITIES:
             assert reissue(apps, issued, client=operator(apps, world, activity)).status_code == 403, activity
-        assert reissue(apps, issued, client=TestClient(apps["college"])).status_code == 401
+        assert reissue(apps, issued, client=TestClient(apps)).status_code == 401
         assert (token_table_fingerprint(engine), audit_count(engine)) == before
 
-    def test_the_central_server_can_reissue_too(self, apps, engine, issued):
-        assert reissue(apps, issued, venue="central").status_code == 200
-        assert rows(engine, "SELECT venue_id FROM audit_log WHERE action = 'QR_REISSUED' AND student_id = :s", s=issued.id)[0]["venue_id"] is None
+    def test_deputy_admin_can_reissue_too(self, apps, engine, world, issued):
+        with engine.begin() as c:
+            from backend import users as users_svc
+            from tests.test_auth import PASSWORD
+            deputy_id = users_svc.create_user(c, username="deputy-reissue", password=PASSWORD, role="DEPUTY_ADMIN")
+        client = TestClient(apps)
+        assert client.post("/api/login", json={"username": "deputy-reissue", "password": PASSWORD}).status_code == 200
+        assert reissue(apps, issued, client=client).status_code == 200
+        assert rows(engine, "SELECT operator_id FROM audit_log WHERE action = 'QR_REISSUED' AND student_id = :s", s=issued.id)[0]["operator_id"] == deputy_id
 
     def test_unknown_and_malformed_students_get_a_plain_404_and_inactive_ones_a_409(self, apps, engine):
         client = admin(apps, "college")
@@ -835,7 +836,7 @@ class TestDownloads:
         for url in (f"/admin/api/students/{s.id}/pass.pdf", "/admin/api/passes.pdf"):
             for activity in ("REGISTRATION", "LUNCH"):
                 assert operator(apps, world, activity).get(url).status_code == 403, (url, activity)
-            assert TestClient(apps["college"]).get(url).status_code == 401
+            assert TestClient(apps).get(url).status_code == 401
 
     def test_downloads_are_logged_without_any_token(self, apps, engine, batch):
         client = admin(apps, "college")

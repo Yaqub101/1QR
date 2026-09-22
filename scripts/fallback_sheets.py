@@ -30,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import create_engine, text  # noqa: E402
 
-from backend.security.ownership import ACTIVITIES, ACTIVITY_LABEL, ACTIVITY_OWNER, VENUE_LABEL  # noqa: E402
+from backend.security.ownership import ACTIVITIES, ACTIVITY_LABEL  # noqa: E402
 
 DEFAULT_OUT = "exports/fallback-sheets"
 
@@ -68,7 +68,6 @@ def _cell(value) -> str:
 
 
 def render_sheet(activity: str, students: list[dict], *, event_name: str, generated: str) -> str:
-    venue = VENUE_LABEL[ACTIVITY_OWNER[activity]]
     label = ACTIVITY_LABEL[activity]
     extra = EXTRA_COLUMN.get(activity)
     body = []
@@ -94,13 +93,13 @@ def render_sheet(activity: str, students: list[dict], *, event_name: str, genera
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{html.escape(label)} &mdash; {venue} &mdash; paper sheet</title>
+<title>{html.escape(label)} &mdash; paper sheet</title>
 <style>
 {CSS}
 </style>
 </head>
 <body>
-<h1>{html.escape(label)} &mdash; {venue}</h1>
+<h1>{html.escape(label)}</h1>
 <p class="meta">{html.escape(event_name)} &middot; {len(students)} students &middot; printed {html.escape(generated)}</p>
 <p class="howto">Use this only if the screen or server is not working. Tick <strong>Done</strong>, write the time and your
 initials. Do not add students that are not on this list. Give the sheet to the Admin at the end: it is typed in later.</p>
@@ -137,7 +136,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Print the paper fallback sheets (one per activity) from the current database.")
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"), help="default: $DATABASE_URL")
     parser.add_argument("--out", default=DEFAULT_OUT, help=f"folder for the sheets (default {DEFAULT_OUT})")
-    parser.add_argument("--venue", choices=sorted(VENUE_LABEL), help="only the sheets for this venue's activities")
+    parser.add_argument("--activity", choices=ACTIVITIES, help="only the sheet for this activity")
     parser.add_argument("--event-name", default=os.getenv("EVENT_NAME"), help="title on each sheet (default: the event name in the database)")
     args = parser.parse_args(argv)
     if not args.database_url:
@@ -162,7 +161,7 @@ def main(argv=None) -> int:
 
     pages = {}
     for number, activity in enumerate(ACTIVITIES, start=1):
-        if args.venue and ACTIVITY_OWNER[activity] != args.venue:
+        if args.activity and activity != args.activity:
             continue
         page = render_sheet(activity, students, event_name=event_name, generated=generated)
         printed = page.count('data-prn="')

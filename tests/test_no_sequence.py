@@ -28,7 +28,6 @@ from backend.importer import commit_import, detect_column_mapping, parse_file, v
 from backend.stage import state as stage_state
 from tests.admin_support import rows, scalar
 from tests.test_station_engine import (  # noqa: F401  (engine / world / apps are pytest fixtures)
-    STATION,
     _CLIENTS,
     admin,
     apps,

@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from backend.stage import state as stage_state
 
-from tests.test_auth import ACTIVITIES, OWNER
+from tests.test_auth import ACTIVITIES
 from tests.test_station_engine import make_student
 
 
@@ -29,11 +29,11 @@ def add_event(engine, student, activity, *, kind="COMPLETE", flags=(), details=N
     flags = list(flags) or (["CORRECTED"] if kind in ("WAIVER", "REVERSAL") else [])
     with engine.begin() as c:
         return c.execute(
-            text("INSERT INTO activity_events (student_id, activity, kind, venue_id, station_id, operator_id, flags, details, "
-                 "completion_cycle, corrects_event_id, server_time) VALUES (:s, :a, :k, :v, :st, gen_random_uuid(), "
+            text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details, "
+                 "completion_cycle, corrects_event_id, server_time) VALUES (:s, :a, :k, gen_random_uuid(), "
                  "CAST(:f AS text[]), CAST(:d AS jsonb), :c, :x, now() - make_interval(hours => :h)) RETURNING event_id"),
-            {"s": student.id, "a": activity, "k": kind, "v": OWNER[activity],
-             "st": None if kind in ("WAIVER", "REVERSAL") else "SEED-1", "f": flags, "d": json.dumps(details),
+            {"s": student.id, "a": activity, "k": kind,
+             "f": flags, "d": json.dumps(details),
              "c": cycle, "x": corrects, "h": hours_ago},
         ).scalar_one()
 
@@ -147,15 +147,10 @@ def build_dataset(engine):
         stage_state.update_state(c, current_student_id=F2.s.id, display_student_id=F2.s.id)
         for result, n in (("DUPLICATE", 3), ("REJECTED", 2), ("SUCCESS", 4)):
             for _ in range(n):
-                c.execute(text("INSERT INTO scan_log (venue_id, station_id, activity, result) VALUES ('stadium', 'STG-01', 'SEATING', :r)"), {"r": result})
+                c.execute(text("INSERT INTO scan_log (activity, result) VALUES ('SEATING', :r)"), {"r": result})
         j_event = c.execute(text("SELECT event_id FROM activity_events WHERE student_id = :s AND kind = 'WAIVER'"), {"s": people["J"].s.id}).scalar_one()
-        c.execute(text("INSERT INTO exceptions (type, student_id, venue_id, event_id, details) VALUES ('RETURN_WAIVED', :s, 'hall', :e, "
+        c.execute(text("INSERT INTO exceptions (type, student_id, event_id, details) VALUES ('RETURN_WAIVED', :s, :e, "
                        "CAST('{\"reason\": \"lost thobe\"}' AS jsonb))"), {"s": people["J"].s.id, "e": j_event})
         c.execute(text("INSERT INTO exceptions (type) VALUES ('CONFLICT')"))
         c.execute(text("INSERT INTO exceptions (type, status, resolved_at) VALUES ('SEQ_GAP', 'RESOLVED', now())"))
-        # three unsent outbox rows and one sent one
-        ids = [r[0] for r in c.execute(text("SELECT event_id FROM activity_events ORDER BY venue_seq LIMIT 4"))]
-        for e in ids:
-            c.execute(text("INSERT INTO outbox (event_id, payload) SELECT event_id, to_jsonb(t) FROM activity_events t WHERE event_id = :e"), {"e": e})
-        c.execute(text("UPDATE outbox SET sent_at = now() WHERE event_id = :e"), {"e": ids[0]})
     return SimpleNamespace(people=people, all=list(people.values()))

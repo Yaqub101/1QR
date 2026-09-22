@@ -53,20 +53,18 @@
 
 <h2>Journey</h2>
 <table>
-  <tr><th>Time</th><th>Activity</th><th>Record</th><th>State</th><th>Station / by</th><th>Flags</th><th>Reason</th><th>Correct</th></tr>
+  <tr><th>Time</th><th>Activity</th><th>Record</th><th>State</th><th>By</th><th>Flags</th><th>Reason</th><th>Correct</th></tr>
   {% for e in j.events %}
   <tr class="{{ 'off' if e.state == 'REVERSED' else '' }}">
     <td>{{ e.time }}</td><td>{{ e.activity_label }}</td><td>{{ e.kind }}</td><td>{{ e.state }}</td>
-    <td>{{ e.station_id or "" }} {{ e.operator or "" }}</td><td>{{ e.flags|join(", ") }}</td><td>{{ e.reason or "" }}</td>
+    <td>{{ e.operator or "" }}</td><td>{{ e.flags|join(", ") }}</td><td>{{ e.reason or "" }}</td>
     <td>
       {% if e.can_reverse %}
-        {% if e.reverse_here %}
         <form method="post" action="/admin/students/{{ j.student.student_id }}/reverse" class="inline">
           <input type="hidden" name="event_id" value="{{ e.event_id }}">
           <input name="reason" placeholder="Reason (required)" required>
           <button type="submit">Reverse</button>
         </form>
-        {% else %}<span class="muted">Make this at the {{ venue_label[e.owner_venue] }} server</span>{% endif %}
       {% elif e.state == "REVERSED" %}<span class="muted">Reversed</span>{% endif %}
     </td>
   </tr>
@@ -76,20 +74,18 @@
 
 {% if j.can_waive_return %}
 <h2>Thobe lost or not returned</h2>
-{% if j.waive_here %}
 <form method="post" action="/admin/students/{{ j.student.student_id }}/waive-return" class="card narrow">
   <p class="muted">Counts as the thobe return so the student can go to Lunch. It is flagged as an Admin correction and listed on the waived thobes report.</p>
   <label>Reason <input name="reason" required></label>
   <button class="big" type="submit">Return waived / lost</button>
 </form>
-{% else %}<p class="muted">Thobe Return is recorded at the Hall server, so this has to be done there.</p>{% endif %}
 {% endif %}
 
 {% if j.attempts %}
 <h2>Refused and repeated scans</h2>
 <table>
-  <tr><th>Time</th><th>Station</th><th>Result</th><th>Message</th></tr>
-  {% for a in j.attempts %}<tr><td>{{ a.time }}</td><td>{{ a.station_id }}</td><td>{{ a.result }}</td><td>{{ a.message or "" }}</td></tr>{% endfor %}
+  <tr><th>Time</th><th>Result</th><th>Message</th></tr>
+  {% for a in j.attempts %}<tr><td>{{ a.time }}</td><td>{{ a.result }}</td><td>{{ a.message or "" }}</td></tr>{% endfor %}
 </table>
 {% endif %}
 {% endblock %}

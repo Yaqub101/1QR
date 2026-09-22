@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: convocation_venue_db
+    container_name: convocation_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-convocation_user}
@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - venue_pgdata:/var/lib/postgresql/data
+      - convocation_pgdata:/var/lib/postgresql/data
       - ./scripts/primary-init-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-convocation_user} -d $${POSTGRES_DB:-convocation_db}"]
@@ -27,14 +27,10 @@ services:
       context: .
       dockerfile: Dockerfile
     image: convocation-system:latest
-    container_name: convocation_venue_app
+    container_name: convocation_app
     restart: unless-stopped
     environment:
-      MODE: ${MODE:-venue}
-      VENUE_ID: ${VENUE_ID:-college}
       DATABASE_URL: ${DATABASE_URL:-postgresql://convocation_user:convocation_password@db:5432/convocation_db}
-      CENTRAL_URL: ${CENTRAL_URL:-}
-      VENUE_API_KEY: ${VENUE_API_KEY:-}
       BACKUP_DIR: /backups
       LATE_CUTOFF: ${LATE_CUTOFF:-}
       EVENT_NAME: ${EVENT_NAME:-Annual Convocation 2026}
@@ -47,12 +43,13 @@ services:
         condition: service_healthy
     volumes:
       - ./logs:/app/logs
+      - ./photos:/app/photos
 
   # Automatic backups (SYSTEM_SPEC 21): a full dump every 5 minutes to a SECOND device. Point BACKUP_HOST_DIR at that
   # device (a USB drive or a second laptop's share), not at this machine's own disk.
   backup:
     image: convocation-system:latest
-    container_name: convocation_venue_backup
+    container_name: convocation_backup
     restart: unless-stopped
     command: ["python", "-m", "backend.ha.backup", "run"]
     environment:
@@ -67,4 +64,4 @@ services:
       - ${BACKUP_HOST_DIR:-./backups}:/backups
 
 volumes:
-  venue_pgdata:
+  convocation_pgdata:

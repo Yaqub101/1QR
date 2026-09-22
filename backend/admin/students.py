@@ -47,7 +47,7 @@ def search(conn: Connection, query: str = "", limit: int = SEARCH_LIMIT, offset:
     return {"total": total, "students": students}
 
 
-def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
+def journey(conn: Connection, student_id, settings) -> Optional[dict]:
     """The student's master record, derived status and EVERY event in the order it was recorded, each marked
     ACTIVE / REVERSED / CORRECTION / SKIPPED. Nothing here is edited: the timeline is the event log itself."""
     try:
@@ -63,36 +63,33 @@ def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
     if student is None:
         return None
     events = conn.execute(text("""
-        SELECT e.event_id, e.activity, e.kind, e.venue_id, e.venue_seq, e.station_id, e.server_time, e.flags,
+        SELECT e.event_id, e.activity, e.kind, e.server_time, e.flags,
                e.details, e.completion_cycle, e.corrects_event_id, u.username AS operator,
-               rv.event_id AS reversed_by, o.sent_at AS synced_at
+               rv.event_id AS reversed_by
         FROM activity_events e
         LEFT JOIN users u ON u.id = e.operator_id
-        LEFT JOIN outbox o ON o.event_id = e.event_id
         LEFT JOIN activity_events rv ON rv.kind = 'REVERSAL' AND e.kind IN ('COMPLETE','WAIVER')
              AND rv.student_id = e.student_id AND rv.activity = e.activity AND rv.completion_cycle = e.completion_cycle
-        WHERE e.student_id = :s ORDER BY e.server_time, e.venue_seq"""), {"s": sid}).mappings().all()
+        WHERE e.student_id = :s ORDER BY e.server_time"""), {"s": sid}).mappings().all()
     timeline = []
     for e in events:
         if e["kind"] in ("COMPLETE", "WAIVER"):
             state = "REVERSED" if e["reversed_by"] else "ACTIVE"
         else:
             state = {"REVERSAL": "CORRECTION", "SKIP": "SKIPPED"}[e["kind"]]
-        route = guard.route_correction(e["activity"])
         timeline.append({
             "event_id": str(e["event_id"]), "activity": e["activity"], "activity_label": ownership.ACTIVITY_LABEL[e["activity"]],
-            "kind": e["kind"], "state": state, "venue": e["venue_id"], "venue_seq": e["venue_seq"], "station_id": e["station_id"],
+            "kind": e["kind"], "state": state,
             "operator": e["operator"], "time": iso_local(e["server_time"], off), "flags": list(e["flags"]),
             "reason": (e["details"] or {}).get("reason"), "details": e["details"],
             "corrects_event_id": str(e["corrects_event_id"]) if e["corrects_event_id"] else None,
             "reversed_by_event_id": str(e["reversed_by"]) if e["reversed_by"] else None,
-            "synced_at": iso_local(e["synced_at"], off),
-            "can_reverse": state == "ACTIVE", "reverse_here": route.apply_here, "owner_venue": route.owner_venue,
+            "can_reverse": state == "ACTIVE",
         })
     # The attempts panel answers "what went wrong for this student?", so it leaves out the ones that went
     # right: the confirmations, and the READY previews the operator was shown before confirming.
     attempts = conn.execute(text(
-        "SELECT occurred_at, station_id, activity, result, message FROM scan_log "
+        "SELECT occurred_at, activity, result, message FROM scan_log "
         "WHERE student_id = :s AND result NOT IN ('SUCCESS', 'READY') "
         "ORDER BY occurred_at DESC, id DESC LIMIT 50"), {"s": sid}).mappings().all()
     returned = any(t["activity"] == "THOBE_RETURN" and t["state"] == "ACTIVE" for t in timeline)
@@ -109,7 +106,7 @@ def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
                     "frozen": bool(student["frozen"]),
                     "journey_status": STATUS_LABEL[student["step"]]},
         "events": timeline,
-        "attempts": [{"time": iso_local(a["occurred_at"], off), "station_id": a["station_id"], "activity": a["activity"],
+        "attempts": [{"time": iso_local(a["occurred_at"], off), "activity": a["activity"],
                       "result": a["result"], "message": a["message"]} for a in attempts],
-        "can_waive_return": not returned, "waive_here": guard.route_correction("THOBE_RETURN").apply_here,
+        "can_waive_return": not returned,
     }

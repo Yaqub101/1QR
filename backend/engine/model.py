@@ -13,9 +13,9 @@ from typing import Mapping
 from backend.engine import extensions
 from backend.security import ownership
 
-# Placeholders a duplicate_message may use: the earlier record's time and station, and values the
-# engine recorded on that earlier event (see ActivityConfig.record_fields / effects).
-DUPLICATE_PLACEHOLDERS = frozenset({"time", "station", "queue_position"})
+# Placeholders a duplicate_message may use: the earlier record's time and values the engine
+# recorded on that earlier event (see ActivityConfig.record_fields / effects).
+DUPLICATE_PLACEHOLDERS = frozenset({"time", "queue_position"})
 # Master fields an activity may copy onto its event. The university's list carries no seat and no
 # convocation sequence number, so there is currently nothing here: an activity that wants a master
 # value on its event is a question for the project owner, not an edit to this set.
@@ -30,8 +30,8 @@ class RegistryError(ValueError):
 class Prerequisite:
     """`activity` must already be completed (or waived by the Admin) before this one is allowed.
 
-    `missing_message` is shown when it is not. Whether the check is a hard block or the
-    cross-venue fresh/stale rule is decided automatically from the venues involved.
+    Every prerequisite is a hard block: with one shared server there is no stale copy of
+    another server's data to be lenient about (docs/ARCHITECTURE_PIVOT.md).
     """
 
     activity: str
@@ -41,7 +41,6 @@ class Prerequisite:
 @dataclass(frozen=True)
 class ActivityConfig:
     activity: str                        # the activity this configures (one of the seven)
-    owning_venue: str                    # must equal the single-writer map in security/ownership.py
     prerequisites: tuple[Prerequisite, ...]
     display_fields: tuple[str, ...]      # extra card fields, chosen from extensions.DISPLAY_FIELDS
     confirm_label: str                   # text of the big confirm button
@@ -49,12 +48,6 @@ class ActivityConfig:
     record_fields: tuple[str, ...] = ()  # student fields copied into the event's details at confirm
     effects: tuple[str, ...] = ()        # named engine effects run inside the confirm transaction
     flag_rules: tuple[str, ...] = ()     # named engine rules that may add flags to the event
-
-    def same_venue_prerequisites(self) -> tuple[Prerequisite, ...]:
-        return tuple(p for p in self.prerequisites if ownership.ACTIVITY_OWNER[p.activity] == self.owning_venue)
-
-    def cross_venue_prerequisites(self) -> tuple[Prerequisite, ...]:
-        return tuple(p for p in self.prerequisites if ownership.ACTIVITY_OWNER[p.activity] != self.owning_venue)
 
 
 def _plain(where: str, message: str) -> None:
@@ -79,11 +72,6 @@ def validate_registry(configs: Mapping[str, ActivityConfig]) -> None:
         where = f"activities.py [{activity}]"
         if cfg.activity != activity:
             raise RegistryError(f"{where}: the entry is keyed {activity} but says activity={cfg.activity}")
-        if cfg.owning_venue != ownership.ACTIVITY_OWNER[activity]:
-            raise RegistryError(
-                f"{where}: owning_venue={cfg.owning_venue!r} but the single-writer rule says "
-                f"{ownership.ACTIVITY_OWNER[activity]!r}"
-            )
         for p in cfg.prerequisites:
             if p.activity not in journey:
                 raise RegistryError(f"{where}: prerequisite {p.activity!r} is not an activity")

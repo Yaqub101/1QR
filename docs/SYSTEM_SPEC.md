@@ -123,6 +123,8 @@ Deriving the status from events means the same student always ends up in the sam
 
 ## 6. QR Code Workflow
 
+> **ARCHITECTURE PIVOT NOTICE:** The single-server architecture retains the one-token-per-student and scan pipeline rules, but removes multi-venue token deactivation sync delays. See [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md).
+
 - One **opaque random token** per student, at least 128 bits, generated once. **No personal data in the QR.**
 - The token maps to the student in the local database at every location. The same QR works at all seven stations.
 - The QR is printed on a Convocation Pass (name, PRN, programme, photo, QR). It is distributed before the event.
@@ -138,6 +140,8 @@ SCAN → valid token? → student exists? → prerequisites OK? → already done
 ---
 
 ## 7. Venue Architecture
+
+> **ARCHITECTURE PIVOT NOTICE:** Superseded by [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md). There are no separate College, Stadium, and Hall servers. There is ONE central application server and database; stations are generic devices accessed by role-authorized operators.
 
 ```
                         CENTRAL SYSTEM (cloud server)
@@ -164,6 +168,8 @@ Each location is a self-contained island for its own activities. The central sys
 
 ## 8. Hybrid / Offline-First Architecture
 
+> **ARCHITECTURE PIVOT NOTICE:** Superseded by [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md). All stations connect to the single server over the venue LAN. The outbox and sync worker have been removed; events commit directly to the shared database.
+
 **Every station talks only to its local server over the local network.** The Internet is used only by a background sync worker.
 
 ```
@@ -180,6 +186,8 @@ Operator laptop ──LAN──► Local server (app + PostgreSQL) ──► sav
 ---
 
 ## 9. Synchronization Design
+
+> **ARCHITECTURE PIVOT NOTICE:** DROPPED per [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md). The sync engine (outbox, push/pull workers, venue_seq, sync status) has been completely removed.
 
 **Options considered**
 
@@ -212,6 +220,8 @@ Operators see, at most, a small unlabelled indicator. OFFLINE means **LOCAL OPER
 
 ## 10. Internet and Mobile Hotspot Failover
 
+> **ARCHITECTURE PIVOT NOTICE:** Superseded by [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md). The single deployment operates on standard LAN/Internet infrastructure; cross-venue router failover chains are no longer required.
+
 - Each venue uses a **dual-WAN router** (or a router with a 4G/5G SIM plus broadband/Wi-Fi uplink) that switches automatically. Nobody reconnects anything by hand.
 - Preferred chain: **Venue broadband → 4G/5G SIM router → (last resort) a phone hotspot plugged in as a second uplink.**
 - Use two different mobile carriers across venues where possible.
@@ -228,6 +238,8 @@ events → status goes 🔵 SYNCING → 🟢 ONLINE; Admin sees any exceptions r
 ---
 
 ## 11. Data Consistency and Conflict Handling
+
+> **ARCHITECTURE PIVOT NOTICE:** Superseded by [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md). Venue ownership and provisional cross-venue events are removed. Role-based access control enforces activity permissions, and all prerequisite checks are local hard blocks against the single database. Duplicate prevention remains enforced by the database unique constraint.
 
 This is the heart of the design. The questions the brief required answering:
 
@@ -348,13 +360,17 @@ Duplicate prevention is **per activity**. Scanning at a different activity is ne
 
 ## 17. Audit Trail
 
-Every event and correction stores: student, activity, action, venue, station, operator, local time, server time, `event_id`, `venue_seq`, provisional/manual flags, correction reference, correcting Admin, reason, and sync time. The audit log is append-only; no user (including the Admin) can edit or delete it. The Admin can view any student's complete journey and export the audit log.
+> **ARCHITECTURE PIVOT NOTICE:** Single-server schema applies: `venue_id`, `station_id`, and `venue_seq` columns are removed from audit and activity event tables. See [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md).
+
+Every event and correction stores: student, activity, action, operator, server time, `event_id`, flags, correction reference, correcting Admin, and reason. The audit log is append-only; no user (including the Admin) can edit or delete it. The Admin can view any student's complete journey and export the audit log.
 
 ---
 
 ## 18. High Availability
 
-**Goal: no single point of failure can stop a venue.**
+> **ARCHITECTURE PIVOT NOTICE:** Superseded by [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md). High availability uses a single hot standby server for hardware failure only (using `scripts/failover.sh` and `docs/failover/SERVER.md`), rather than three independent per-venue standbys.
+
+**Goal: no single point of failure can stop the server.**
 
 Per venue:
 | Component | Redundancy |

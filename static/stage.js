@@ -24,7 +24,6 @@
     let busy = false;
     let youControl = false;
 
-    const stationId = () => (els.stationSelect && els.stationSelect.value) || deps.stationId;
     const say = (message) => { els.message.textContent = message || ""; };
 
     function setSlot(name, photo, card) {
@@ -84,7 +83,7 @@
 
     async function send(url, body) {
       try {
-        return await post(url, Object.assign({ station_id: stationId() }, body || {}));
+        return await post(url, body || {});
       } catch (_) {
         return { detail: { message: TEMPORARY } };
       }
@@ -158,7 +157,6 @@
     takeOver: byId("take-over"), message: byId("message"), banner: byId("banner"), led: byId("led"), results: byId("results"),
     currentName: byId("current-name"), nextName: byId("next-name"), afterNextName: byId("after-next-name"),
     currentPhoto: byId("current-photo"), nextPhoto: byId("next-photo"), afterNextPhoto: byId("after-next-photo"),
-    stationSelect: byId("station-select"),
   };
 
   async function post(url, body) {
@@ -176,11 +174,11 @@
     return () => source.close();
   }
 
-  const screen = window.createStageScreen({ els, post, connect, doc: document, stationId: rootEl.dataset.stationId });
+  const screen = window.createStageScreen({ els, post, connect, doc: document });
   screenRef.current = screen;
   screen.start();
   document.addEventListener("keydown", screen.handleKey);
   // Take control when the screen opens; if another laptop already has it, the screen offers TAKE OVER.
-  post("/stage/control", { station_id: (els.stationSelect && els.stationSelect.value) || rootEl.dataset.stationId })
+  post("/stage/control", {})
     .then((reply) => { if (reply && reply.state) screen.render(reply.state); });
 })();

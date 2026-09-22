@@ -1,3 +1,32 @@
+## [0.14.0] - Student Photo Import by PRN from ZIP Archive
+
+University student profile photos imported from `Student Profile Image.zip` (1,440 images) and matched
+against database student records (1,199 students) using master-assisted mapping from `Untitled spreadsheet.xlsx`.
+
+### Added — Student Photo Import Engine (`backend/photos.py`)
+- **Structured Filename Parsing**: regex parser `_STRUCTURED_PHOTO_RE` handles university photo exports of
+  the form `^(?:(?P<seq>\d+)_)?PROFILE_IMAGE_PRN[ _-]No[ _-](?P<prn>.*?)_Name[ _-](?P<name>.*?)\.(?P<ext>[a-zA-Z0-9]+)$`.
+  Tolerant of sequence numbers, casing variants, spaces, hyphens, and mixed extensions (`.png`, `.jpeg`, `.jpg`).
+- **Control Character & Filesystem Sanitization**: strips non-printable control characters (e.g. leading `\t` found in 2
+  university photo filenames) and illegal filesystem characters before saving to disk as valid image files.
+- **Master-Assisted Mapping (Option B)**: `extract_student_id_mappings` inspects the student master spreadsheet,
+  resolving photo filenames labelled with `Enrollment No/Roll No` (e.g. `BSFS220037`) to the student's canonical
+  database `PRN No.` (e.g. `202250128037`), achieving 100% photo coverage for all 1,199 registered students.
+- **Strict Non-Silent Accounting**: reports clean matches (1,199), missing photos (0), orphaned photos (241),
+  duplicate photo PRNs (1: `BCATY15`), duplicate student PRNs (0), malformed filenames (0), and frozen skipped (0).
+- **Safety Guards**:
+  - Existing QR tokens are never modified or regenerated.
+  - Existing activity events and journey state remain completely untouched.
+  - Frozen display snapshot guard: skips updating photos for students whose display snapshot is frozen.
+- **CLI Runner**: `python -m backend.photos "Student Profile Image.zip" "Untitled spreadsheet.xlsx"` provides
+  one-command execution and terminal summary reporting.
+
+### Tests
+- **`tests/test_photo_import.py`**: 13 automated tests verifying filename parsing, malformed detection, 1:1 clean
+  matches, missing photos, orphaned photos, photo duplicate PRNs, student duplicate PRNs, Option B master-assisted
+  mapping, QR token immutability, activity events immutability, frozen display snapshot guard, and tab/control
+  character sanitization. Total test suite reconciled: 975 passed (963 baseline + 12 new tests + 1 tab-sanitization test).
+
 ## [0.13.0] - Phase 3 screen, the master patch, and no sequence numbers or seats
 
 Two things: **Phase 3 finally has a screen** (it was curl-only — `/admin/import` returned 404), and the

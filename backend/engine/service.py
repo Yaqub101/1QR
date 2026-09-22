@@ -1,18 +1,19 @@
 """The station engine: scan / search (preview) and confirm (the only write).
 
-    scan / search   records no ACTIVITY: no event, no outbox row, no effect. It does write the one row
-                    every attempt writes (the scan_log row, result READY or the refusal), because
+    scan / search   records no ACTIVITY: no event, no effect. It does write the one row every
+                    attempt writes (the scan_log row, result READY or the refusal), because
                     "every attempt written to scan_log" is what makes the log worth having.
     confirm         ONE database transaction writes, together and only together:
-                        effects (e.g. the queue row) -> the activity event -> its outbox row
-                        -> the audit row -> the scan_log row
+                        effects (e.g. the queue row) -> the activity event -> the audit row
+                        -> the scan_log row
                     and the caller sees success only after that transaction has COMMITTED
                     (golden rule 6). It re-runs every check inside the transaction, so a client
                     can never skip the preview, and the Phase 2 unique index is the final judge of
-                    a race between two stations.
+                    a race between two operators.
 
-The activity is ALWAYS the bound station's (golden rule 2); the request never names one.
-Operator text is plain; technical detail goes to the `backend.engine` logger only (rule 11).
+The activity comes from the URL the operator is on (docs/ARCHITECTURE_PIVOT.md): their ROLE must
+allow it, but any signed-in browser may act, from anywhere. Operator text is plain; technical
+detail goes to the `backend.engine` logger only (rule 11).
 
 The small write steps below are module-level functions on purpose: tests replace them to simulate a
 crash between two writes and prove nothing half-written survives.
@@ -36,7 +37,6 @@ from backend.engine.context import EngineContext
 from backend.engine.pipeline import Outcome
 from backend.engine.queries import clock_text, next_completion_cycle
 from backend.security import ownership, permissions
-from backend.sync.exceptions_log import open_exception
 
 logger = logging.getLogger("backend.engine")
 
@@ -46,7 +46,7 @@ DUPLICATE_CONSTRAINTS = {"activity_events_one_completion", "queue_pkey"}
 
 
 class StationAccessError(Exception):
-    """The caller may not use this station. Maps to an HTTP 4xx; the message is operator-safe."""
+    """The caller may not do this. Maps to an HTTP 4xx; the message is operator-safe."""
 
     def __init__(self, status_code: int, code: str, message: str):
         super().__init__(message)
@@ -64,7 +64,6 @@ class EngineResult:
     result: str
     message: str
     activity: str
-    station_id: str
     manual: bool = False
     student: Optional[dict] = None
     earlier: Optional[dict] = None
@@ -74,31 +73,21 @@ class EngineResult:
     def to_dict(self) -> dict:
         return {
             "result": self.result, "colour": messages.COLOUR[self.result], "message": self.message,
-            "activity": self.activity, "station_id": self.station_id, "manual": self.manual,
+            "activity": self.activity, "manual": self.manual,
             "student": self.student, "earlier": self.earlier, "event": self.event,
             "elapsed_ms": round(self.elapsed_ms, 1),
         }
 
 
 # ------------------------------------------------------------------ access
-def _context(conn: Connection, settings, guard, principal, station_id: str) -> EngineContext:
-    station = conn.execute(
-        text("SELECT station_id, venue_id, activity, active FROM stations WHERE station_id = :s"), {"s": station_id}
-    ).mappings().one_or_none()
-    if station is None:
-        raise StationAccessError(404, "STATION_NOT_FOUND", "That station does not exist.")
-    if not station["active"]:
-        raise StationAccessError(403, "STATION_INACTIVE", "That station is switched off.")
+def _context(settings, principal, activity: str) -> EngineContext:
     try:
-        guard.ensure_can_originate(station["activity"])  # golden rule 4: only the owning venue records this
-    except ownership.OwnershipError as exc:
-        raise StationAccessError(403, exc.code, exc.message) from exc
-    if not permissions.can_use_activity(principal.role, station["activity"]):
+        activity = ownership.normalize_activity(activity)
+    except ownership.UnknownActivityError as exc:
+        raise StationAccessError(404, exc.code, exc.message) from exc
+    if not permissions.can_use_activity(principal.role, activity):
         raise StationAccessError(403, "FORBIDDEN", "That screen is not part of your role.")
-    if not principal.is_admin and principal.station_id != station["station_id"]:
-        raise StationAccessError(403, "STATION_MISMATCH", "This laptop is set up for another station.")
-    return EngineContext(settings=settings, principal=principal, station=dict(station),
-                         config=ACTIVITY_CONFIGS[station["activity"]])
+    return EngineContext(settings=settings, principal=principal, activity=activity, config=ACTIVITY_CONFIGS[activity])
 
 
 authorize_station = _context  # public name for trusted in-process callers (the Stage Controller)
@@ -116,10 +105,10 @@ def build_card(conn: Connection, ctx: EngineContext, student: dict) -> dict:
 def log_attempt(conn: Connection, ctx: EngineContext, *, result: str, message: str, student_id=None, token=None,
                 prn=None, event_id=None, details: Optional[dict] = None) -> None:
     conn.execute(
-        text("INSERT INTO scan_log (venue_id, station_id, activity, operator_id, student_id, token_presented, "
-             "prn_entered, result, message, event_id, details) VALUES (:v, :s, :a, :o, :st, :tok, :prn, :r, :m, :e, "
+        text("INSERT INTO scan_log (activity, operator_id, student_id, token_presented, "
+             "prn_entered, result, message, event_id, details) VALUES (:a, :o, :st, :tok, :prn, :r, :m, :e, "
              "CAST(:d AS jsonb))"),
-        {"v": ctx.venue, "s": ctx.station["station_id"], "a": ctx.activity, "o": ctx.principal.user_id, "st": student_id,
+        {"a": ctx.activity, "o": ctx.principal.user_id, "st": student_id,
          "tok": (token or None) and token[:128], "prn": (prn or None) and prn[:64], "r": result, "m": message,
          "e": event_id, "d": json.dumps(details or {}, default=str)},
     )
@@ -128,9 +117,8 @@ def log_attempt(conn: Connection, ctx: EngineContext, *, result: str, message: s
 def _log_refusal(ctx: EngineContext, stage: str, outcome: Outcome, student_id=None) -> None:
     """The technical side of a refusal: which rule fired and for whom. Never shown to the operator."""
     logger.info(
-        "attempt refused: stage=%s rule=%s result=%s student_id=%s station_id=%s activity=%s operator=%s detail=%s",
-        stage, outcome.rule, outcome.result, student_id, ctx.station["station_id"], ctx.activity,
-        ctx.principal.username, outcome.detail,
+        "attempt refused: stage=%s rule=%s result=%s student_id=%s activity=%s operator=%s detail=%s",
+        stage, outcome.rule, outcome.result, student_id, ctx.activity, ctx.principal.username, outcome.detail,
     )
 
 
@@ -144,12 +132,10 @@ def _terminal(conn: Connection, ctx: EngineContext, stage: str, outcome: Outcome
 def _ready(conn: Connection, ctx: EngineContext, stage: str, outcome: Outcome, *, token=None, prn=None) -> None:
     """A preview that passed every rule. Nothing has been RECORDED - the operator has not confirmed yet -
     but the attempt happened, and Phase 6 wants every attempt in scan_log. The row has no event_id, which
-    is what makes it useful: it is the only trace of a student who was shown at a station and then walked
-    away without being confirmed."""
+    is what makes it useful: it is the only trace of a student who was shown and then walked away without
+    being confirmed."""
     log_attempt(conn, ctx, result="READY", message=outcome.message, student_id=outcome.student["id"],
-                token=token, prn=prn,
-                details={"stage": stage, "provisional": outcome.provisional,
-                         "provisional_missing": list(outcome.provisional_missing)})
+                token=token, prn=prn, details={"stage": stage})
 
 
 def _log_attempt_outcome(conn: Connection, ctx: EngineContext, stage: str, outcome: Outcome, *, token=None, prn=None) -> None:
@@ -162,19 +148,19 @@ def _log_attempt_outcome(conn: Connection, ctx: EngineContext, stage: str, outco
 
 def _preview_result(conn: Connection, ctx: EngineContext, outcome: Outcome, *, manual: bool, started: float) -> EngineResult:
     return EngineResult(
-        result=outcome.result, message=outcome.message, activity=ctx.activity, station_id=ctx.station["station_id"],
+        result=outcome.result, message=outcome.message, activity=ctx.activity,
         manual=manual, student=build_card(conn, ctx, outcome.student) if outcome.student else None,
         earlier=outcome.earlier, elapsed_ms=(time.perf_counter() - started) * 1000,
     )
 
 
 # ------------------------------------------------------------------ scan / search (read only)
-def scan(engine, *, settings, guard, principal, station_id: str, token: str) -> EngineResult:
+def scan(engine, *, settings, principal, activity: str, token: str) -> EngineResult:
     started = time.perf_counter()
     token = pipeline.normalise_token(token)
     try:
         with engine.begin() as conn:
-            ctx = _context(conn, settings, guard, principal, station_id)
+            ctx = _context(settings, principal, activity)
             student, refused = pipeline.identify_by_token(conn, token)
             outcome = refused or pipeline.evaluate(conn, ctx, student)
             _log_attempt_outcome(conn, ctx, "scan", outcome, token=token)
@@ -182,17 +168,17 @@ def scan(engine, *, settings, guard, principal, station_id: str, token: str) -> 
     except StationAccessError:
         raise
     except Exception as exc:
-        logger.exception("scan failed unexpectedly: station_id=%s", station_id)
+        logger.exception("scan failed unexpectedly: activity=%s", activity)
         raise TemporaryFailure() from exc
 
 
-def search(engine, *, settings, guard, principal, station_id: str, prn: str) -> EngineResult:
+def search(engine, *, settings, principal, activity: str, prn: str) -> EngineResult:
     """Manual fallback for a damaged QR: PRN only, with the photo, and any event it leads to is flagged MANUAL."""
     started = time.perf_counter()
     prn = pipeline.normalise_prn(prn)
     try:
         with engine.begin() as conn:
-            ctx = _context(conn, settings, guard, principal, station_id)
+            ctx = _context(settings, principal, activity)
             student, refused = pipeline.identify_by_prn(conn, prn)
             outcome = refused or pipeline.evaluate(conn, ctx, student)
             _log_attempt_outcome(conn, ctx, "search", outcome, prn=prn)
@@ -200,7 +186,7 @@ def search(engine, *, settings, guard, principal, station_id: str, prn: str) -> 
     except StationAccessError:
         raise
     except Exception as exc:
-        logger.exception("search failed unexpectedly: station_id=%s", station_id)
+        logger.exception("search failed unexpectedly: activity=%s", activity)
         raise TemporaryFailure() from exc
 
 
@@ -212,12 +198,10 @@ def run_effects(conn: Connection, ctx: EngineContext, student: dict) -> dict:
     return extra
 
 
-def compute_flags(conn: Connection, ctx: EngineContext, student: dict, *, manual: bool, provisional: bool) -> list:
+def compute_flags(conn: Connection, ctx: EngineContext, student: dict, *, manual: bool) -> list:
     flags: list = []
     if manual:
         flags.append("MANUAL")
-    if provisional:
-        flags.append("PROVISIONAL")
     for name in ctx.config.flag_rules:
         flag = extensions.FLAG_RULES[name](conn, student, ctx)
         if flag and flag not in flags:
@@ -228,33 +212,24 @@ def compute_flags(conn: Connection, ctx: EngineContext, student: dict, *, manual
 def insert_event(conn: Connection, ctx: EngineContext, student: dict, *, flags: list, details: dict,
                  kind: str = "COMPLETE") -> dict:
     row = conn.execute(
-        text("INSERT INTO activity_events (student_id, activity, kind, venue_id, station_id, operator_id, flags, details, "
-             "completion_cycle) VALUES (:s, :a, :k, :v, :st, :o, CAST(:f AS text[]), CAST(:d AS jsonb), :c) "
-             "RETURNING event_id, venue_seq, server_time"),
-        {"s": student["id"], "a": ctx.activity, "k": kind, "v": ctx.venue, "st": ctx.station["station_id"],
-         "o": ctx.principal.user_id, "f": flags, "d": json.dumps(details, default=str),
+        text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details, "
+             "completion_cycle) VALUES (:s, :a, :k, :o, CAST(:f AS text[]), CAST(:d AS jsonb), :c) "
+             "RETURNING event_id, server_time"),
+        {"s": student["id"], "a": ctx.activity, "k": kind, "o": ctx.principal.user_id, "f": flags,
+         "d": json.dumps(details, default=str),
          "c": next_completion_cycle(conn, student["id"], ctx.activity) if kind == "COMPLETE" else 1},
     ).mappings().one()
     return dict(row)
 
 
-def insert_outbox(conn: Connection, event_id) -> None:
-    """The event, exactly as stored, queued for sync. Same transaction as the event (golden rule 6)."""
-    conn.execute(
-        text("INSERT INTO outbox (event_id, payload) SELECT e.event_id, to_jsonb(e) FROM activity_events e WHERE e.event_id = :e"),
-        {"e": event_id},
-    )
-
-
 def insert_audit(conn: Connection, ctx: EngineContext, student: dict, event: dict, flags: list,
                  action: str = "ACTIVITY_CONFIRMED", details: Optional[dict] = None) -> None:
-    write_audit(conn, action, details=details, operator_id=ctx.principal.user_id, station_id=ctx.station["station_id"],
-                venue_id=ctx.venue, student_id=student["id"], activity=ctx.activity, event_id=event["event_id"],
-                venue_seq=event["venue_seq"], flags=flags)
+    write_audit(conn, action, details=details, operator_id=ctx.principal.user_id,
+                student_id=student["id"], activity=ctx.activity, event_id=event["event_id"], flags=flags)
 
 
 # ------------------------------------------------------------------ confirm (the only write)
-def confirm_in_transaction(conn: Connection, *, settings, guard, principal, station_id: str,
+def confirm_in_transaction(conn: Connection, *, settings, principal, activity: str,
                            token: Optional[str] = None, student_id: Optional[str] = None,
                            manual: Optional[bool] = None, started: Optional[float] = None,
                            seen: Optional[dict] = None) -> EngineResult:
@@ -271,8 +246,7 @@ def confirm_in_transaction(conn: Connection, *, settings, guard, principal, stat
     by_id = student_id is not None
     manual = by_id if manual is None else manual
     token = pipeline.normalise_token(token) if token is not None else None
-    ctx = _context(conn, settings, guard, principal, station_id)
-    seen["station_id"] = station_id
+    ctx = _context(settings, principal, activity)
     if by_id:
         student, refused = pipeline.identify_by_id(conn, student_id)
     else:
@@ -285,40 +259,31 @@ def confirm_in_transaction(conn: Connection, *, settings, guard, principal, stat
     seen["student_id"] = student["id"]
     details = {f: student[f] for f in ctx.config.record_fields}
     details.update(run_effects(conn, ctx, student))
-    flags = compute_flags(conn, ctx, student, manual=manual, provisional=outcome.provisional)
+    flags = compute_flags(conn, ctx, student, manual=manual)
     event = insert_event(conn, ctx, student, flags=flags, details=details)
-    insert_outbox(conn, event["event_id"])
     insert_audit(conn, ctx, student, event, flags)
-    if outcome.provisional:
-        # Accepted while the owning venue's data was stale (SYSTEM_SPEC 11.5). The operator sees a normal
-        # confirmation; the Admin gets an OPEN item, in the same commit, that closes itself when the missing
-        # record arrives by sync (backend/sync/reconcile.py).
-        open_exception(conn, "PROVISIONAL_UNCONFIRMED", student_id=student["id"], venue_id=ctx.venue, event_id=event["event_id"],
-                       details={"activity": ctx.activity, "missing": list(outcome.provisional_missing),
-                                "waiting_for_venues": sorted({ownership.ACTIVITY_OWNER[a] for a in outcome.provisional_missing})})
     log_attempt(
         conn, ctx, student_id=student["id"], event_id=event["event_id"], message=messages.CONFIRMED,
-        result="PROVISIONAL" if outcome.provisional else "MANUAL" if manual else "SUCCESS",
-        details={"stage": "confirm", "flags": flags, "venue_seq": event["venue_seq"]},
+        result="MANUAL" if manual else "SUCCESS",
+        details={"stage": "confirm", "flags": flags},
     )
     return EngineResult(
-        result="CONFIRMED", message=messages.CONFIRMED, activity=ctx.activity, station_id=ctx.station["station_id"],
+        result="CONFIRMED", message=messages.CONFIRMED, activity=ctx.activity,
         manual=manual, student=build_card(conn, ctx, student),
-        event={"event_id": str(event["event_id"]), "venue_seq": event["venue_seq"],
+        event={"event_id": str(event["event_id"]),
                "time": clock_text(event["server_time"], settings.event_utc_offset_minutes)},
     )
 
 
 def record_skip(conn: Connection, ctx: EngineContext, student: dict, reason: str) -> dict:
-    """A Stage SKIP (SYSTEM_SPEC 13): a SKIP event with its reason, its outbox row and its audit row, in the
-    caller's transaction. It is not a completion, so the student can still be completed later."""
+    """A Stage SKIP (SYSTEM_SPEC 13): a SKIP event with its reason and its audit row, in the caller's
+    transaction. It is not a completion, so the student can still be completed later."""
     event = insert_event(conn, ctx, student, flags=[], details={"reason": reason}, kind="SKIP")
-    insert_outbox(conn, event["event_id"])
     insert_audit(conn, ctx, student, event, [], action="STAGE_SKIPPED", details={"reason": reason})
     return event
 
 
-def confirm(engine, *, settings, guard, principal, station_id: str, token: Optional[str] = None,
+def confirm(engine, *, settings, principal, activity: str, token: Optional[str] = None,
             student_id: Optional[str] = None) -> EngineResult:
     """Identify by QR `token`, or by `student_id` from a manual search (always flagged MANUAL). Exactly one."""
     started = time.perf_counter()
@@ -326,9 +291,8 @@ def confirm(engine, *, settings, guard, principal, station_id: str, token: Optio
     seen: dict = {}  # what we knew when a race was lost, to answer it properly
     try:
         with engine.begin() as conn:
-            result = confirm_in_transaction(conn, settings=settings, guard=guard, principal=principal,
-                                            station_id=station_id, token=token, student_id=student_id,
-                                            started=started, seen=seen)
+            result = confirm_in_transaction(conn, settings=settings, principal=principal, activity=activity,
+                                            token=token, student_id=student_id, started=started, seen=seen)
         # The transaction has COMMITTED here. Only now does the operator hear "done".
         result.elapsed_ms = (time.perf_counter() - started) * 1000
         return result
@@ -336,12 +300,12 @@ def confirm(engine, *, settings, guard, principal, station_id: str, token: Optio
         raise
     except IntegrityError as exc:
         if _is_duplicate_race(exc) and "student_id" in seen:
-            return _lost_the_race(engine, settings=settings, guard=guard, principal=principal, seen=seen,
+            return _lost_the_race(engine, settings=settings, principal=principal, activity=activity, seen=seen,
                                   manual=manual, started=started)
-        logger.exception("confirm failed on a database rule: station_id=%s", station_id)
+        logger.exception("confirm failed on a database rule: activity=%s", activity)
         raise TemporaryFailure() from exc
     except Exception as exc:
-        logger.exception("confirm failed unexpectedly: station_id=%s", station_id)
+        logger.exception("confirm failed unexpectedly: activity=%s", activity)
         raise TemporaryFailure() from exc
 
 
@@ -350,12 +314,12 @@ def _is_duplicate_race(exc: IntegrityError) -> bool:
     return getattr(orig, "pgcode", None) == "23505" and getattr(getattr(orig, "diag", None), "constraint_name", None) in DUPLICATE_CONSTRAINTS
 
 
-def _lost_the_race(engine, *, settings, guard, principal, seen: dict, manual: bool, started: float) -> EngineResult:
-    """Two stations confirmed the same student at once; the database let one through. Answer the other
+def _lost_the_race(engine, *, settings, principal, activity: str, seen: dict, manual: bool, started: float) -> EngineResult:
+    """Two operators confirmed the same student at once; the database let one through. Answer the other
     as an ordinary duplicate, in a fresh transaction (the failed one was rolled back, nothing persisted)."""
     try:
         with engine.begin() as conn:
-            ctx = _context(conn, settings, guard, principal, seen["station_id"])
+            ctx = _context(settings, principal, activity)
             student, _ = pipeline.identify_by_id(conn, str(seen["student_id"]))
             outcome = pipeline.evaluate(conn, ctx, student)
             if outcome.result != "DUPLICATE":  # cannot happen; refuse to guess

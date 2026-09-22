@@ -13,8 +13,8 @@
   {% for s in found %}
   <tr>
       <td>
-          {% if s.photo_path %}
-          <img src="/static/photos/{{ s.photo_path }}" alt="Photo" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+      {% if s.photo_path %}
+          <img src="/photo/{{ s.student_id }}" alt="Photo" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
           {% else %}
           <div style="width: 40px; height: 40px; border-radius: 50%; background: #ccc; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff;">No photo</div>
           {% endif %}

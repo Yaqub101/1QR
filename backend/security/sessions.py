@@ -2,9 +2,13 @@
 
 Only a SHA-256 of the random token is stored, so a copy of the database does not
 hand out live sessions. Validity is decided in ONE query against the current
-state of the user and the station, which is why disabling a user or deactivating
-a station cuts them off on the very next request. All times are the database
-server's clock, never the laptop's (SYSTEM_SPEC 9.7).
+state of the user, which is why disabling a user cuts them off on the very next
+request. All times are the database server's clock, never the laptop's
+(SYSTEM_SPEC 9.7).
+
+A session no longer belongs to a bound station (docs/ARCHITECTURE_PIVOT.md): any
+signed-in operator can act from any browser, and their role alone decides which
+activity they may perform.
 """
 from __future__ import annotations
 
@@ -28,8 +32,6 @@ class Principal:
     username: str
     full_name: Optional[str]
     role: str
-    station_id: Optional[str]
-    station_activity: Optional[str]  # decided by the station binding, never by the operator
 
     @property
     def is_admin(self) -> bool:
@@ -48,7 +50,7 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_session(conn: Connection, *, user_id, station_id: Optional[str], max_hours: int) -> str:
+def create_session(conn: Connection, *, user_id, max_hours: int) -> str:
     # Housekeeping: forget sessions that ended more than a day ago.
     conn.execute(
         text(
@@ -59,10 +61,10 @@ def create_session(conn: Connection, *, user_id, station_id: Optional[str], max_
     token = new_token()
     conn.execute(
         text(
-            "INSERT INTO sessions (token_hash, user_id, station_id, expires_at) "
-            "VALUES (:h, :u, :s, now() + make_interval(hours => :hours))"
+            "INSERT INTO sessions (token_hash, user_id, expires_at) "
+            "VALUES (:h, :u, now() + make_interval(hours => :hours))"
         ),
-        {"h": hash_token(token), "u": user_id, "s": station_id, "hours": max_hours},
+        {"h": hash_token(token), "u": user_id, "hours": max_hours},
     )
     return token
 
@@ -71,16 +73,13 @@ def load_principal(conn: Connection, token: str, *, idle_minutes: int) -> Option
     row = conn.execute(
         text(
             """
-            SELECT s.id AS session_id, s.user_id, s.station_id, u.username, u.full_name, u.role,
-                   st.activity AS station_activity
+            SELECT s.id AS session_id, s.user_id, u.username, u.full_name, u.role
             FROM sessions s
             JOIN users u ON u.id = s.user_id AND u.active
-            LEFT JOIN stations st ON st.station_id = s.station_id
             WHERE s.token_hash = :h
               AND s.revoked_at IS NULL
               AND s.expires_at > now()
               AND s.last_seen_at > now() - make_interval(mins => :idle)
-              AND (s.station_id IS NULL OR st.active)
             """
         ),
         {"h": hash_token(token), "idle": idle_minutes},
@@ -100,8 +99,6 @@ def load_principal(conn: Connection, token: str, *, idle_minutes: int) -> Option
         username=row["username"],
         full_name=row["full_name"],
         role=row["role"],
-        station_id=row["station_id"],
-        station_activity=row["station_activity"],
     )
 
 
@@ -123,16 +120,4 @@ def revoke_token(conn: Connection, token: str) -> None:
 def revoke_user_sessions(conn: Connection, user_id) -> None:
     conn.execute(
         text("UPDATE sessions SET revoked_at = now() WHERE user_id = :u AND revoked_at IS NULL"), {"u": user_id}
-    )
-
-
-def revoke_station_sessions(conn: Connection, station_id: str, *, keep_admins: bool = True) -> None:
-    """Sign out whoever is working at this station (e.g. the laptop was just replaced)."""
-    conn.execute(
-        text(
-            "UPDATE sessions SET revoked_at = now() "
-            "WHERE station_id = :s AND revoked_at IS NULL "
-            "AND (NOT :keep OR user_id NOT IN (SELECT id FROM users WHERE role IN ('ADMIN','DEPUTY_ADMIN')))"
-        ),
-        {"s": station_id, "keep": keep_admins},
     )

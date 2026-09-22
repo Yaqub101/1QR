@@ -80,7 +80,7 @@ def clean_reason(reason) -> str:
     return value
 
 
-def generate_missing_tokens(engine, *, operator_id=None, venue_id: Optional[str] = None) -> GenerateResult:
+def generate_missing_tokens(engine, *, operator_id=None) -> GenerateResult:
     """Issue one active token to every ACTIVE student who has none. Idempotent: a second run creates nothing, touches
     no existing row and writes no audit entry (a run that did nothing leaves no trace)."""
     with engine.begin() as conn:
@@ -96,7 +96,7 @@ def generate_missing_tokens(engine, *, operator_id=None, venue_id: Optional[str]
                 text("INSERT INTO qr_tokens (student_id, token) VALUES (:s, :t) ON CONFLICT (student_id) WHERE active DO NOTHING"),
                 {"s": student_id, "t": new_token()}).rowcount
         if created:
-            write_audit(conn, "QR_TOKENS_GENERATED", operator_id=operator_id, venue_id=venue_id, details={"created": created})
+            write_audit(conn, "QR_TOKENS_GENERATED", operator_id=operator_id, details={"created": created})
         active = conn.execute(text("SELECT count(*) FROM students WHERE status = 'ACTIVE'")).scalar_one()
         held = conn.execute(text(
             "SELECT count(*) FROM students s WHERE s.status = 'ACTIVE' "
@@ -106,7 +106,7 @@ def generate_missing_tokens(engine, *, operator_id=None, venue_id: Optional[str]
     return GenerateResult(created=created, active_students=int(active), with_token=int(held))
 
 
-def reissue_token(engine, *, student_id, reason, operator_id, venue_id: Optional[str] = None) -> ReissueResult:
+def reissue_token(engine, *, student_id, reason, operator_id) -> ReissueResult:
     """Admin "Reissue QR". The old token stops working (NOT ACTIVE) and a new one is issued, or nothing changes at all.
 
     The student's row is locked first, so two simultaneous reissues run one after the other and end with exactly one
@@ -127,7 +127,7 @@ def reissue_token(engine, *, student_id, reason, operator_id, venue_id: Optional
         new_id = conn.execute(
             text("INSERT INTO qr_tokens (student_id, token) VALUES (:s, :t) RETURNING id"),
             {"s": student["id"], "t": new_token()}).scalar_one()
-        write_audit(conn, "QR_REISSUED", operator_id=operator_id, venue_id=venue_id, reason=reason, student_id=student["id"],
+        write_audit(conn, "QR_REISSUED", operator_id=operator_id, reason=reason, student_id=student["id"],
                     details={"prn": student["prn"], "old_token_id": old_id, "new_token_id": new_id})
     logger.info("QR reissued for student %s (token %s -> %s)", student["id"], old_id, new_id)
     return ReissueResult(student_id=str(student["id"]), old_token_id=old_id, new_token_id=new_id)

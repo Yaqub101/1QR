@@ -94,8 +94,7 @@ def private_state(conn: Connection, principal, settings) -> dict:
             text("SELECT u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = :i"),
             {"i": st["controller_session_id"]},
         ).scalar()
-        controller = {"station_id": st["controller_station_id"], "username": who,
-                      "live": controller_is_live(conn, st, settings.session_idle_minutes)}
+        controller = {"username": who, "live": controller_is_live(conn, st, settings.session_idle_minutes)}
     led_name = None
     if st["display_student_id"] is not None:
         led_name = conn.execute(text("SELECT display_name FROM display_snapshot WHERE student_id = :s"),

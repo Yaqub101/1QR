@@ -75,7 +75,7 @@ DISPLAY_FIELDS: dict[str, DisplayField] = {
 
 # ------------------------------------------------------------------ effects
 def _enqueue(conn, student, ctx) -> dict:
-    """Queue: take the next position from the venue's counter, in the SAME transaction as the event
+    """Queue: take the next position from the shared counter, in the SAME transaction as the event
     (first come, first shown). The position is recorded on the event."""
     # The pipeline only reaches here when the student has NO active Queue completion. A queue row that is
     # still there therefore belongs to a completion an Admin reversed: drop it so the student is queued
