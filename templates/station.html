@@ -19,6 +19,15 @@
 
   <button id="confirm" class="confirm" type="button" hidden>{{ config.confirm_label }}</button>
 
+  <details class="camera-scan" id="camera-details">
+    <summary>Scan with camera</summary>
+    <div class="camera-view">
+      <video id="camera-video" playsinline muted autoplay aria-label="Camera preview for scanning the student's QR code"></video>
+      <canvas id="camera-canvas" hidden></canvas>
+    </div>
+    <p id="camera-status" class="muted" role="status" aria-live="polite">Point the camera at the student's QR code.</p>
+  </details>
+
   <details class="manual">
     <summary>QR damaged? Search by PRN</summary>
     <div class="manual-row">
@@ -29,6 +38,8 @@
     <p class="muted">Check the photo against the student before you confirm.</p>
   </details>
 </div>
+<script src="/static/jsqr.min.js"></script>
 <script src="/static/station_logic.js"></script>
+<script src="/static/camera_scan.js"></script>
 <script src="/static/station.js"></script>
 {% endblock %}

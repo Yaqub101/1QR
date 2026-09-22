@@ -52,6 +52,10 @@ button.confirm:disabled { opacity:.6; }
 .manual summary { cursor:pointer; color:var(--muted); }
 .manual-row { display:flex; gap:.6rem; margin:.6rem 0; }
 .manual-row input { flex:1; }
+.camera-scan { margin-top:1.5rem; }
+.camera-scan summary { cursor:pointer; color:var(--muted); }
+.camera-view { margin:.6rem 0; max-width:24rem; }
+.camera-view video { width:100%; border-radius:10px; background:#000; border:3px solid var(--brand); }
 .admin-station { max-width:20rem; margin-bottom:.5rem; }
 
 /* ---- Stage Controller (Phase 11) ---- */

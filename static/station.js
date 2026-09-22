@@ -227,4 +227,39 @@
   });
   window.addEventListener("focus", () => screen.focusScan());
   document.addEventListener("visibilitychange", () => { if (!document.hidden) screen.focusScan(); });
+
+  // Camera-based scanning: a decoded QR is handed to the SAME submitScan() the manual scan box uses,
+  // so it goes through the identical /scan -> render -> /confirm path (no second code path to the server).
+  const cameraDetails = byId("camera-details");
+  if (cameraDetails && window.CameraScan) {
+    const cameraStatus = byId("camera-status");
+    const cameraVideo = byId("camera-video");
+    const cameraCanvas = byId("camera-canvas");
+    const IDLE_STATUS = "Point the camera at the student's QR code.";
+
+    let BarcodeDetectorCtor = null;
+    if (window.BarcodeDetector) {
+      try { BarcodeDetectorCtor = window.BarcodeDetector; } catch (_) { BarcodeDetectorCtor = null; }
+    }
+
+    const scanner = window.CameraScan.createCameraScanner({
+      video: cameraVideo, canvas: cameraCanvas,
+      mediaDevices: navigator.mediaDevices,
+      BarcodeDetectorCtor, jsQR: BarcodeDetectorCtor ? null : window.jsQR || null,
+      now: Date.now, schedule: window.setTimeout.bind(window), cancelSchedule: window.clearTimeout.bind(window),
+      onDecode: (text) => { screen.submitScan(text); },
+      onError: (message) => { cameraStatus.textContent = message; }, // stays open: the message is inside it
+    });
+
+    if (!scanner.isSupported()) {
+      cameraStatus.textContent = "Camera scanning is not supported on this browser — use PRN search instead.";
+    } else {
+      cameraDetails.addEventListener("toggle", () => {
+        if (cameraDetails.open) { cameraStatus.textContent = IDLE_STATUS; scanner.start(); }
+        else scanner.stop();
+      });
+      window.addEventListener("pagehide", () => scanner.stop());
+      document.addEventListener("visibilitychange", () => { if (document.hidden) scanner.stop(); else if (cameraDetails.open) scanner.start(); });
+    }
+  }
 })();

@@ -75,6 +75,46 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 ---
 
+## Addendum — Camera-Based QR Scanning (post-Phase 13)
+
+Adds an in-browser "Scan with camera" option to the 6 activity stations that already had the
+manual scan-box + PRN-search pattern (Registration, Thobe Allocation, Seating, Queue, Thobe
+Return, Lunch): `templates/station.html`, `static/camera_scan.js`, `static/station.js`,
+vendored `static/jsqr.min.js` (Apache-2.0, no CDN dependency). A decoded QR is handed to the
+exact same `submitScan()` the manual scan box already used, so it goes through the unchanged
+`/scan` → `/confirm` path with no new backend code, no new endpoint, and no change to
+duplicate-prevention (still the DB unique constraint per SYSTEM_SPEC §15 / AGENTS.md rule 3).
+
+**Stage is deliberately excluded.** Its "SEARCH" box queries the live queue by PRN/name
+substring (`/stage/search`), not by QR token, and COMPLETE fires on whoever is currently
+displayed — there is no scan-and-confirm flow to attach a camera to. Confirmed with the
+project owner before implementation.
+
+**Verified so far (2026-09-22):**
+- [x] All 52 `node --test tests/js/*.test.js` pass, including 10 new tests in
+      `tests/js/camera_scan.test.js` (feature detection, `ideal` not `exact` facingMode so a
+      laptop-only webcam still works, permission-denied / no-camera error mapping, BarcodeDetector
+      and jsQR decode paths, decode cooldown, a bad frame never crashing the loop, `stop()`
+      releasing every camera track).
+- [x] Full `pytest` suite passes unchanged (985 passed) — no backend behaviour changed.
+- [x] Live manual check (Claude's own sandboxed built-in browser, Chromium-based, no physical
+      camera): "Scan with camera" renders on all 6 stations and is absent from `/station/stage`;
+      opening it on a camera-less machine shows exactly "No camera was found on this device —
+      use PRN search instead."; console has zero errors; `window.CameraScan`/`window.jsQR` load
+      correctly; the underlying `/scan → confirm` path (same one camera decode reuses) was
+      exercised end-to-end against a real seeded student/token: READY card → CONFIRM → "Done.",
+      a second scan of the same token → "ALREADY REGISTERED — <time>", an unknown token →
+      "QR NOT RECOGNISED — use PRN search or contact Admin".
+
+**Not yet verified — needs a real device, which this sandbox does not have:**
+- [ ] A real phone camera (rear, portrait) actually decoding a printed/on-screen QR and
+      auto-submitting it.
+- [ ] A real desktop/laptop webcam (no rear camera) actually decoding a QR via the `ideal`
+      (not `exact`) `facingMode` fallback.
+- [ ] Which browsers were used and their console output, once that device pass is done.
+
+---
+
 ## Phase 0 — Owner Tasks (do in parallel; not code)
 
 - [ ] Get the university to create the cloud account and give the team deploy access (provider and India region to be chosen)
