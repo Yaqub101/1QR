@@ -21,6 +21,13 @@ StudentConvocationDetailReport*.xlsx
 !**/migrations/**/*.sql
 !**/alembic/**/*.sql
 
+# Automatic HA backups (SYSTEM_SPEC 21): a full dump every 5 minutes, regenerated continuously.
+# Runtime output, not source -- never meant to be version-controlled.
+backups/
+
+# Student photo archives dropped at the repo root during manual testing/import work.
+*.zip
+
 # Python
 __pycache__/
 .pytest_cache/
