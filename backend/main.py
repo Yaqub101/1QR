@@ -13,8 +13,10 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import Connection
+from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from backend.audit import write_audit
 from backend.config import Settings, get_settings
 from backend.logging_config import setup_logging
 from backend import database
@@ -26,6 +28,7 @@ from backend.engine.routes import router as engine_router
 from backend.stage.routes import router as stage_router
 from backend.security.deps import require_admin
 from backend.security.ownership import guard_from_settings
+from backend.security.sessions import Principal
 from backend.admin.routes import router as admin_console_router
 from backend.sync.client import SyncConfigError
 from backend.sync.routes import router as sync_router
@@ -211,22 +214,32 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     # ── Admin: master pack ────────────────────────────────────────────────────
     @app.get("/admin/master-pack/export", dependencies=[Depends(require_admin)])
-    def master_pack_export(photos_dir: Optional[str] = None) -> FileResponse:
-        """Export master pack ZIP (students, snapshots, tokens, photos)."""
+    def master_pack_export(photos_dir: Optional[str] = None, principal: Principal = Depends(require_admin)) -> FileResponse:
+        """Export master pack ZIP (students, snapshots, tokens, photos).
+
+        The pack holds every student's details and every QR token, so the export is audited (SYSTEM_SPEC 20) and the
+        temporary file is deleted once it has been sent."""
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
             tmp_path = pathlib.Path(tmp.name)
 
-        with engine.connect() as conn:
-            export_master_pack(
-                tmp_path,
-                conn,
-                photos_dir=pathlib.Path(photos_dir) if photos_dir else None,
-            )
+        try:
+            with engine.begin() as conn:
+                export_master_pack(
+                    tmp_path,
+                    conn,
+                    photos_dir=pathlib.Path(photos_dir) if photos_dir else None,
+                )
+                write_audit(conn, "EXPORT_MASTER_PACK", operator_id=principal.user_id, venue_id=settings.venue_id,
+                            details={"with_photos": bool(photos_dir)})
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
         return FileResponse(
             path=str(tmp_path),
             filename="master_pack.zip",
             media_type="application/zip",
+            background=BackgroundTask(tmp_path.unlink, missing_ok=True),
         )
 
     @app.post("/admin/master-pack/import", dependencies=[Depends(require_admin)])

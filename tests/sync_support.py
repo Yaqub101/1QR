@@ -130,8 +130,8 @@ def free_port() -> int:
 class RealServer:
     """A real uvicorn server on a real port, in a thread. stop() genuinely closes the port; start() reopens it."""
 
-    def __init__(self, app, port: int, *, certfile: Optional[str] = None, keyfile: Optional[str] = None):
-        self.app, self.port, self.certfile, self.keyfile = app, port, certfile, keyfile
+    def __init__(self, app, port: int, *, certfile: Optional[str] = None, keyfile: Optional[str] = None, lifespan: str = "off"):
+        self.app, self.port, self.certfile, self.keyfile, self.lifespan = app, port, certfile, keyfile, lifespan
         self.server = self.thread = None
 
     @property
@@ -143,7 +143,7 @@ class RealServer:
         return self.thread is not None and self.thread.is_alive()
 
     def start(self) -> "RealServer":
-        config = uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="warning", lifespan="off", access_log=False,
+        config = uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="warning", lifespan=self.lifespan, access_log=False,
                                 ssl_certfile=self.certfile, ssl_keyfile=self.keyfile)
         self.server = uvicorn.Server(config)
         self.thread = threading.Thread(target=self.server.run, daemon=True, name=f"central-{self.port}")
