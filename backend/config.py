@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     event_name: str = "Convocation Ceremony"
     log_dir: str = "logs"
     log_level: str = "INFO"
+    # Where an uploaded student list waits while the Admin works through the import screen
+    # (backend/import_staging.py). Unset means the system temp folder; point it at the same
+    # encrypted volume as the rest of the student data on a real venue server.
+    import_staging_dir: Optional[str] = None
 
     # Sync (Phase 14). A venue pushes its outbox to central and pulls the other venues' events. The API key is
     # issued at central (`python -m backend.sync.keys issue --venue <v>`) and is stored there only as a SHA-256.

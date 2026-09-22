@@ -29,7 +29,7 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 | QR | One opaque random token per student, used at all 7 stations |
 | Cross-location stale data | Accept as **provisional**; Admin reviews later |
 | "Not Attended" | Never registered. Registered-but-incomplete goes in a separate exceptions report |
-| Stage order | First come, first shown (order of queue confirmation). Sequence number is shown and reported, not used for ordering |
+| Stage order | First come, first shown (order of queue confirmation). **Superseded: the university supplies no Convocation Sequence Number at all**, so nothing shows, sorts by or validates against one |
 | Manual fallback | PRN-only search with photo check, at all 7 stations |
 | Thobes | Identical, unnumbered. Allocation and Return are simple confirmations |
 | Lost/unreturned thobe | Admin approves "Return Waived / Lost" with reason; unlocks Lunch |
@@ -112,12 +112,12 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 **Antigravity prompt:** "Create the schema from `SYSTEM_SPEC.md` sections 5, 9, 11, 15 and 17. Write tests for every constraint first. Enforce rules in the database, not only in code."
 
-- [ ] `students`: id, prn (UNIQUE), name, programme, school, photo_path, awards, sequence_no (UNIQUE), seat_no, status (ACTIVE/INACTIVE), timestamps
+- [x] `students`: id, prn (UNIQUE), name, programme, school, photo_path, awards, sequence_no, seat_no, status (ACTIVE/INACTIVE), timestamps. **`sequence_no` and `seat_no` are nullable and neither is unique** (migration `0010`): the university supplies neither column
 - [ ] `display_snapshot`: approved name/programme/school/award/photo (LED reads only this)
 - [ ] `qr_tokens`: student_id, token (UNIQUE), active flag, generated_at, deactivated_at/by. **At most one active token per student**
 - [ ] `activity_events` (append-only): event_id (UUID, UNIQUE), student_id, activity (REGISTRATION, THOBE_ALLOCATION, SEATING, QUEUE, STAGE, THOBE_RETURN, LUNCH), kind (COMPLETE / SKIP / WAIVER / REVERSAL), venue_id, venue_seq (per-venue counter), station_id, operator_id, server_time, flags (PROVISIONAL, MANUAL, LATE, CORRECTED), details JSON (seat, queue position, reason)
 - [ ] **Unique constraint:** one active completed event per (student, activity)
-- [ ] `scan_log`: every attempt with result SUCCESS / DUPLICATE / INVALID / REJECTED / PROVISIONAL / MANUAL
+- [ ] `scan_log`: every attempt with result READY (the scan itself) / SUCCESS / DUPLICATE / INVALID / REJECTED / PROVISIONAL / MANUAL
 - [ ] `stations`: station_id, venue_id, activity (fixed mode), active flag
 - [ ] `users`: username, password hash, role, active
 - [ ] `queue`: student_id, queue_position (assigned by a per-venue counter), status (QUEUED / DISPLAYED / DONE / SKIPPED / HELD)
@@ -147,21 +147,31 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 **Antigravity prompt:** "Build an Admin import (CSV/XLSX) with column mapping, a validation preview, and a transactional commit. Re-importing must update students by PRN without duplicating them or touching existing QR tokens. Write tests first."
 
-- [ ] Upload CSV/XLSX (Admin only); column-mapping screen
-- [ ] Validation preview before anything is written: missing required fields, duplicate PRNs, duplicate/missing sequence numbers, missing photos, overlong names, inactive rows
-- [ ] All-or-nothing commit; safe to run again with the extra half of the list
-- [ ] Photo linker by PRN; report unmatched photos and unmatched students; placeholder for missing photos
-- [ ] "Freeze display data" action fills `display_snapshot`; after freeze, changes only via a logged "master patch"
-- [ ] Import summary page; import logged in audit
-- [ ] **Master pack export/import:** export the master + photos as a single file that venue servers import offline (backup route if central sync isn't ready)
+- [x] Upload CSV/XLSX (Admin only); column-mapping screen — `/admin/import`, tile on `/admin`
+- [x] Validation preview before anything is written: missing required fields, duplicate PRNs, duplicate/missing sequence numbers, missing photos, overlong names, inactive rows
+- [x] All-or-nothing commit; safe to run again with the extra half of the list
+- [x] Photo linker by PRN; report unmatched photos and unmatched students; placeholder for missing photos
+- [x] "Freeze display data" action fills `display_snapshot`; after freeze, changes only via a logged "master patch" — `backend/master_patch.py`, enforced by migration `0010`
+- [x] Import summary page; import logged in audit
+- [x] **Master pack export/import:** export the master + photos as a single file that venue servers import offline (backup route if central sync isn't ready)
+
+**Note (changed after the real data arrived).** The university's list has **no Convocation Sequence
+Number and no Seat Number column**. `students.sequence_no` is nullable and no longer unique,
+`seat_no` is nullable and unused, and nothing requires, orders by or validates against either. A
+missing or repeated sequence number is a note on the preview, never an error. See migration
+`0010_master_data_guard` and Phase 9.
 
 **Tests**
-- [ ] Clean file imports 100%
-- [ ] Re-import with new rows adds only the new students
-- [ ] Duplicate PRN is flagged with row numbers
-- [ ] Failed import rolls back
-- [ ] Display snapshot unchanged by later master edits
-- [ ] Master pack round-trips to a second venue database
+- [x] Clean file imports 100%
+- [x] Re-import with new rows adds only the new students
+- [x] Duplicate PRN is flagged with row numbers
+- [x] Failed import rolls back
+- [x] Display snapshot unchanged by later master edits (now stronger: a later master edit is refused
+      by the database unless it comes through the freeze or a logged master patch)
+- [x] Master pack round-trips to a second venue database
+- [x] The whole screen, driven as a browser drives it: upload → mapping → preview → commit → summary
+- [x] The same file twice through the screen: 0 created, 0 duplicated, no row touched, no QR touched
+- [x] Master patch: mandatory reason, audited, PRN not patchable, frozen data locked at the database
 
 **Exit Gate 3**
 - [ ] The real (half) list imports; counts match the source exactly
@@ -282,15 +292,18 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 ## Phase 9 — Seating (Stadium)
 
-**Antigravity prompt:** "Configure Seating: show the university-assigned seat (read-only). The operator only confirms."
+**Changed after the real data arrived.** The university assigns **no seats** — there is no Seat
+Number column in the list at all. Seating is therefore a plain "this student is seated" checkpoint,
+exactly like Thobe Allocation: no seat is shown, none is asked for, and none is recorded on the
+event. `students.seat_no` is kept, nullable and unused, in case seating is ever allocated later.
 
-- [ ] Shows Block/Row/Seat from the master data; the operator cannot change it
-- [ ] Requires Thobe Allocation; duplicate → "SEATING ALREADY COMPLETED — seat and time"
+- [x] ~~Shows Block/Row/Seat from the master data; the operator cannot change it~~ — no seat exists; the card shows PRN, programme and school, and the button says CONFIRM SEATED
+- [x] Requires Thobe Allocation; duplicate → "SEATING ALREADY CONFIRMED — time"
 
 **Tests**
-- [ ] Seat shown correctly for a sample of students
-- [ ] Skipping Thobe → "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"
-- [ ] Duplicate rejected
+- [x] No seat appears on the card, on the event, or in the duplicate message
+- [x] Skipping Thobe → "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"
+- [x] Duplicate rejected
 
 **Exit Gate 9 (M1 done)**
 - [ ] Registration → Thobe → Seating works locally; tag `m1-done`; backup taken
@@ -299,11 +312,15 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 ## Phase 10 — Queue (Stadium)
 
-**Antigravity prompt:** "Configure Queue. Queue Position is assigned by the venue's counter at confirmation (first come, first shown). Show sequence number and current position. A queue scan must never change the LED."
+**Antigravity prompt:** "Configure Queue. Queue Position is assigned by the venue's counter at confirmation (first come, first shown). A queue scan must never change the LED."
 
-- [ ] Screen shows student, sequence number, current queue position → CONFIRM QUEUE
-- [ ] Requires Seating; duplicate → "ALREADY IN QUEUE — position"
-- [ ] Queue depth indicator; a report of students shown out of university sequence (informational)
+**Changed after the real data arrived:** there are no convocation sequence numbers, so the Queue
+screen shows none and nothing sorts by one. Order on stage is the order these confirmations happen
+in, and nothing else.
+
+- [x] Screen shows student, PRN, current queue position → CONFIRM QUEUE
+- [x] Requires Seating; duplicate → "ALREADY IN QUEUE — position"
+- [ ] Queue depth indicator; ~~a report of students shown out of university sequence~~ (there is no university sequence to be out of)
 
 **Tests**
 - [ ] Positions are assigned 1, 2, 3 in confirmation order, including under concurrent confirms

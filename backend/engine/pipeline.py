@@ -26,7 +26,7 @@ logger = logging.getLogger("backend.engine")
 
 MAX_TOKEN_LENGTH = 256
 MAX_PRN_LENGTH = 64
-_STUDENT_COLUMNS = "s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.seat_no, s.status"
+_STUDENT_COLUMNS = "s.id, s.prn, s.name, s.programme, s.school, s.status"
 
 
 @dataclass
@@ -110,7 +110,6 @@ def duplicate_text(ctx: EngineContext, earlier: dict) -> str:
     values = _Defaults(
         time=clock_text(earlier["server_time"], ctx.settings.event_utc_offset_minutes),
         station=earlier.get("station_id") or "the Admin console",
-        seat_no=details.get("seat_no") or "not assigned",
         queue_position=details.get("queue_position") if details.get("queue_position") is not None else "n/a",
     )
     return ctx.config.duplicate_message.format_map(values)

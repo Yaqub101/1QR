@@ -20,6 +20,7 @@ from sqlalchemy import text
 from backend import stations as stations_svc
 from backend import users as users_svc
 from backend.engine import service
+from backend.snapshot import begin_master_patch_txn
 from backend.stage import led as led_mod
 from tests.test_auth import OWNER, PASSWORD, api_login, new_client
 from tests.test_schema import RESTRICT_VIOLATION, _run_threads, db_error
@@ -482,6 +483,9 @@ class TestPublicLed:
         picture.write_bytes(b"\xff\xd8\xff\xe0-approved-photo")
         s = queued(engine, apps, world, 1)[0]
         with engine.begin() as c:
+            # Frozen display data only moves through the sanctioned door (migration 0010); a plain
+            # UPDATE here would be refused by the database, which is the point of the guard.
+            begin_master_patch_txn(c)
             c.execute(text("UPDATE display_snapshot SET photo_path = :p WHERE student_id = :s"), {"p": str(picture), "s": s.id})
         claim(stage)
         act(stage.main, "display-next")

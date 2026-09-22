@@ -1,3 +1,137 @@
+## [0.13.0] - Phase 3 screen, the master patch, and no sequence numbers or seats
+
+Two things: **Phase 3 finally has a screen** (it was curl-only — `/admin/import` returned 404), and the
+university's real data arrived **with no Convocation Sequence Number and no Seat Number column at
+all**, which the schema and seven screens assumed would be there.
+
+### Added — the Admin import screen (TODO Phase 3)
+- **`backend/web_import.py` + four templates**: the whole import as pages, with an **Import Students**
+  tile on `/admin`. `GET /admin/import` (choose the file and, optionally, a photo folder on this
+  server) → `POST /admin/import/upload` → `/admin/import/{batch}/columns` (every column of the file
+  with a drop-down; recognised headings pre-matched; the first values of each column shown) →
+  `/admin/import/{batch}/preview` → `POST .../commit` → `/admin/import/{batch}/summary`.
+- **The preview is the point.** Before anything is written it shows, on one page: how many students
+  will be **added**, how many are **already on the list and will be left alone**, every row that
+  **must be fixed** with its row number and column, every repeated PRN, and every **note**: no photo
+  (or a photo file that is not in the folder), no sequence number, a repeated sequence number, a row
+  the university marked inactive, a student already on the list who is inactive. A file with one
+  fatal error offers **no commit button at all**, and a commit posted anyway is refused with zero
+  writes.
+- **`backend/import_staging.py`**: the uploaded file waits under a 32-hex-character random batch id
+  between the steps (an HTML file input cannot be refilled). Batches older than 12 hours are swept
+  on the next upload, so the student list does not linger on a venue laptop. `IMPORT_STAGING_DIR`
+  configures where; the system temp folder is the default.
+- **Summary page**: rows read / created / updated / skipped / errors, plus photos attached, photos
+  with nobody to attach them to, and students with no photo. The import is written to `audit_log`
+  with the Admin who ran it, the venue and the file name.
+- **`importer.read_and_validate`**: the one upload path. The `/admin/import/preview` and
+  `/admin/import/commit` endpoints and the screen both go through it, so the screen can never
+  disagree with the endpoint it sits in front of. **Both endpoints answer exactly as before.**
+- **Warnings** (`ImportWarning`) alongside errors, and a **`status`** column the importer understands
+  (`ACTIVE`/`INACTIVE`, plus yes/no, true/false, 1/0, withdrawn, …; anything else is an error rather
+  than a guess).
+
+### Added — the master patch (TODO Phase 3, the half that was missing)
+- **`backend/master_patch.py`**: after "Freeze display data", a student's master fields (name,
+  programme, school, awards, photo, sequence number, seat, master status) change in exactly one way —
+  an Admin action with a **mandatory reason**, where the master row, that student's display snapshot
+  and the audit row (`MASTER_PATCH`, with a before/after of every field) commit together or not at
+  all. `POST /admin/students/{id}/master-patch` (form on the student's page, shown only once frozen)
+  and `POST /admin/api/students/{id}/master-patch`. **The PRN is not patchable**: it is the identity
+  the next import matches on, and a PRN that drifted would make the next import create a duplicate.
+- **Migration `0010_master_data_guard`** puts that rule in the database, the same way migration 0006
+  gave the LED to the Stage Controller: the freeze and the patch announce themselves with
+  `SET LOCAL app.master_patch`, and a trigger refuses everything else. A plain `UPDATE` of a frozen
+  student's master row, or any `UPDATE`/`DELETE`/`TRUNCATE` of `display_snapshot`, is refused. A
+  student who has not been frozen is untouched by this and is still ordinary import territory.
+- `backend/photos.py` reports, rather than silently skipping, any frozen student whose photo the bulk
+  linker would have changed.
+
+### Changed — no sequence numbers, no seats
+- **Migration `0010`**: `students.sequence_no` is **nullable** and its **UNIQUE constraint is
+  dropped**. The column stays for the day the university supplies numbers; nothing requires, orders
+  by or collides on it. The positive-number CHECK is kept (a NULL passes a CHECK, so it only says
+  "if there is a number, it is a real one"). `seat_no` was already nullable and is now unused.
+- **Seating is a plain confirmation**, exactly like Thobe Allocation: no seat on the card, none
+  recorded on the event, `record_fields` empty, button **CONFIRM SEATED**, duplicate message
+  "SEATING ALREADY CONFIRMED — {time}".
+- **Queue** shows PRN and queue position, not a sequence number. Order on stage is the order the
+  queue confirmations happen in, and nothing else. **Registration** drops the sequence line too.
+- The `sequence_no` and `seat_no` display fields are **gone from the engine's registries**
+  (`extensions.DISPLAY_FIELDS`, `model.RECORDABLE_STUDENT_FIELDS`, `DUPLICATE_PLACEHOLDERS`), and
+  neither column is read anywhere in `backend/engine/` or `backend/stage/` any more — a test scans
+  the source for both names.
+- Every remaining `ORDER BY ... sequence_no` (reports, admin search, dashboard, passes) is now
+  `sequence_no NULLS LAST` with a key that is always there to fall through to. `qr_tokens`,
+  `sync/rebuild` and `master_pack` order by `id`/`prn` instead. A test fails any ORDER BY that
+  mentions `sequence_no` without `NULLS LAST`.
+- **The printed pass** carries an optional `sequence_no` and prints a "SEQ NO." line **only when
+  there is a number** — no label, no blank line and no gap otherwise.
+- Paper fallback sheets (`scripts/fallback_sheets.py`) drop the Seq and Seat columns and print in
+  name order.
+- The importer no longer requires a sequence number; a missing one, or the same one twice, is a note
+  on the preview rather than an error.
+
+### Fixed (found while building, both real)
+- **`parse_file` returned pandas' `NaN` for an empty cell**, which is neither `None` nor `""`. A
+  blank required field therefore looked to the validator like a perfectly good value and would have
+  been stored as the text `"nan"` — visible on the printed pass. Blanks are now normalised on the
+  plain dicts after leaving pandas, because a `Series.map` returning `None` is free to put the `NaN`
+  straight back when pandas re-infers the column type, and in pandas 3 it does.
+- **`link_photos_by_prn` rewrote `photo_path` even when it was already identical**, which moves
+  `updated_at` and rewrites the row. Harmless on its own, but it meant a second run of the import
+  screen *with the photo folder attached* touched every student — breaking "re-running the import
+  never modifies an existing student". It now writes only when the value would actually change.
+
+### Tests
+- **`tests/test_import_screen.py`** (39): the screen driven as a browser drives it — the tile, who
+  may reach it, the mapping step (including a heading the system has never seen, two columns mapped
+  to the same field, no PRN mapped, an unreadable file), every preview category, commit and summary,
+  a batch that cannot be committed twice, and **the same file twice: 0 created, no row touched, no QR
+  token touched, a recorded journey untouched**. Plus four that pin the two JSON endpoints' answers.
+- **`tests/test_master_patch.py`** (47): the lock (every master field, both tables, and the
+  not-yet-frozen student who is *not* locked), the patch (reason mandatory, audit row, no-op refused,
+  PRN and unknown columns refused, bad values refused with zero writes), what reaches the display
+  snapshot and what does not, and the screen (form, JSON API, operator and signed-out refusals, the
+  audit trail page).
+- **`tests/test_no_sequence.py`** (27): the schema (nullable, repeatable, no unique index, still
+  positive when given), the importer, every station card, the source scan of `backend/engine` and
+  `backend/stage`, the ORDER BY scan, queue order proved by confirming in reverse, and the printed
+  pass with and without a number.
+- Existing suites updated to the new intent rather than to the new output: the station-engine and
+  activities spec tables, `test_schema`'s sequence-number constraints, `test_fallback_sheets`,
+  `test_stage`'s snapshot edit, and `test_import`'s freeze test (which now proves the stronger rule:
+  the later master edit cannot happen at all unless it comes through freeze or a patch).
+- **1339 passed.** The one failure, `test_ha.py::TestFailoverMaterials`, is environmental and
+  pre-existing: this Windows box has `bash.EXE` as a WSL stub with no distro installed, so
+  `bash -n scripts/failover.sh` cannot run. It failed identically before any of this work.
+
+### Decisions worth a second look
+- **The master patch is only available once a student is frozen.** Before the freeze the master list
+  is changed by importing the university's file, which is what Phase 3 says; a patch attempt on an
+  unfrozen student is refused with `NOT_FROZEN` and a message saying so. If the project wants the
+  patch to be the way master data is edited at *all* times, that is a one-line change and a decision
+  for the project owner.
+- **A blank box on the patch form means "leave this alone", not "clear it".** Clearing a nullable
+  field (awards, photo, seat, sequence number) is done through the JSON API with an explicit empty
+  value. The alternative — blank means erase — would make a mistyped form wipe seven fields.
+- **A patch to a display field refreshes that one student's snapshot**, so the LED and the next
+  printed pass show the correction. A patch to seat, sequence number or master status does not touch
+  the snapshot. The audit row records which of the two happened (`snapshot_refreshed`).
+- **`students.sequence_no` is kept, not dropped.** Nothing uses it, but dropping a column is not
+  reversible and the university may still send numbers. The downgrade of migration `0010` restores
+  `NOT NULL` and the unique constraint and will **fail loudly** if the data no longer fits, rather
+  than inventing numbers.
+- **Import batches are files on the server.** They work across worker processes and survive nothing
+  else, which is right for a temporary upload, but a venue with several app workers behind a load
+  balancer needs shared storage for `IMPORT_STAGING_DIR`. The single-uvicorn Docker setup is fine.
+
+### Not verified
+- No second-machine or Docker run of the new screen; it was driven against a local PostgreSQL 16 with
+  two venue servers (College and Stadium) and a real browser.
+- The mapping and preview pages were checked at desktop width only.
+- `uv.lock` was not regenerated (no `uv` in this environment); no dependency changed.
+
 ## [0.12.0] - Phase 4: QR tokens and passes  (tag `phase-4-done`)
 
 **Exit Gate 4 ("sample passes printed and scanned successfully") is NOT passed.** It needs a person with a printer and the real USB scanner. The software half is built and tested; the tag marks that, not the gate.

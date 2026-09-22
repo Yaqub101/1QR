@@ -4,18 +4,49 @@
 <p><a href="/admin">&larr; Admin</a></p>
 <h1>Find a student</h1>
 <form method="get" action="/admin/students" class="card narrow">
-  <label>PRN, name or sequence number <input name="q" value="{{ q }}" autofocus></label>
+  <label>PRN or name <input name="q" value="{{ q }}" autofocus></label>
   <button class="big" type="submit">Search</button>
 </form>
-{% if q %}
-  {% if found %}
-  <table class="spaced">
-    <tr><th>Seq</th><th>Name</th><th>PRN</th><th>School</th><th>Status</th></tr>
-    {% for s in found %}
-    <tr><td>{{ s.sequence_no }}</td><td><a href="/admin/students/{{ s.student_id }}">{{ s.name }}</a></td><td>{{ s.prn }}</td>
-        <td>{{ s.school }}</td><td>{{ s.journey_status }}</td></tr>
-    {% endfor %}
-  </table>
-  {% else %}<p class="muted spaced">Nobody matches that.</p>{% endif %}
+{% if found %}
+<table class="spaced">
+  <tr><th>Photo</th><th>Name</th><th>PRN</th><th>Programme</th><th>School</th><th>Status</th></tr>
+  {% for s in found %}
+  <tr>
+      <td>
+          {% if s.photo_path %}
+          <img src="/static/photos/{{ s.photo_path }}" alt="Photo" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+          {% else %}
+          <div style="width: 40px; height: 40px; border-radius: 50%; background: #ccc; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff;">No photo</div>
+          {% endif %}
+      </td>
+      <td><a href="/admin/students/{{ s.student_id }}">{{ s.name }}</a></td>
+      <td>{{ s.prn }}</td>
+      <td>{{ s.programme }}</td>
+      <td>{{ s.school }}</td>
+      <td>{{ s.journey_status }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if pages > 1 %}
+<div class="pagination card narrow" style="display: flex; gap: 1rem; align-items: center; justify-content: center;">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}{% if query %}&{{ query }}{% endif %}">&larr; Previous</a>
+  {% else %}
+  <span class="muted">&larr; Previous</span>
+  {% endif %}
+  
+  <span>Page {{ page }} of {{ pages }}</span>
+  
+  {% if page < pages %}
+  <a href="?page={{ page + 1 }}{% if query %}&{{ query }}{% endif %}">Next &rarr;</a>
+  {% else %}
+  <span class="muted">Next &rarr;</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<p class="muted spaced">Nobody matches that.</p>
 {% endif %}
 {% endblock %}

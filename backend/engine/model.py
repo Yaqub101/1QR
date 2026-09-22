@@ -15,8 +15,11 @@ from backend.security import ownership
 
 # Placeholders a duplicate_message may use: the earlier record's time and station, and values the
 # engine recorded on that earlier event (see ActivityConfig.record_fields / effects).
-DUPLICATE_PLACEHOLDERS = frozenset({"time", "station", "seat_no", "queue_position"})
-RECORDABLE_STUDENT_FIELDS = frozenset({"seat_no", "sequence_no"})
+DUPLICATE_PLACEHOLDERS = frozenset({"time", "station", "queue_position"})
+# Master fields an activity may copy onto its event. The university's list carries no seat and no
+# convocation sequence number, so there is currently nothing here: an activity that wants a master
+# value on its event is a question for the project owner, not an edit to this set.
+RECORDABLE_STUDENT_FIELDS: frozenset = frozenset()
 
 
 class RegistryError(ValueError):

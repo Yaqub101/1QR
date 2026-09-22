@@ -10,23 +10,23 @@ The schema under test is built by the single documented command,
 """
 import itertools
 import json
-import os
-import pathlib
 import random
-import subprocess
-import sys
 import threading
 import uuid
 from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
-from tests.conftest import TEST_DB_URL
-
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+from tests.conftest import (  # the one place a schema is built: the documented `alembic upgrade head`
+    REPO_ROOT,
+    TEST_DB_URL,
+    _assert_is_test_database,
+    drop_everything,
+    rebuild_schema,
+    run_alembic,
+)
 
 # PostgreSQL SQLSTATE codes
 UNIQUE_VIOLATION = "23505"
@@ -88,42 +88,6 @@ EXPECTED_TABLES = {
 # --------------------------------------------------------------------------- #
 # Infrastructure
 # --------------------------------------------------------------------------- #
-def _assert_is_test_database(url: str) -> None:
-    """Refuse to DROP anything unless the target is clearly a test database."""
-    db_name = make_url(url).database or ""
-    assert db_name.endswith("_test") or "test" in db_name, (
-        f"refusing to reset schema of non-test database {db_name!r}"
-    )
-
-
-def run_alembic(*args: str) -> subprocess.CompletedProcess:
-    """Run the documented CLI (`alembic <args>`) against the TEST database."""
-    _assert_is_test_database(TEST_DB_URL)
-    env = os.environ.copy()
-    env.update({"DATABASE_URL": TEST_DB_URL, "MODE": "venue", "VENUE_ID": "college"})
-    return subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-
-
-def drop_everything(engine) -> None:
-    _assert_is_test_database(TEST_DB_URL)
-    with engine.begin() as c:
-        c.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        c.execute(text("CREATE SCHEMA public"))
-
-
-def rebuild_schema(engine) -> None:
-    drop_everything(engine)
-    result = run_alembic("upgrade", "head")
-    assert result.returncode == 0, f"alembic upgrade head failed:\n{result.stdout}\n{result.stderr}"
-
-
 @pytest.fixture(scope="module")
 def engine():
     eng = create_engine(TEST_DB_URL, pool_size=40, max_overflow=0, pool_pre_ping=True)
@@ -324,10 +288,18 @@ class TestStudents:
         with db_error(conn, UNIQUE_VIOLATION):
             new_student(conn, prn="DUP-PRN")
 
-    def test_duplicate_sequence_no_fails(self, conn):
+    def test_a_sequence_number_may_be_missing_or_repeated(self, conn):
+        """The university's real list has no Convocation Sequence Number column. The column is kept for
+        the day they supply one, but nothing requires it and nothing collides on it (migration 0010)."""
         new_student(conn, sequence_no=777_001)
-        with db_error(conn, UNIQUE_VIOLATION):
-            new_student(conn, sequence_no=777_001)
+        new_student(conn, sequence_no=777_001)   # the same number again: allowed
+        new_student(conn, sequence_no=None)
+        new_student(conn, sequence_no=None)      # and any number of students with none at all
+        assert conn.execute(text("SELECT count(*) FROM students WHERE sequence_no = 777001")).scalar_one() == 2
+
+    def test_a_sequence_number_that_is_given_must_still_be_positive(self, conn):
+        with db_error(conn, CHECK_VIOLATION):
+            new_student(conn, sequence_no=0)
 
     def test_blank_prn_and_invalid_status_rejected(self, conn):
         with db_error(conn, CHECK_VIOLATION):
@@ -662,8 +634,10 @@ class TestScanLogAppendOnly:
             text("INSERT INTO scan_log (venue_id, station_id, activity, result) "
                  "VALUES ('college', 'REG-1', 'REGISTRATION', :r) RETURNING id"), {"r": result}).scalar_one()
 
-    @pytest.mark.parametrize("result", ["SUCCESS", "DUPLICATE", "INVALID", "REJECTED", "PROVISIONAL", "MANUAL"])
+    @pytest.mark.parametrize("result", ["READY", "SUCCESS", "DUPLICATE", "INVALID", "REJECTED", "PROVISIONAL", "MANUAL"])
     def test_every_result_kind_can_be_logged(self, conn, result):
+        # READY is the successful SCAN: the student was identified and shown to the operator, who has not
+        # confirmed yet. Phase 6 requires every attempt in the log, and that is the commonest attempt of all.
         self._scan(conn, result)
 
     def test_unknown_result_rejected(self, conn):

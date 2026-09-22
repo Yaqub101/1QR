@@ -20,7 +20,7 @@ from backend.audit import write_audit
 from backend.config import Settings, get_settings
 from backend.logging_config import setup_logging
 from backend import database
-from backend.importer import parse_file, detect_column_mapping, validate_import, commit_import
+from backend.importer import commit_import, read_and_validate
 from backend.photos import link_photos_by_prn
 from backend.snapshot import freeze_display_data
 from backend.master_pack import export_master_pack, import_master_pack
@@ -34,6 +34,7 @@ from backend.sync.client import SyncConfigError
 from backend.sync.routes import router as sync_router
 from backend.sync.worker import SyncWorker, WorkerThread
 from backend.web_admin import router as admin_router
+from backend.web_import import router as import_router
 from backend.web_auth import router as auth_router
 
 STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
@@ -97,18 +98,27 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # ── Health ────────────────────────────────────────────────────────────────
     @app.get("/health")
     def health_check() -> Dict[str, Any]:
-        is_db_up = database.check_db_health(engine=engine)
-        return {
+        # "up" means this server can actually take a scan: the database is reachable AND the schema
+        # the migrations build is there. A database that is merely reachable answers SELECT 1 just as
+        # happily when it is completely empty, and a server in that state can do nothing at all, so it
+        # reports "not_ready" (run `alembic upgrade head`) rather than a healthy-looking "up".
+        status, missing = database.db_status(engine=engine)
+        body: Dict[str, Any] = {
             "mode": settings.mode,
             "venue": settings.venue_id,
-            "db": "up" if is_db_up else "down",
+            "db": status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if missing:
+            body["missing_tables"] = missing
+            body["detail"] = "the database schema is not set up: run `alembic upgrade head`"
+        return body
 
     # ── Sign-in, station screens, admin screens (Phase 5) ────────────────────
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(admin_console_router)  # dashboard, corrections, exceptions, audit, reports (Phases 13/16)
+    app.include_router(import_router)         # the Admin import screen (Phase 3)
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
     app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
     if settings.mode == "central":
@@ -117,6 +127,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         app.include_router(sync_router)
 
     # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
+    # These two are the machine-facing face of the importer; the Admin screen in
+    # backend/web_import.py sits in front of the SAME code path (importer.read_and_validate /
+    # commit_import), so the two can never drift apart.
     @app.post("/admin/import/preview", dependencies=[Depends(require_admin)])
     async def import_preview(
         file: UploadFile = File(...),
@@ -125,14 +138,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         """Parse uploaded CSV/XLSX and return a validation preview."""
         content = await file.read()
         try:
-            cols, rows = parse_file(io.BytesIO(content), file.filename or "upload.csv")
-        except Exception as exc:
+            cols, rows, mapping, preview = read_and_validate(
+                engine, content, file.filename or "upload.csv",
+                mapping=json.loads(column_mapping) if column_mapping else None)
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Cannot parse file: {exc}")
-
-        mapping = json.loads(column_mapping) if column_mapping else detect_column_mapping(cols)
-
-        with engine.connect() as conn:
-            preview = validate_import(rows, mapping, conn)
 
         return {
             "columns": cols,
@@ -158,25 +168,24 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         """Validate and transactionally commit the uploaded file."""
         content = await file.read()
         try:
-            cols, rows = parse_file(io.BytesIO(content), file.filename or "upload.csv")
-        except Exception as exc:
+            cols, rows, mapping, preview = read_and_validate(
+                engine, content, file.filename or "upload.csv",
+                mapping=json.loads(column_mapping) if column_mapping else None)
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Cannot parse file: {exc}")
 
-        mapping = json.loads(column_mapping) if column_mapping else detect_column_mapping(cols)
-
+        if not preview.is_valid:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "Validation failed — no rows written",
+                    "errors": [
+                        {"row": e.row, "field": e.field, "message": e.message}
+                        for e in preview.errors
+                    ],
+                },
+            )
         with engine.connect() as conn:
-            preview = validate_import(rows, mapping, conn)
-            if not preview.is_valid:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "message": "Validation failed — no rows written",
-                        "errors": [
-                            {"row": e.row, "field": e.field, "message": e.message}
-                            for e in preview.errors
-                        ],
-                    },
-                )
             summary = commit_import(preview, conn)
 
         return {

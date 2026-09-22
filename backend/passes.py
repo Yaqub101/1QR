@@ -92,6 +92,9 @@ class PassData:
     programme: str
     token: str
     photo_path: Optional[str] = None
+    # The university's list usually has no Convocation Sequence Number. When there is no number the
+    # pass prints no sequence line at all, rather than a label with a blank beside it.
+    sequence_no: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -292,6 +295,14 @@ def _draw_pass(c: canvas.Canvas, x0: float, y0: float, data: PassData, event_nam
     c.setFont(_FONT_BOLD, 12)
     c.drawString(x(TEXT_X), y(64.5), prn)
 
+    # the convocation sequence number, beside the photo under the PRN — ONLY when there is one.
+    # A student with no number gets no label and no gap: the line simply is not drawn.
+    if data.sequence_no is not None:
+        number, _ = _clean(f"SEQ NO. {data.sequence_no}", _FONT_BOLD)
+        c.setFillColor(Color(0.35, 0.35, 0.35))
+        c.setFont(_FONT_BOLD, 8)
+        c.drawString(x(TEXT_X), y(70.5), number)
+
     # programme, full width under the photo
     programme, bad = _clean(data.programme, _FONT)
     if bad:
@@ -391,8 +402,12 @@ def event_title(conn, fallback: str) -> str:
 
 def load_passes(conn, *, school: Optional[str] = None, student_id: Optional[str] = None,
                 offset: int = 0, limit: Optional[int] = None) -> list:
-    """ACTIVE students in ceremony (sequence) order with their active token. A student who has no active token comes back
-    with token None: the caller must refuse rather than print a short sheet."""
+    """ACTIVE students with their active token, in the most useful order for a printer to hand out.
+
+    Sequence number first where the university has supplied one — and by name after that, because
+    the real list has no sequence numbers at all and a column full of NULLs cannot decide an order.
+    A student who has no active token comes back with token None: the caller must refuse rather than
+    print a short sheet."""
     where, params = ["s.status = 'ACTIVE'"], {"offset": offset}
     if school:
         where.append("s.school = :school")
@@ -400,9 +415,9 @@ def load_passes(conn, *, school: Optional[str] = None, student_id: Optional[str]
     if student_id:
         where.append("s.id = :sid")
         params["sid"] = student_id
-    sql = ("SELECT s.prn, s.name, s.programme, s.photo_path, t.token FROM students s "
+    sql = ("SELECT s.id, s.prn, s.name, s.programme, s.photo_path, s.sequence_no, t.token FROM students s "
            "LEFT JOIN qr_tokens t ON t.student_id = s.id AND t.active "
-           f"WHERE {' AND '.join(where)} ORDER BY s.sequence_no, s.id OFFSET :offset")
+           f"WHERE {' AND '.join(where)} ORDER BY s.sequence_no NULLS LAST, s.name, s.id OFFSET :offset")
     if limit is not None:
         sql += " LIMIT :limit"
         params["limit"] = limit
@@ -414,4 +429,5 @@ def to_pass_data(rows: Sequence[dict]) -> list:
     if missing:
         raise TokenError(409, "TOKENS_MISSING",
                          f"{len(missing)} of these students have no QR yet. Please generate the missing QR codes first.")
-    return [PassData(name=r["name"], prn=r["prn"], programme=r["programme"], token=r["token"], photo_path=r["photo_path"]) for r in rows]
+    return [PassData(name=r["name"], prn=r["prn"], programme=r["programme"], token=r["token"],
+                     photo_path=r["photo_path"], sequence_no=r.get("sequence_no")) for r in rows]

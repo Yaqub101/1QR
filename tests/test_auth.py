@@ -1137,3 +1137,27 @@ class TestAuthSchema:
                          {"u": world.user_ids["admin"]})
         with db_error(conn, "23503"):
             conn.execute(text("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('h2', gen_random_uuid(), now() + interval '1 hour')"))
+
+class TestUserDeactivation:
+    def test_deactivated_user_cannot_log_in(self, engine, apps, world):
+        from backend import users
+        with engine.begin() as conn:
+            op_id = users.create_user(conn, username="reg-op", password=PASSWORD, role="REGISTRATION", actor_id=world.user_ids["admin"])
+            users.set_user_active(conn, op_id, False, actor_id=world.user_ids["admin"])
+        client = new_client(apps["college"], world.devices["REG-01"])
+        response = api_login(client, "reg-op")
+        assert response.status_code == 403
+        assert detail_code(response) == "ACCOUNT_DISABLED"
+
+    def test_cannot_deactivate_last_admin(self, engine, world):
+        from backend import users
+        from backend.users import AccountError
+        with engine.begin() as conn:
+            # The world starts with an admin and a deputy (both are admin roles).
+            # We deactivate the deputy to leave only one admin.
+            users.set_user_active(conn, world.user_ids["deputy"], False, actor_id=world.user_ids["admin"])
+            
+            # Cannot deactivate the original admin since it's the last one
+            with pytest.raises(AccountError) as exc:
+                users.set_user_active(conn, world.user_ids["admin"], False, actor_id=world.user_ids["deputy"])
+            assert exc.value.code == "LAST_ADMIN"

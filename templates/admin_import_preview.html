@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Import: check before importing{% endblock %}
+{% block body %}
+<p><a href="/admin/import/{{ batch.batch_id }}/columns">&larr; Match the columns</a></p>
+<h1>Check before importing</h1>
+<p class="muted"><b>{{ batch.filename }}</b> &middot; {{ row_count }} row{{ "s" if row_count != 1 }} read
+  {%- if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}</p>
+<p class="muted">Nothing has been written yet.</p>
+
+<div class="grid counts">
+  <div class="card"><h2>Will be added</h2><p class="big-number" data-preview="to_create">{{ preview.to_create|length }}</p></div>
+  <div class="card"><h2>Already on the list</h2><p class="big-number" data-preview="to_skip">{{ preview.to_skip|length }}</p>
+    <p class="muted">Left exactly as they are. QR codes are not touched.</p></div>
+  <div class="card {{ 'bad' if preview.errors }}"><h2>Must be fixed</h2>
+    <p class="big-number" data-preview="errors">{{ preview.errors|length }}</p></div>
+  <div class="card"><h2>Worth a look</h2><p class="big-number" data-preview="warnings">{{ preview.warnings|length }}</p></div>
+</div>
+
+{% if preview.errors %}
+<h2>Rows that have to be fixed</h2>
+<p class="flash bad">Nothing can be imported while any of these is unresolved. Correct the file and upload it again.</p>
+<table class="spaced">
+  <tr><th>Row</th><th>Column</th><th>What is wrong</th></tr>
+  {% for e in errors %}<tr><td>{{ e.row }}</td><td>{{ e.field }}</td><td>{{ e.message }}</td></tr>{% endfor %}
+</table>
+{% if more_errors %}<p class="muted">…and {{ more_errors }} more.</p>{% endif %}
+{% endif %}
+
+{% if preview.flagged_duplicates %}
+<h2>Repeated PRNs</h2>
+<table class="spaced">
+  <tr><th>Row</th><th>PRN</th><th>Where</th><th>What it means</th></tr>
+  {% for d in preview.flagged_duplicates %}
+  <tr><td>{{ d.row }}</td><td>{{ d.prn }}</td><td>{{ "In this file" if d.type == "in_file" else "Already on the list" }}</td>
+      <td>{{ d.message }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if notes %}
+<h2>Worth a look, but nothing is blocked</h2>
+<table class="spaced">
+  <tr><th>Row</th><th>PRN</th><th>Column</th><th>Note</th></tr>
+  {% for w in notes %}<tr><td>{{ w.row }}</td><td>{{ w.prn }}</td><td>{{ w.field }}</td><td>{{ w.message }}</td></tr>{% endfor %}
+</table>
+{% if more_notes %}<p class="muted">…and {{ more_notes }} more.</p>{% endif %}
+{% endif %}
+
+{% if preview.is_valid %}
+<h2>Import</h2>
+<form method="post" action="/admin/import/{{ batch.batch_id }}/commit" class="card narrow">
+  <p>{{ preview.to_create|length }} student{{ "s" if preview.to_create|length != 1 }} will be added.
+     {{ preview.to_skip|length }} already on the list will be left alone.</p>
+  <p class="muted">The whole file goes in together, or none of it does. The import is written to the audit log.</p>
+  <button class="big" type="submit">Import {{ preview.to_create|length }} student{{ "s" if preview.to_create|length != 1 }}</button>
+</form>
+{% else %}
+<p class="flash bad">This file cannot be imported yet.</p>
+<p><a href="/admin/import">Upload a corrected file</a></p>
+{% endif %}
+{% endblock %}

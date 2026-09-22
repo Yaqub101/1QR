@@ -87,7 +87,7 @@ def generate_missing_tokens(engine, *, operator_id=None, venue_id: Optional[str]
         missing = conn.execute(text(
             "SELECT s.id FROM students s WHERE s.status = 'ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM qr_tokens t WHERE t.student_id = s.id AND t.active) "
-            "ORDER BY s.sequence_no, s.id")).scalars().all()          # a fixed order, so two concurrent runs cannot deadlock
+            "ORDER BY s.id")).scalars().all()          # a fixed order, so two concurrent runs cannot deadlock
         created = 0
         for student_id in missing:
             # ON CONFLICT on the one-active-token-per-student index: if another run got there first, this is a no-op.

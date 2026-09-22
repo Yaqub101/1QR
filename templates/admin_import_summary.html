@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Import summary{% endblock %}
+{% block body %}
+<p><a href="/admin/import">&larr; Import Students</a></p>
+<h1>Import summary</h1>
+<p class="muted"><b>{{ batch.filename }}</b>{% if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}</p>
+
+<div class="grid counts">
+  <div class="card"><h2>Rows read</h2><p class="big-number" data-count="read">{{ summary.read }}</p></div>
+  <div class="card"><h2>Created</h2><p class="big-number" data-count="created">{{ summary.created }}</p></div>
+  <div class="card"><h2>Updated</h2><p class="big-number" data-count="updated">{{ summary.updated }}</p>
+    <p class="muted">Always nil: an import never rewrites a student who is already on the list.</p></div>
+  <div class="card"><h2>Skipped</h2><p class="big-number" data-count="skipped">{{ summary.skipped }}</p>
+    <p class="muted">Already on the list.</p></div>
+  <div class="card"><h2>Errors</h2><p class="big-number" data-count="errors">{{ summary.errors }}</p></div>
+</div>
+
+<h2>Photos</h2>
+{% if photos %}
+<div class="card">
+  <p>{{ photos.matched }} photo{{ "s" if photos.matched != 1 }} attached from {{ photos.folder }}.</p>
+
+  <h3>Photos with nobody to attach them to ({{ photos.unmatched_photos|length }})</h3>
+  {% if photos.unmatched_photos %}
+  <ul>{% for name in photos.unmatched_photos %}<li>{{ name }}</li>{% endfor %}</ul>
+  <p class="muted">The file name has to be the student's PRN, for example <code>&lt;PRN&gt;.jpg</code>.</p>
+  {% else %}<p class="muted">None.</p>{% endif %}
+
+  <h3>Students with no photo ({{ photos.unmatched_students|length }})</h3>
+  {% if photos.unmatched_students %}
+  <ul>{% for prn in photos.unmatched_students %}<li>{{ prn }}</li>{% endfor %}</ul>
+  <p class="muted">Their pass prints a clearly marked placeholder.</p>
+  {% else %}<p class="muted">None: every student has a photo.</p>{% endif %}
+
+  {% if photos.frozen_skipped %}
+  <h3>Left alone because the display data is frozen ({{ photos.frozen_skipped|length }})</h3>
+  <ul>{% for prn in photos.frozen_skipped %}<li>{{ prn }}</li>{% endfor %}</ul>
+  <p class="muted">Change a frozen student's photo from their own page, with a reason. It is logged.</p>
+  {% endif %}
+</div>
+{% else %}
+<p class="muted">No photo folder was given, so no photos were attached. Upload again with a folder when the
+  photos arrive, or use <a href="/admin/import">Import Students</a>.</p>
+{% endif %}
+
+<p class="spaced"><a href="/admin/import">Import another file</a> &middot;
+  <a href="/admin/passes">Generate QR codes and print passes</a> &middot;
+  <a href="/admin/audit?action=IMPORT_STUDENTS">See this in the audit trail</a></p>
+{% endblock %}

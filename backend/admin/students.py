@@ -18,20 +18,33 @@ def _like(needle: str) -> str:
     return f"%{escaped}%"
 
 
-def search(conn: Connection, query: str, limit: int = SEARCH_LIMIT) -> list[dict]:
-    """By PRN, name or sequence number. Anything typed is data: wildcards are escaped, never interpreted."""
+def search(conn: Connection, query: str = "", limit: int = SEARCH_LIMIT, offset: int = 0) -> dict:
+    """By PRN, name or sequence number. Returns a page of results and the total count."""
     needle = " ".join((query or "").split())
-    if not needle:
-        return []
-    number = int(needle) if needle.isdigit() and len(needle) < 10 else None
-    rows = conn.execute(text(
-        "SELECT s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.status, v.step "
-        "FROM students s JOIN student_status v ON v.student_id = s.id "
-        "WHERE s.prn ILIKE :like ESCAPE '\\' OR s.name ILIKE :like ESCAPE '\\' OR s.sequence_no = :num "
-        "ORDER BY s.sequence_no LIMIT :n"), {"like": _like(needle), "num": number, "n": limit}).mappings()
-    return [{"student_id": str(r["id"]), "prn": r["prn"], "name": r["name"], "programme": r["programme"],
+    
+    where_clause = ""
+    params = {"n": limit, "off": offset}
+    
+    if needle:
+        number = int(needle) if needle.isdigit() and len(needle) < 10 else None
+        where_clause = "WHERE s.prn ILIKE :like ESCAPE '\\' OR s.name ILIKE :like ESCAPE '\\' OR s.sequence_no = :num "
+        params["like"] = _like(needle)
+        params["num"] = number
+        
+    total = conn.execute(text(f"SELECT count(*) FROM students s {where_clause}"), params).scalar()
+    
+    rows = conn.execute(text(f"""
+        SELECT s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.status, s.photo_path, v.step 
+        FROM students s JOIN student_status v ON v.student_id = s.id 
+        {where_clause}
+        ORDER BY s.sequence_no NULLS LAST, s.name LIMIT :n OFFSET :off"""), params).mappings()
+        
+    students = [{"student_id": str(r["id"]), "prn": r["prn"], "name": r["name"], "programme": r["programme"],
              "school": r["school"], "sequence_no": r["sequence_no"], "master_status": r["status"],
+             "photo_path": r.get("photo_path"),
              "journey_status": STATUS_LABEL[r["step"]]} for r in rows]
+             
+    return {"total": total, "students": students}
 
 
 def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
@@ -43,7 +56,8 @@ def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
         return None
     off = settings.event_utc_offset_minutes
     student = conn.execute(text(
-        "SELECT s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.seat_no, s.status, v.step "
+        "SELECT s.id, s.prn, s.name, s.programme, s.school, s.awards, s.photo_path, s.sequence_no, s.seat_no, s.status, "
+        "v.step, EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS frozen "
         "FROM students s JOIN student_status v ON v.student_id = s.id WHERE s.id = :s"), {"s": sid}).mappings().one_or_none()
     if student is None:
         return None
@@ -74,14 +88,23 @@ def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
             "synced_at": iso_local(e["synced_at"], off),
             "can_reverse": state == "ACTIVE", "reverse_here": route.apply_here, "owner_venue": route.owner_venue,
         })
+    # The attempts panel answers "what went wrong for this student?", so it leaves out the ones that went
+    # right: the confirmations, and the READY previews the operator was shown before confirming.
     attempts = conn.execute(text(
-        "SELECT occurred_at, station_id, activity, result, message FROM scan_log WHERE student_id = :s AND result <> 'SUCCESS' "
+        "SELECT occurred_at, station_id, activity, result, message FROM scan_log "
+        "WHERE student_id = :s AND result NOT IN ('SUCCESS', 'READY') "
         "ORDER BY occurred_at DESC, id DESC LIMIT 50"), {"s": sid}).mappings().all()
     returned = any(t["activity"] == "THOBE_RETURN" and t["state"] == "ACTIVE" for t in timeline)
     return {
+        # `frozen` says whether "Freeze display data" has been run for this student. Once it has, the
+        # master fields below are changed only by a logged master patch (backend/master_patch.py).
+        # `seat_no` is carried for the patch form alone: the university supplies no seats, and no
+        # screen an operator sees shows one.
         "student": {"student_id": str(student["id"]), "prn": student["prn"], "name": student["name"],
-                    "programme": student["programme"], "school": student["school"], "sequence_no": student["sequence_no"],
+                    "programme": student["programme"], "school": student["school"], "awards": student["awards"],
+                    "photo_path": student["photo_path"], "sequence_no": student["sequence_no"],
                     "seat_no": student["seat_no"], "master_status": student["status"],
+                    "frozen": bool(student["frozen"]),
                     "journey_status": STATUS_LABEL[student["step"]]},
         "events": timeline,
         "attempts": [{"time": iso_local(a["occurred_at"], off), "station_id": a["station_id"], "activity": a["activity"],

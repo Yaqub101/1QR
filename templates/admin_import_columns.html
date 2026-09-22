@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Import: match the columns{% endblock %}
+{% block body %}
+<p><a href="/admin/import">&larr; Import Students</a></p>
+<h1>Match the columns</h1>
+<p class="muted"><b>{{ batch.filename }}</b> &middot; {{ row_count }} row{{ "s" if row_count != 1 }}
+  {%- if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}</p>
+<p class="muted">Say what each column of the file is. Anything left on “Do not import” is ignored.
+  PRN, name, programme and school are needed; everything else is optional — the university's list has no
+  convocation sequence number and no seat number, and neither is required.</p>
+
+<form method="post" action="/admin/import/{{ batch.batch_id }}/columns">
+  <table class="spaced">
+    <tr><th>Column in the file</th><th>Is this</th><th>First values</th></tr>
+    {% for index, column in columns %}
+    <tr>
+      <td><b>{{ column }}</b></td>
+      <td>
+        <select name="map__{{ index }}">
+          <option value="" {{ "selected" if not chosen[column] }}>Do not import</option>
+          {% for field, label in field_labels.items() %}
+          <option value="{{ field }}" {{ "selected" if chosen[column] == field }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </td>
+      <td class="muted">{% for row in sample %}{{ row[column] if row[column] is not none else "—" }}{{ ", " if not loop.last }}{% endfor %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <button class="big" type="submit">Check this file</button>
+</form>
+{% endblock %}

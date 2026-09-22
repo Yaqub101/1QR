@@ -1,0 +1,22 @@
+{
+  "name": "convocation_db-20260922T074524021817Z-auto",
+  "path": "/backups/convocation_db-20260922T074524021817Z-auto.dump",
+  "manifest_path": "/backups/convocation_db-20260922T074524021817Z-auto.json",
+  "kind": "auto",
+  "label": null,
+  "created_at": "2026-09-22T07:45:24.021817+00:00",
+  "size_bytes": 82388,
+  "sha256": "74bc56a283b07fded9f013dbd060163483f34ea808b304f21212218d9e3f6bc0",
+  "alembic_revision": "0009_scan_log_ready",
+  "server_version": "16.15",
+  "counts": {
+    "activity_events": 0,
+    "audit_log": 40,
+    "students": 1,
+    "users": 11,
+    "outbox": 0,
+    "exceptions": 0,
+    "sync_log": 0,
+    "conflict_events": 0
+  }
+}

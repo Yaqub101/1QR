@@ -11,6 +11,12 @@ with `pg_restore --list`, and only then renamed into place, so a crash or a full
 like a good backup and is not. A failed run is logged and retried on the next tick; the app is never involved, so a
 backup can never slow a scan.
 
+Neither of those two checks can tell a good dump from a dump of a database whose migrations never ran: that is a
+perfectly valid, perfectly empty archive of about a kilobyte, and `pg_restore --list` reads it back happily. So the
+row counts and the file size are checked as well, and a run that captured nothing is an ERROR and a non-zero exit,
+never an INFO "backup written" line. `run` refuses to start at all against such a database, rather than logging a
+retry every thirty seconds for the rest of the day.
+
 Retention: the newest `keep` AUTOMATIC dumps are kept; a MILESTONE dump is never removed by this job.
 """
 from __future__ import annotations
@@ -38,7 +44,16 @@ DEFAULT_INTERVAL_SECONDS = 300      # SYSTEM_SPEC 21: "Full database dump: every
 DEFAULT_KEEP = 24                   # two hours of 5-minute dumps
 RETRY_AFTER_FAILURE_SECONDS = 30
 MILESTONES = ("before-event", "after-registration-closes", "after-ceremony")
-COUNTED_TABLES = ("activity_events", "audit_log", "students", "outbox", "exceptions", "sync_log", "conflict_events")
+# The tables whose row counts go in the manifest, and which together answer "is there anything here worth
+# protecting?". `users` is among them because a server that has been set up but has not had its students
+# imported yet still holds the accounts, whose passwords nobody can read back out to retype.
+COUNTED_TABLES = ("activity_events", "audit_log", "students", "users", "outbox", "exceptions", "sync_log",
+                  "conflict_events")
+# A dump of a database whose migrations never ran is a real, valid, EMPTY archive of about a kilobyte, which
+# `pg_restore --list` reads back perfectly happily. Neither existing check can tell it from a good backup, so
+# the size is checked too. Any genuine dump of this schema is far larger than this, data or no data.
+MIN_PLAUSIBLE_DUMP_BYTES = 4096
+SCHEMA_HINT = "run `alembic upgrade head` on this database"
 
 
 class BackupError(RuntimeError):
@@ -71,24 +86,72 @@ def _sha256(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def _snapshot_facts(database_url: str) -> tuple[Optional[str], Optional[str], dict]:
+def _short(exc: Exception) -> str:
+    """The database's own first line, without the SQLAlchemy essay around it."""
+    first = " ".join(str(exc).split())
+    for cut in (" LINE ", " [SQL:", " (Background"):
+        first = first.split(cut)[0]
+    return first[:160]
+
+
+@dataclass
+class Facts:
+    revision: Optional[str]
+    server_version: Optional[str]
+    counts: dict
+    problems: list              # tables (or alembic_version) this database could not answer for
+
+
+def _snapshot_facts(database_url: str) -> Facts:
+    """What the manifest records, and - just as important - what could NOT be read. A table that is
+    missing is a schema fault, not a table with nothing in it, and the two must never look alike."""
     engine = create_engine(database_url)
+    problems: list = []
     try:
         with engine.connect() as conn:
             revision = None
             try:
                 revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
-            except Exception:
+            except Exception as exc:
                 conn.rollback()
+                problems.append(("alembic_version", _short(exc)))
             counts = {}
             for table in COUNTED_TABLES:
                 try:
                     counts[table] = int(conn.execute(text(f"SELECT count(*) FROM {table}")).scalar_one())
-                except Exception:
+                except Exception as exc:
                     conn.rollback()
-            return revision, str(conn.execute(text("SHOW server_version")).scalar()), counts
+                    problems.append((table, _short(exc)))
+            return Facts(revision, str(conn.execute(text("SHOW server_version")).scalar()), counts, problems)
     finally:
         engine.dispose()
+
+
+def check_ready(database_url: str) -> list:
+    """Everything that makes a backup of this database worthless, as plain sentences. Empty means the
+    database is worth backing up. Used before the backup job starts; create_backup uses `_problems`
+    directly, on the facts it has already read."""
+    try:
+        return _problems(_snapshot_facts(database_url))
+    except Exception as exc:
+        return [f"the database could not be read: {_short(exc)}"]
+
+
+def _problems(facts: "Facts") -> list:
+    problems = []
+    if facts.problems:
+        # One sentence, not one paragraph per table: the same error repeated eight times tells an
+        # operator nothing the list of table names does not.
+        names = ", ".join(name for name, _ in facts.problems)
+        example = facts.problems[0][1]
+        problems.append(f"the schema is missing or incomplete ({SCHEMA_HINT}) - "
+                        f"{len(facts.problems)} table(s) could not be read: {names} [{example}]")
+    elif facts.revision is None:
+        problems.append(f"the database reports no migration revision ({SCHEMA_HINT})")
+    if not problems and not any(facts.counts.values()):
+        problems.append(f"the backup would have captured zero rows from {len(facts.counts)} tables "
+                        f"({', '.join(sorted(facts.counts))}): there is nothing here to protect")
+    return problems
 
 
 def create_backup(database_url: str, dest_dir: str, *, kind: str = "auto", label: Optional[str] = None,
@@ -103,25 +166,40 @@ def create_backup(database_url: str, dest_dir: str, *, kind: str = "auto", label
     slug = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in (label or ""))[:40]
     name = f"{database}-{moment:%Y%m%dT%H%M%S%f}Z-{kind}" + (f"-{slug}" if slug else "")
     final, partial = dest / f"{name}.dump", dest / f"{name}.dump.partial"
-    revision, server_version, counts = _snapshot_facts(database_url)
+
+    # Before anything is written: is this database worth dumping at all? Asked first so a server whose
+    # migrations never ran leaves no file behind that later looks like a backup someone could restore.
+    facts = _snapshot_facts(database_url)
+    unusable = _problems(facts)
+    if unusable:
+        raise BackupError("refusing to write a backup that would protect nothing - " + "; ".join(unusable))
 
     done = pgtools.run("pg_dump", database_url, ["-Fc", "--no-owner", "--no-privileges", "-f", str(partial)])
     if done.returncode != 0:
         partial.unlink(missing_ok=True)
         raise BackupError(f"pg_dump failed: {done.stderr.strip()[:500]}")
+    if "does not exist" in done.stderr:
+        # pg_dump can exit 0 having skipped what it could not read (a table dropped under it mid-run).
+        partial.unlink(missing_ok=True)
+        raise BackupError(f"pg_dump could not read part of the database ({SCHEMA_HINT}): {done.stderr.strip()[:500]}")
     check = pgtools.run("pg_restore", database_url, ["--list"], include_db=False, positional=(partial,))
     if check.returncode != 0 or not check.stdout.strip():
         partial.unlink(missing_ok=True)
         raise BackupError(f"the dump could not be read back: {check.stderr.strip()[:500]}")
+    written = partial.stat().st_size
+    if written < MIN_PLAUSIBLE_DUMP_BYTES:
+        partial.unlink(missing_ok=True)
+        raise BackupError(f"the dump is suspiciously small ({written} bytes, expected at least "
+                          f"{MIN_PLAUSIBLE_DUMP_BYTES}): it cannot hold this database")
     os.replace(partial, final)
 
     info = BackupInfo(name=name, path=str(final), manifest_path=str(dest / f"{name}.json"), kind=kind, label=label,
                       created_at=moment.isoformat(), size_bytes=final.stat().st_size, sha256=_sha256(final),
-                      alembic_revision=revision, server_version=server_version, counts=counts)
+                      alembic_revision=facts.revision, server_version=facts.server_version, counts=facts.counts)
     manifest_partial = dest / f"{name}.json.partial"
     manifest_partial.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
     os.replace(manifest_partial, info.manifest_path)
-    logger.info("backup written: %s (%d bytes, %s)", name, info.size_bytes, counts)
+    logger.info("backup written: %s (%d bytes, %s)", name, info.size_bytes, facts.counts)
     return info
 
 
@@ -198,7 +276,7 @@ class BackupScheduler:
             self.failures += 1
             self.last_error = str(exc)
             self.next_due = now + min(self.interval, RETRY_AFTER_FAILURE_SECONDS)
-            logger.error("backup failed (will retry): %s", exc)
+            logger.error("BACKUP FAILED (will retry), no backup file was created: %s", exc)
             return None
         self.last_error = None
         # Fixed rate: skip any intervals that were missed while the machine was busy or asleep.
@@ -241,9 +319,23 @@ def main(argv=None) -> int:
     if args.action in ("once", "milestone"):
         if args.action == "milestone" and not args.label:
             parser.error("a milestone needs --label")
-        info = create_backup(args.database_url, args.dir, kind="auto" if args.action == "once" else "milestone", label=args.label)
+        try:
+            info = create_backup(args.database_url, args.dir, kind="auto" if args.action == "once" else "milestone", label=args.label)
+        except BackupError as exc:
+            # Loudly, and with a failing exit code: a backup command that "succeeds" without a usable
+            # backup is the one failure nobody notices until the day they need to restore.
+            logger.error("BACKUP FAILED, no backup file was created: %s", exc)
+            return 1
         print(f"written: {info.path}")
         return 0
+
+    # `run` is what docker-compose starts and leaves running. A database that cannot be backed up at all
+    # is a setup fault, not a passing fault, so the job refuses to start rather than logging a retry every
+    # thirty seconds for the rest of the day. Faults that appear LATER are still retried (see the scheduler).
+    unusable = check_ready(args.database_url)
+    if unusable:
+        logger.error("BACKUP JOB REFUSING TO START, no backup will be taken: %s", "; ".join(unusable))
+        return 1
     scheduler = BackupScheduler(lambda: create_backup(args.database_url, args.dir), args.interval,
                                 after_success=lambda info: prune(args.dir, args.keep))
     logger.info("backup job started: every %s seconds into %s (keeping %s)", args.interval, args.dir, args.keep)

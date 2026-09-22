@@ -66,7 +66,7 @@ STUDENT_COLS = [("prn", "PRN"), ("name", "Name"), ("school", "School"), ("progra
 # ------------------------------------------------------------------ Registered / Not Attended
 def not_attended(conn, settings, params) -> Report:
     rows = _rows(conn, f"SELECT s.prn, s.name, s.school, s.programme, s.sequence_no, s.status AS master_status "
-                       f"FROM students s WHERE {NEVER_REGISTERED} ORDER BY s.sequence_no", {}, settings.event_utc_offset_minutes)
+                       f"FROM students s WHERE {NEVER_REGISTERED} ORDER BY s.sequence_no NULLS LAST, s.name", {}, settings.event_utc_offset_minutes)
     return Report("not-attended", "Not Attended (never registered)", STUDENT_COLS + [("master_status", "Master status")], rows,
                   {"not_attended": len(rows)}, "No Registration event of any kind. A student whose Registration an Admin reversed is "
                   "not listed here; they show as Not Completed on the Registration report.")
@@ -94,7 +94,7 @@ def activity_report(activity: str) -> Callable:
                 SELECT e.kind, e.details->>'reason' AS reason FROM activity_events e
                 WHERE e.student_id = s.id AND e.activity = :activity AND e.kind IN ('SKIP','REVERSAL')
                 ORDER BY e.server_time DESC, e.venue_seq DESC LIMIT 1) n ON a.event_id IS NULL
-            ORDER BY s.sequence_no""", {"activity": activity}, off)
+            ORDER BY s.sequence_no NULLS LAST, s.name""", {"activity": activity}, off)
         completed = sum(1 for r in rows if r["state"] == "Completed")
         totals = {"total": len(rows), "completed": completed, "not_completed": len(rows) - completed}
         if status != "all":
@@ -115,7 +115,7 @@ def incomplete_journey(conn, settings, params) -> Report:
         FROM students s LEFT JOIN active a ON a.student_id = s.id
         GROUP BY s.id
         HAVING coalesce(bool_or(a.activity = 'REGISTRATION'), false) AND NOT coalesce(bool_or(a.activity = 'LUNCH'), false)
-        ORDER BY s.sequence_no""")).mappings().all()
+        ORDER BY s.sequence_no NULLS LAST, s.name""")).mappings().all()
     rows = []
     for r in raw:
         done = set(r["done"])
@@ -130,7 +130,7 @@ def incomplete_journey(conn, settings, params) -> Report:
 
 # ------------------------------------------------------------------ thobes
 def outstanding_thobes(conn, settings, params) -> Report:
-    rows = _rows(conn, dashboard.OUTSTANDING_FROM + " ORDER BY al.server_time, s.sequence_no", {}, settings.event_utc_offset_minutes)
+    rows = _rows(conn, dashboard.OUTSTANDING_FROM + " ORDER BY al.server_time, s.sequence_no NULLS LAST, s.name", {}, settings.event_utc_offset_minutes)
     return Report("outstanding-thobes", "Thobes allocated but not returned",
                   [("prn", "PRN"), ("name", "Name"), ("school", "School"), ("programme", "Programme"),
                    ("allocated_at", "Allocated at"), ("stage_complete", "Stage complete")], rows, {"outstanding": len(rows)})
@@ -142,7 +142,7 @@ def waived_thobes(conn, settings, params) -> Report:
         SELECT s.prn, s.name, s.school, s.programme, a.server_time AS waived_at, u.username AS waived_by,
                a.details->>'reason' AS reason, CAST(a.details->>'thobe_allocation_on_record' AS boolean) AS allocation_on_record
         FROM active a JOIN students s ON s.id = a.student_id LEFT JOIN users u ON u.id = a.operator_id
-        WHERE a.kind = 'WAIVER' ORDER BY a.server_time, s.sequence_no""", {}, settings.event_utc_offset_minutes)
+        WHERE a.kind = 'WAIVER' ORDER BY a.server_time, s.sequence_no NULLS LAST, s.name""", {}, settings.event_utc_offset_minutes)
     return Report("waived-thobes", "Return Waived / Lost thobes",
                   [("prn", "PRN"), ("name", "Name"), ("school", "School"), ("programme", "Programme"), ("waived_at", "Waived at"),
                    ("waived_by", "Approved by (Admin)"), ("reason", "Reason"), ("allocation_on_record", "Allocation on record")],

@@ -20,7 +20,7 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         activity="REGISTRATION",
         owning_venue="college",
         prerequisites=(),
-        display_fields=("prn", "programme", "school", "sequence_no"),
+        display_fields=("prn", "programme", "school"),
         confirm_label="CONFIRM REGISTRATION",
         duplicate_message="ALREADY REGISTERED — {time}",
         flag_rules=("late_registration",),  # after the cutoff: accepted and flagged LATE
@@ -41,16 +41,18 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         activity="SEATING",
         owning_venue="stadium",
         prerequisites=(Prerequisite("THOBE_ALLOCATION", "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"),),
-        display_fields=("prn", "seat_no"),  # the university-assigned seat: shown, never chosen
-        confirm_label="CONFIRM SEATING",
-        duplicate_message="SEATING ALREADY COMPLETED — SEAT {seat_no} — {time}",
-        record_fields=("seat_no",),
+        # The university's data has no Seat Number column, so there is no seat to show and none to
+        # record: Seating is a plain "this student is seated" checkpoint, like Thobe Allocation.
+        display_fields=("prn", "programme", "school"),
+        confirm_label="CONFIRM SEATED",
+        duplicate_message="SEATING ALREADY CONFIRMED — {time}",
     ),
     "QUEUE": ActivityConfig(
         activity="QUEUE",
         owning_venue="stadium",
         prerequisites=(Prerequisite("SEATING", "QUEUE NOT AVAILABLE — SEATING PENDING"),),
-        display_fields=("sequence_no", "queue_position"),
+        # Order on stage is the order these confirmations happen in — first come, first shown.
+        display_fields=("prn", "queue_position"),
         confirm_label="CONFIRM QUEUE",
         duplicate_message="ALREADY IN QUEUE — POSITION {queue_position} — {time}",
         effects=("enqueue",),  # takes the next queue position in the same transaction

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Import Students{% endblock %}
+{% block body %}
+<p><a href="/admin">&larr; Admin</a></p>
+<h1>Import Students</h1>
+<p class="muted">The university's list, as a CSV or an Excel file. You will see exactly what will happen
+before anything is written, and you can run the same file again later when the rest of the list arrives:
+students already on the list are left exactly as they are.</p>
+
+<form method="post" action="/admin/import/upload" enctype="multipart/form-data" class="card narrow">
+  <label>Student list <input type="file" name="file" accept=".csv,.xlsx,.xls" required></label>
+  <label>Photo folder on this server <small class="muted">(optional)</small>
+    <input type="text" name="photo_dir" placeholder="/data/photos" autocomplete="off"></label>
+  <p class="muted">Photos are matched to students by file name: <code>&lt;PRN&gt;.jpg</code>. Leave the box
+    empty to import the list now and attach photos later.</p>
+  <button class="big" type="submit">Upload and check</button>
+</form>
+
+<h2>What happens next</h2>
+<ol class="steps">
+  <li><b>Match the columns.</b> Recognised headings are matched for you; anything unusual you set yourself.</li>
+  <li><b>Read the check.</b> Missing fields, repeated PRNs, overlong names, missing photos, rows marked
+      inactive and students already on the list — all before anything is written.</li>
+  <li><b>Import.</b> The whole file goes in together, or none of it does.</li>
+</ol>
+{% endblock %}

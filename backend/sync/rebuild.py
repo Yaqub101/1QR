@@ -36,7 +36,7 @@ from backend.sync.ingest import ingest_events
 logger = logging.getLogger("backend.sync")
 PAGE = 500
 MASTER_TABLES = (  # foreign-key order
-    ("students", "SELECT * FROM students ORDER BY sequence_no"),
+    ("students", "SELECT * FROM students ORDER BY prn"),
     ("qr_tokens", "SELECT * FROM qr_tokens WHERE active ORDER BY id"),
     ("display_snapshot", "SELECT * FROM display_snapshot"),
 )

@@ -67,14 +67,17 @@ HARD_BLOCK_MESSAGE = {
 CROSS_VENUE_ONLY = ["THOBE_ALLOCATION", "THOBE_RETURN"]
 CONFIRM_LABEL = {
     "REGISTRATION": "CONFIRM REGISTRATION", "THOBE_ALLOCATION": "CONFIRM THOBE GIVEN",
-    "SEATING": "CONFIRM SEATING", "QUEUE": "CONFIRM QUEUE", "STAGE": "COMPLETE",
+    "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE", "STAGE": "COMPLETE",
     "THOBE_RETURN": "CONFIRM RETURN", "LUNCH": "CONFIRM LUNCH",
 }
-DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are always shown)
-    "REGISTRATION": ["prn", "programme", "school", "sequence_no"],
+DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are always shown).
+    # The university's real list has no Convocation Sequence Number and no Seat Number, so neither
+    # appears anywhere: Seating is a plain seated / not-seated checkpoint like Thobe Allocation, and
+    # the Queue runs purely on the order confirmations happen in.
+    "REGISTRATION": ["prn", "programme", "school"],
     "THOBE_ALLOCATION": ["prn", "programme", "school"],
-    "SEATING": ["prn", "seat_no"],
-    "QUEUE": ["sequence_no", "queue_position"],
+    "SEATING": ["prn", "programme", "school"],
+    "QUEUE": ["prn", "queue_position"],
     "STAGE": ["programme", "school"],
     "THOBE_RETURN": ["prn", "thobe_issued"],
     "LUNCH": ["prn", "eligibility"],
@@ -84,11 +87,11 @@ NOT_FOUND = "STUDENT NOT FOUND — CONTACT ADMIN"
 INACTIVE = "STUDENT NOT ACTIVE — CONTACT ADMIN"
 
 
-def duplicate_message(activity, *, time, seat="not assigned", position=None):
+def duplicate_message(activity, *, time, position=None):
     return {
         "REGISTRATION": f"ALREADY REGISTERED — {time}",
         "THOBE_ALLOCATION": f"THOBE ALREADY ALLOCATED — {time}",
-        "SEATING": f"SEATING ALREADY COMPLETED — SEAT {seat} — {time}",
+        "SEATING": f"SEATING ALREADY CONFIRMED — {time}",
         "QUEUE": f"ALREADY IN QUEUE — POSITION {position} — {time}",
         "STAGE": f"DEGREE ALREADY RECEIVED — {time}",
         "THOBE_RETURN": f"ALREADY RETURNED — {time}",
@@ -333,7 +336,7 @@ class TestRegistry:
     @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_every_message_in_the_configuration_is_plain(self, activity):
         cfg = ACTIVITY_CONFIGS[activity]
-        sample = cfg.duplicate_message.format_map({"time": "11:21 AM", "station": "X-1", "seat_no": "B-12", "queue_position": 3})
+        sample = cfg.duplicate_message.format_map({"time": "11:21 AM", "station": "X-1", "queue_position": 3})
         assert_plain(sample)
         for p in cfg.prerequisites:
             assert_plain(p.missing_message)
@@ -356,7 +359,10 @@ class TestPipelineTable:
         card = body["student"]
         assert card["name"] == s.name and card["photo_url"] == f"/photo/{s.id}"
         assert [f["key"] for f in card["fields"]] == DISPLAY_KEYS[activity]
-        assert totals(engine) == before and log_of(engine, s, activity) == []  # a preview writes nothing
+        # A preview records no ACTIVITY (no event, no outbox row, no queue row) -- but the attempt itself
+        # is logged like every other attempt (TODO Phase 6: "Every attempt written to scan_log").
+        assert totals(engine) == before
+        assert [(r["result"], r["event_id"]) for r in log_of(engine, s, activity)] == [("READY", None)]
 
         done = confirm(client, activity, token=s.token)
         result = done.json()
@@ -374,8 +380,8 @@ class TestPipelineTable:
         audit = q(engine, "SELECT operator_id, station_id FROM audit_log WHERE event_id = :e AND action = 'ACTIVITY_CONFIRMED'", e=event["event_id"])
         assert len(audit) == 1 and audit[0]["operator_id"] == world.op_ids[activity]
         log = log_of(engine, s, activity)
-        assert [(r["result"], r["event_id"]) for r in log] == [("SUCCESS", event["event_id"])]
-        assert (log[0]["venue_id"], log[0]["station_id"], log[0]["activity"]) == (OWNER[activity], STATION[activity], activity)
+        assert [(r["result"], r["event_id"]) for r in log] == [("READY", None), ("SUCCESS", event["event_id"])]
+        assert all((r["venue_id"], r["station_id"], r["activity"]) == (OWNER[activity], STATION[activity], activity) for r in log)
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_already_done_shows_the_earlier_record_and_writes_nothing(self, apps, world, engine, activity):
@@ -390,7 +396,7 @@ class TestPipelineTable:
 
         response = scan(client, activity, s.token)
         body = response.json()
-        expected = duplicate_message(activity, time=clock(event["server_time"]), seat="B-12", position=position)
+        expected = duplicate_message(activity, time=clock(event["server_time"]), position=position)
         assert response.status_code == 200 and body["result"] == "DUPLICATE" and body["colour"] == "amber"
         assert body["message"] == expected
         assert body["earlier"]["station_id"] == STATION[activity] and body["earlier"]["time"] == clock(event["server_time"])
@@ -483,7 +489,7 @@ class TestJourney:
         assert [e["activity"] for e in events_of(engine, s)] != [] and len(events_of(engine, s)) == 7
         assert sorted(e["activity"] for e in events_of(engine, s)) == sorted(ACTIVITIES)
         results = [r["result"] for r in log_of(engine, s)]
-        assert results == ["SUCCESS"] * 7 and "DUPLICATE" not in results
+        assert results == ["READY", "SUCCESS"] * 7 and "DUPLICATE" not in results   # each step: the scan, then the confirm
         assert q(engine, "SELECT count(*) AS n FROM outbox o JOIN activity_events e USING (event_id) WHERE e.student_id = :s", s=s.id)[0]["n"] == 7
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
@@ -493,7 +499,7 @@ class TestJourney:
         assert scan(client, activity, s.token).json()["result"] == "READY"
         assert confirm(client, activity, token=s.token).json()["result"] == "CONFIRMED"
         assert scan(client, activity, s.token).json()["result"] == "DUPLICATE"  # the second attempt stops here
-        assert sorted(r["result"] for r in log_of(engine, s, activity)) == ["DUPLICATE", "SUCCESS"]
+        assert [r["result"] for r in log_of(engine, s, activity)] == ["READY", "SUCCESS", "DUPLICATE"]
         assert len(events_of(engine, s, activity)) == 1
 
     def test_a_different_activity_is_never_a_false_duplicate(self, apps, world, engine):
@@ -647,7 +653,7 @@ class TestManualSearch:
         assert done["result"] == "CONFIRMED" and done["manual"] is True
         event = events_of(engine, s, activity)[0]
         assert "MANUAL" in event["flags"]
-        assert [r["result"] for r in log_of(engine, s, activity)] == ["MANUAL"]
+        assert [r["result"] for r in log_of(engine, s, activity)] == ["READY", "MANUAL"]   # the search, then the confirm
         outbox = q(engine, "SELECT payload FROM outbox WHERE event_id = :e", e=event["event_id"])[0]["payload"]
         assert "MANUAL" in outbox["flags"]
 
@@ -873,7 +879,9 @@ class TestCrossVenueHook:
         assert ready["result"] == "READY" and done["result"] == "CONFIRMED" and done["colour"] == "green"
         assert "provisional" not in (done["message"] + ready["message"]).lower()  # the operator sees nothing scary
         assert "PROVISIONAL" in events_of(engine, s, "THOBE_ALLOCATION")[0]["flags"]
-        assert [r["result"] for r in log_of(engine, s)] == ["PROVISIONAL"]
+        log = log_of(engine, s)
+        assert [r["result"] for r in log] == ["READY", "PROVISIONAL"]     # the scan, then the confirm
+        assert log[0]["details"]["provisional"] is True                   # the scan row already knew
 
     def test_same_venue_prerequisites_never_go_through_the_hook(self, apps, world, engine, monkeypatch):
         monkeypatch.setattr(cross_venue, "check_cross_venue_prerequisite",
@@ -900,12 +908,13 @@ class TestConfiguredBehaviours:
         finally:
             self._set_cutoff(engine, "NULL")
 
-    def test_seating_records_the_university_assigned_seat(self, apps, world, engine):
-        s = ready_student(engine, "SEATING", seat_no="A-7")
+    def test_seating_records_no_seat_because_the_university_assigns_none(self, apps, world, engine):
+        s = ready_student(engine, "SEATING", seat_no="A-7")  # even a leftover master seat is ignored
         card = scan(operator(apps, world, "SEATING"), "SEATING", s.token).json()["student"]
-        assert field(card, "seat_no") == "A-7"
+        assert field(card, "seat_no") is None
+        assert not any("seat" in f["label"].lower() for f in card["fields"])
         confirm(operator(apps, world, "SEATING"), "SEATING", token=s.token)
-        assert events_of(engine, s, "SEATING")[0]["details"]["seat_no"] == "A-7"
+        assert events_of(engine, s, "SEATING")[0]["details"] == {}
 
     def test_queue_confirmation_takes_the_next_position_in_the_same_transaction(self, apps, world, engine):
         first, second = ready_student(engine, "QUEUE"), ready_student(engine, "QUEUE")
@@ -919,7 +928,8 @@ class TestConfiguredBehaviours:
     def test_the_queue_card_shows_the_position_the_student_will_get(self, apps, world, engine):
         s = ready_student(engine, "QUEUE")
         card = scan(operator(apps, world, "QUEUE"), "QUEUE", s.token).json()["student"]
-        assert field(card, "sequence_no") == str(s.seq) and "Position" in field(card, "queue_position")
+        assert "Position" in field(card, "queue_position")
+        assert field(card, "sequence_no") is None, "the ceremony no longer has sequence numbers"
 
     def test_a_queue_scan_never_touches_the_led_or_the_display_snapshot(self, apps, world, engine):
         # Golden rule 9: only the Stage operator changes the public LED. The engine has no LED state at all.
@@ -990,6 +1000,75 @@ class TestMessagesAndLogs:
         s = ready_student(engine, "REGISTRATION")
         for _ in range(3):
             assert_plain(confirm(operator(apps, world, "REGISTRATION"), "REGISTRATION", token=s.token).json()["detail"]["message"])
+
+
+class TestEveryAttemptIsLogged:
+    """TODO.md Phase 6: "Every attempt written to `scan_log`".
+
+    Refusals and confirmations were written; a SUCCESSFUL scan was not. That is the one attempt the log
+    most needs, because it is the only record that a student stood at that station and was shown to that
+    operator: without it the log cannot answer "was this student ever presented here, and did the operator
+    walk away without confirming?".
+    """
+
+    @pytest.mark.parametrize("activity", ACTIVITIES)
+    def test_a_ready_scan_writes_a_full_scan_log_row(self, apps, world, engine, activity):
+        s = ready_student(engine, activity, seat_no="B-12")
+        before = totals(engine)
+        body = scan(operator(apps, world, activity), activity, s.token).json()
+        assert body["result"] == "READY"
+
+        rows = log_of(engine, s, activity)
+        assert len(rows) == 1, "a successful scan is an attempt and must be in scan_log"
+        [row] = rows
+        assert row["result"] == "READY"
+        assert row["venue_id"] == OWNER[activity]
+        assert row["station_id"] == STATION[activity]
+        assert row["activity"] == activity
+        assert row["operator_id"] == world.op_ids[activity]
+        assert row["student_id"] == s.id
+        assert row["token_presented"] == s.token
+        assert row["prn_entered"] is None
+        assert row["message"] == body["message"]
+        assert row["event_id"] is None                  # the operator has not confirmed: nothing was recorded
+        assert row["occurred_at"] is not None
+        assert row["details"]["stage"] == "scan"
+        assert totals(engine) == before                 # ... and the preview still writes no activity at all
+
+    def test_a_scan_that_is_never_confirmed_is_still_in_the_log(self, apps, world, engine):
+        s = ready_student(engine, "SEATING", seat_no="C-04")
+        scan(operator(apps, world, "SEATING"), "SEATING", s.token)
+        assert events_of(engine, s, "SEATING") == []
+        assert [r["result"] for r in log_of(engine, s, "SEATING")] == ["READY"]
+
+    def test_the_same_qr_scanned_twice_before_confirming_is_logged_twice(self, apps, world, engine):
+        s = ready_student(engine, "REGISTRATION")
+        client = operator(apps, world, "REGISTRATION")
+        scan(client, "REGISTRATION", s.token)
+        scan(client, "REGISTRATION", s.token)
+        assert [r["result"] for r in log_of(engine, s, "REGISTRATION")] == ["READY", "READY"]
+
+    def test_a_ready_manual_search_is_logged_with_the_prn_it_was_given(self, apps, world, engine):
+        s = ready_student(engine, "REGISTRATION")
+        client = operator(apps, world, "REGISTRATION")
+        body = client.post("/search", json={"prn": s.prn, "station_id": "REG-01"}).json()
+        assert body["result"] == "READY" and body["manual"] is True
+
+        [row] = log_of(engine, s, "REGISTRATION")
+        assert row["result"] == "READY" and row["prn_entered"] == s.prn and row["token_presented"] is None
+        assert row["student_id"] == s.id and row["event_id"] is None
+        assert row["details"]["stage"] == "search"
+
+    @pytest.mark.parametrize("activity", ACTIVITIES)
+    def test_no_attempt_at_any_station_goes_unrecorded(self, apps, world, engine, activity):
+        """Four attempts by the same student: scan, scan again, confirm, scan once more. Four rows."""
+        s = ready_student(engine, activity, seat_no="A-01")
+        client = operator(apps, world, activity)
+        scan(client, activity, s.token)
+        scan(client, activity, s.token)
+        confirm(client, activity, token=s.token)
+        scan(client, activity, s.token)
+        assert [r["result"] for r in log_of(engine, s, activity)] == ["READY", "READY", "SUCCESS", "DUPLICATE"]
 
 
 class TestLatency:

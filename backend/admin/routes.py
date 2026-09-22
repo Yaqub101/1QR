@@ -20,6 +20,7 @@ from backend.admin import exceptions as exceptions_svc
 from backend.admin import reports as reports_svc
 from backend.admin import students as students_svc
 from backend.admin.corrections import CorrectionError
+from backend import master_patch as master_patch_svc
 from backend import passes as passes_svc
 from backend import qr_tokens
 from backend.audit import write_audit
@@ -72,6 +73,16 @@ class ReissueBody(BaseModel):
     reason: str = ""
 
 
+class MasterPatchBody(BaseModel):
+    changes: dict = {}
+    reason: str = ""
+
+
+# Which field of the student card each patchable field is currently shown from, so the form can put
+# today's value in the box as a placeholder.
+PATCH_SOURCE = {f: ("master_status" if f == "status" else f) for f in master_patch_svc.PATCHABLE_FIELDS}
+
+
 @router.get("/api/dashboard")
 def api_dashboard(request: Request):
     with request.app.state.engine.connect() as conn:
@@ -111,7 +122,7 @@ def api_freshness_window(request: Request, body: WindowBody, principal: Principa
 @router.get("/api/students")
 def api_students(request: Request, q: str = ""):
     with request.app.state.engine.connect() as conn:
-        return {"students": students_svc.search(conn, q)}
+        return {"students": students_svc.search(conn, q)["students"]}
 
 
 @router.get("/api/students/{student_id}")
@@ -334,10 +345,62 @@ def dashboard_live(request: Request, principal: Principal = Depends(require_admi
 
 
 @router.get("/students")
-def students_page(request: Request, q: str = "", principal: Principal = Depends(require_admin)):
+def students_page(request: Request, q: str = "", page: int = 1, principal: Principal = Depends(require_admin)):
+    size = 25
     with request.app.state.engine.connect() as conn:
-        found = students_svc.search(conn, q)
-    return render(request, "admin_students.html", principal=principal, q=q, found=found)
+        result = students_svc.search(conn, q, limit=size, offset=(max(page, 1) - 1) * size)
+    return render(request, "admin_students.html", principal=principal, q=q, 
+                  found=result["students"], page=max(page, 1), pages=max(1, -(-result["total"] // size)),
+                  query=urlencode({"q": q}) if q else "")
+
+
+@router.get("/passes")
+def passes_page(request: Request, page: int = 1, principal: Principal = Depends(require_admin)):
+    size = 25
+    with request.app.state.engine.connect() as conn:
+        total = conn.execute(text("SELECT count(*) FROM students WHERE status = 'ACTIVE'")).scalar()
+        rows = passes_svc.load_passes(conn, offset=(max(page, 1) - 1) * size, limit=size)
+    return render(request, "admin_passes.html", principal=principal,
+                  students=rows, page=max(page, 1), pages=max(1, -(-total // size)))
+
+
+@router.post("/passes/generate")
+def passes_generate(request: Request, principal: Principal = Depends(require_admin)):
+    result = qr_tokens.generate_missing_tokens(request.app.state.engine, operator_id=principal.user_id)
+    return redirect("/admin/passes", msg=f"Generated {result.created} new tokens.")
+
+
+@router.get("/passes/download_all")
+def passes_download_all(request: Request, principal: Principal = Depends(require_admin)):
+    with request.app.state.engine.connect() as conn:
+        rows = passes_svc.load_passes(conn)
+        try:
+            data = passes_svc.to_pass_data(rows)
+        except qr_tokens.TokenError as e:
+            return redirect("/admin/passes", error=e.message)
+        event_name = passes_svc.event_title(conn, fallback="Convocation")
+    result = passes_svc.render_sheets(data, event_name)
+    response = Response(content=result.pdf, media_type="application/pdf")
+    response.headers["Content-Disposition"] = 'attachment; filename="all_passes.pdf"'
+    return response
+
+
+@router.get("/passes/download/{student_id}")
+def passes_download_single(request: Request, student_id: str, principal: Principal = Depends(require_admin)):
+    with request.app.state.engine.connect() as conn:
+        rows = passes_svc.load_passes(conn, student_id=student_id)
+        if not rows:
+            return redirect("/admin/passes", error="Student not found or not active.")
+        try:
+            data = passes_svc.to_pass_data(rows)
+        except qr_tokens.TokenError as e:
+            return redirect("/admin/passes", error=e.message)
+        event_name = passes_svc.event_title(conn, fallback="Convocation")
+    result = passes_svc.render_single(data[0], event_name)
+    response = Response(content=result.pdf, media_type="application/pdf")
+    response.headers["Content-Disposition"] = f'attachment; filename="pass_{rows[0]["prn"]}.pdf"'
+    return response
+
 
 
 @router.get("/students/{student_id}")
@@ -348,7 +411,40 @@ def student_page(request: Request, student_id: str, principal: Principal = Depen
     if data is None:
         raise http_error(404, "STUDENT_NOT_FOUND", "That student does not exist.")
     return render(request, "admin_student.html", principal=principal, j=data, qr=qr,
-                  here=request.app.state.settings.venue_id, venue_of=ownership.ACTIVITY_OWNER)
+                  here=request.app.state.settings.venue_id, venue_of=ownership.ACTIVITY_OWNER,
+                  patch_fields=master_patch_svc.PATCHABLE_FIELDS, patch_source=PATCH_SOURCE)
+
+
+@router.post("/api/students/{student_id}/master-patch")
+def api_master_patch(request: Request, student_id: str, body: MasterPatchBody,
+                     principal: Principal = Depends(require_admin)):
+    """Change a frozen student's master fields. The ONLY way frozen master data ever moves."""
+    try:
+        result = master_patch_svc.apply_master_patch(
+            request.app.state.engine, student_id=student_id, changes=body.changes, reason=body.reason,
+            operator_id=principal.user_id, venue_id=_venue_of(request))
+    except master_patch_svc.MasterPatchError as exc:
+        raise http_error(exc.status_code, exc.code, exc.message)
+    return {"ok": True, "student_id": result.student_id, "prn": result.prn, "changed": result.changed,
+            "snapshot_refreshed": result.snapshot_refreshed,
+            "message": f"{len(result.changed)} field(s) changed. The change and your reason are in the audit log."}
+
+
+@router.post("/students/{student_id}/master-patch")
+async def master_patch_form(request: Request, student_id: str, principal: Principal = Depends(require_admin)):
+    """The form behind the same action. An empty box means "leave this one alone", so an Admin who
+    wants to change one field does not have to retype the other seven."""
+    form = await request.form()
+    changes = {f: form[f].strip() for f in master_patch_svc.PATCHABLE_FIELDS
+               if f in form and str(form[f]).strip() != ""}
+    try:
+        result = master_patch_svc.apply_master_patch(
+            request.app.state.engine, student_id=student_id, changes=changes, reason=form.get("reason", ""),
+            operator_id=principal.user_id, venue_id=_venue_of(request))
+    except master_patch_svc.MasterPatchError as exc:
+        return redirect(f"/admin/students/{student_id}", error=exc.message)
+    changed = ", ".join(master_patch_svc.PATCHABLE_FIELDS[f] for f in result.changed)
+    return redirect(f"/admin/students/{student_id}", msg=f"Master patch applied: {changed}. It is in the audit log.")
 
 
 @router.post("/students/{student_id}/reissue-qr")

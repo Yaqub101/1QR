@@ -38,14 +38,6 @@ def _school(conn, student, ctx):
     return student["school"]
 
 
-def _sequence_no(conn, student, ctx):
-    return str(student["sequence_no"])
-
-
-def _seat_no(conn, student, ctx):
-    return student["seat_no"] or "Not assigned"
-
-
 def _queue_position(conn, student, ctx):
     """The position the student holds, or the one they will get when confirmed."""
     held = conn.execute(text("SELECT queue_position FROM queue WHERE student_id = :s"), {"s": student["id"]}).scalar()
@@ -75,8 +67,6 @@ DISPLAY_FIELDS: dict[str, DisplayField] = {
     "prn": DisplayField("PRN", _prn),
     "programme": DisplayField("Programme", _programme),
     "school": DisplayField("School", _school),
-    "sequence_no": DisplayField("Sequence no.", _sequence_no),
-    "seat_no": DisplayField("Seat", _seat_no),
     "queue_position": DisplayField("Queue position", _queue_position),
     "thobe_issued": DisplayField("Thobe issued", _thobe_issued),
     "eligibility": DisplayField("Eligibility", _eligibility),

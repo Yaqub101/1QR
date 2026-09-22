@@ -50,7 +50,7 @@ def export_master_pack(
     students = [
         dict(r._mapping)
         for r in conn.execute(
-            text("SELECT id::text, prn, name, programme, school, photo_path, awards, sequence_no, seat_no, status, created_at::text, updated_at::text FROM students ORDER BY sequence_no")
+            text("SELECT id::text, prn, name, programme, school, photo_path, awards, sequence_no, seat_no, status, created_at::text, updated_at::text FROM students ORDER BY prn")
         ).fetchall()
     ]
 

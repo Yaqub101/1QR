@@ -7,13 +7,15 @@ Tests the core requirements of Phase 3:
    original students (same id, same token if existed) are byte-identical.
 4. Duplicate PRN (within file or against existing student) is flagged with row number
    in validation preview and not written on commit.
-5. Missing required field, duplicate/missing sequence_no, or overlong name caught in
-   validation preview before any write.
+5. Missing required field, a malformed sequence_no, or an overlong name caught in the
+   validation preview before any write. A MISSING or REPEATED sequence number is only a
+   note: the university's real list has no Convocation Sequence Number column.
 6. Failed-validation import performs zero writes — row count before equals after.
 7. Photos linked by PRN; report lists unmatched photos and students missing photos;
    placeholder returned for students with no photo.
-8. After 'freeze display data' runs, a later master-record edit does NOT change
-   display_snapshot; only another explicit freeze does.
+8. After 'freeze display data' runs, the master record is locked: a plain edit is refused
+   by the database, and display_snapshot moves only for another explicit freeze or for a
+   logged master patch (tests/test_master_patch.py covers the patch itself).
 9. Master pack exported from one venue database and imported into a second empty
    database produces an identical student set.
 """
@@ -38,28 +40,20 @@ from backend.importer import (
     MAX_NAME_LENGTH,
 )
 from backend.photos import link_photos_by_prn, resolve_student_photo
-from backend.snapshot import freeze_display_data
+from backend.snapshot import begin_master_patch_txn, freeze_display_data
 from backend.master_pack import export_master_pack, import_master_pack
 
 
-@pytest.fixture(scope="module")
-def engine():
-    eng = create_engine(TEST_DB_URL, pool_size=10, max_overflow=0, pool_pre_ping=True)
-    drop_everything(eng)
-    res = run_alembic("upgrade", "head")
-    assert res.returncode == 0, f"alembic upgrade failed: {res.stderr}"
-    yield eng
-    drop_everything(eng)
-    eng.dispose()
+
 
 
 @pytest.fixture(autouse=True)
-def clean_db(engine):
+def clean_db(test_engine):
     """Clean all tables before each test while respecting foreign keys and triggers."""
-    drop_everything(engine)
+    drop_everything(test_engine)
     res = run_alembic("upgrade", "head")
     assert res.returncode == 0
-    yield engine
+    yield test_engine
 
 
 def _sample_dataframe(count=10, start_seq=1, prn_prefix="PRN"):
@@ -79,7 +73,7 @@ def _sample_dataframe(count=10, start_seq=1, prn_prefix="PRN"):
     return pd.DataFrame(rows)
 
 
-def test_clean_csv_and_xlsx_imports_100_percent(engine):
+def test_clean_csv_and_xlsx_imports_100_percent(test_engine):
     """A clean CSV/XLSX imports at 100% — row count in equals student count out."""
     df_10 = _sample_dataframe(10, start_seq=1, prn_prefix="CSV")
     csv_bytes = df_10.to_csv(index=False).encode("utf-8")
@@ -87,7 +81,7 @@ def test_clean_csv_and_xlsx_imports_100_percent(engine):
     cols, rows = parse_file(io.BytesIO(csv_bytes), "students.csv")
     mapping = detect_column_mapping(cols)
 
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         preview = validate_import(rows, mapping, conn)
         assert preview.is_valid is True
         assert len(preview.to_create) == 10
@@ -120,7 +114,7 @@ def test_clean_csv_and_xlsx_imports_100_percent(engine):
     cols_x, rows_x = parse_file(xlsx_buf, "students.xlsx")
     mapping_x = detect_column_mapping(cols_x)
 
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         preview_x = validate_import(rows_x, mapping_x, conn)
         assert preview_x.is_valid is True
         assert len(preview_x.to_create) == 5
@@ -131,14 +125,14 @@ def test_clean_csv_and_xlsx_imports_100_percent(engine):
         assert total == 15
 
 
-def test_reimporting_identical_file_changes_nothing(engine):
+def test_reimporting_identical_file_changes_nothing(test_engine):
     """Re-importing the identical file changes nothing."""
     df = _sample_dataframe(5, start_seq=1)
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     cols, rows = parse_file(io.BytesIO(csv_bytes), "students.csv")
     mapping = detect_column_mapping(cols)
 
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         preview1 = validate_import(rows, mapping, conn)
         commit_import(preview1, conn)
 
@@ -166,7 +160,7 @@ def test_reimporting_identical_file_changes_nothing(engine):
         assert before == after
 
 
-def test_reimport_with_n_new_rows_adds_only_n_new_students(engine):
+def test_reimport_with_n_new_rows_adds_only_n_new_students(test_engine):
     """Re-importing a file with N new rows added to the original adds exactly N new students;
     the original students (same id, same token if one already existed) are byte-identical before and after.
     """
@@ -175,7 +169,7 @@ def test_reimport_with_n_new_rows_adds_only_n_new_students(engine):
     cols, rows_orig = parse_file(io.BytesIO(csv_orig), "orig.csv")
     mapping = detect_column_mapping(cols)
 
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         preview_orig = validate_import(rows_orig, mapping, conn)
         commit_import(preview_orig, conn)
 
@@ -232,11 +226,11 @@ def test_reimport_with_n_new_rows_adds_only_n_new_students(engine):
         assert before_token == after_token
 
 
-def test_duplicate_prn_flagged_with_row_number_and_not_written(engine):
+def test_duplicate_prn_flagged_with_row_number_and_not_written(test_engine):
     """A duplicate PRN (within the file, or against an existing student) is flagged
     with its row number in the validation preview and is not written on commit.
     """
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         # Case A: duplicate PRN within the file
         rows = [
             {"PRN": "PRN001", "Name": "Alice", "Programme": "CS", "School": "Eng", "Sequence No": 1},
@@ -291,11 +285,15 @@ def test_duplicate_prn_flagged_with_row_number_and_not_written(engine):
         assert conn.execute(text("SELECT count(*) FROM students")).scalar() == 3
 
 
-def test_validation_catches_missing_fields_duplicate_seq_overlong_name(engine):
-    """A row with a missing required field, duplicate/missing sequence_no, or
-    overlong name is caught in the preview before any write.
+def test_validation_catches_missing_fields_bad_sequence_no_and_overlong_name(test_engine):
+    """A row with a missing required field, a sequence number that is not a positive whole number,
+    or an overlong name is caught in the preview before any write.
+
+    A MISSING or REPEATED sequence number is no longer an error: the university's real list has no
+    Convocation Sequence Number column at all, and the database no longer requires the value or
+    insists that it is unique.
     """
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         mapping = {"PRN": "prn", "Name": "name", "Programme": "programme", "School": "school", "Sequence No": "sequence_no"}
 
         # 1. Missing required field (PRN missing, Programme missing)
@@ -308,9 +306,8 @@ def test_validation_catches_missing_fields_duplicate_seq_overlong_name(engine):
         assert any(err.row == 1 and err.field == "prn" for err in preview_missing.errors)
         assert any(err.row == 2 and err.field == "programme" for err in preview_missing.errors)
 
-        # 2. Missing sequence_no, non-integer sequence_no, or non-positive
+        # 2. A sequence number that is given has to be a positive whole number...
         rows_seq = [
-            {"PRN": "PRN001", "Name": "Alice", "Programme": "CS", "School": "Eng", "Sequence No": None},
             {"PRN": "PRN002", "Name": "Bob", "Programme": "CS", "School": "Eng", "Sequence No": "abc"},
             {"PRN": "PRN003", "Name": "Charlie", "Programme": "CS", "School": "Eng", "Sequence No": -5},
         ]
@@ -318,16 +315,19 @@ def test_validation_catches_missing_fields_duplicate_seq_overlong_name(engine):
         assert preview_seq.is_valid is False
         assert any(err.row == 1 and err.field == "sequence_no" for err in preview_seq.errors)
         assert any(err.row == 2 and err.field == "sequence_no" for err in preview_seq.errors)
-        assert any(err.row == 3 and err.field == "sequence_no" for err in preview_seq.errors)
 
-        # 3. Duplicate sequence_no within file
+        # ...but no sequence number at all is only a note.
+        no_seq = validate_import(
+            [{"PRN": "PRN001", "Name": "Alice", "Programme": "CS", "School": "Eng", "Sequence No": None}], mapping, conn)
+        assert no_seq.is_valid is True
+
+        # 3. The same sequence number twice is a note too, not a refusal
         rows_dup_seq = [
             {"PRN": "PRN001", "Name": "Alice", "Programme": "CS", "School": "Eng", "Sequence No": 10},
             {"PRN": "PRN002", "Name": "Bob", "Programme": "CS", "School": "Eng", "Sequence No": 10},
         ]
         preview_dup_seq = validate_import(rows_dup_seq, mapping, conn)
-        assert preview_dup_seq.is_valid is False
-        assert any(err.row == 2 and "Duplicate sequence_no" in err.message for err in preview_dup_seq.errors)
+        assert preview_dup_seq.is_valid is True
 
         # 4. Overlong name (> MAX_NAME_LENGTH)
         rows_long_name = [
@@ -338,16 +338,16 @@ def test_validation_catches_missing_fields_duplicate_seq_overlong_name(engine):
         assert any(err.row == 1 and err.field == "name" and "overlong" in err.message.lower() for err in preview_long_name.errors)
 
 
-def test_failed_validation_import_performs_zero_writes(engine):
+def test_failed_validation_import_performs_zero_writes(test_engine):
     """A failed-validation import performs zero writes — check the row count before and after."""
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         initial_count = conn.execute(text("SELECT count(*) FROM students")).scalar()
         assert initial_count == 0
 
         # File with an invalid row
         rows = [
             {"PRN": "PRN001", "Name": "Alice", "Programme": "CS", "School": "Eng", "Sequence No": 1},
-            {"PRN": "PRN002", "Name": "Bob", "Programme": "CS", "School": "Eng", "Sequence No": None},  # Fatal error
+            {"PRN": "PRN002", "Name": "Bob", "Programme": None, "School": "Eng", "Sequence No": 2},  # Fatal error
         ]
         mapping = {"PRN": "prn", "Name": "name", "Programme": "programme", "School": "school", "Sequence No": "sequence_no"}
         preview = validate_import(rows, mapping, conn)
@@ -361,14 +361,14 @@ def test_failed_validation_import_performs_zero_writes(engine):
         assert after_count == initial_count == 0
 
 
-def test_photos_linked_by_prn_report_and_placeholder(engine):
+def test_photos_linked_by_prn_report_and_placeholder(test_engine):
     """Photos are linked by PRN; a report lists unmatched photos and students missing photos."""
     df = _sample_dataframe(3, start_seq=1, prn_prefix="STU")
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     cols, rows = parse_file(io.BytesIO(csv_bytes), "students.csv")
     mapping = detect_column_mapping(cols)
 
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         preview = validate_import(rows, mapping, conn)
         commit_import(preview, conn)
 
@@ -399,16 +399,21 @@ def test_photos_linked_by_prn_report_and_placeholder(engine):
             assert "placeholder" in resolved
 
 
-def test_freeze_display_data_and_snapshot_immutability(engine):
-    """After 'freeze display data' runs, a later master-record edit does NOT
-    change display_snapshot; only another explicit freeze does.
+def test_freeze_display_data_and_snapshot_immutability(test_engine):
+    """After 'freeze display data' runs, the master record is locked.
+
+    The rule Phase 3 asks for is now enforced by the database (migration 0010): once a student has
+    been frozen, a plain UPDATE of their master row is refused outright, and `display_snapshot`
+    moves only for another explicit freeze or for a logged master patch. So "a later master edit
+    does not change the snapshot" is proved here in the strongest form available: the later master
+    edit cannot happen at all unless it comes through one of those two doors.
     """
     df = _sample_dataframe(2, start_seq=1, prn_prefix="SNAP")
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     cols, rows = parse_file(io.BytesIO(csv_bytes), "students.csv")
     mapping = detect_column_mapping(cols)
 
-    with engine.connect() as conn:
+    with test_engine.connect() as conn:
         preview = validate_import(rows, mapping, conn)
         commit_import(preview, conn)
 
@@ -427,18 +432,32 @@ def test_freeze_display_data_and_snapshot_immutability(engine):
         assert snapshot1[0] == original_name
         assert snapshot1[1] == original_awards
 
-        # Edit master record in students table
+        # A plain master edit is now refused: the student is frozen.
+        with pytest.raises(Exception):
+            conn.execute(
+                text("UPDATE students SET name = 'Modified Name', awards = 'Modified Award' WHERE id = :sid"),
+                {"sid": student_id}
+            )
+        conn.rollback()
+
+        # Nothing moved: neither the master row nor the snapshot.
+        assert conn.execute(text("SELECT name FROM students WHERE id = :sid"), {"sid": student_id}).scalar() == original_name
+        snapshot_after_refusal = conn.execute(
+            text("SELECT display_name, award FROM display_snapshot WHERE student_id = :sid"),
+            {"sid": student_id}
+        ).fetchone()
+        assert snapshot_after_refusal[0] == original_name
+        assert snapshot_after_refusal[1] == original_awards
+
+        # The sanctioned door: the same edit, announced as a master change, is allowed...
+        begin_master_patch_txn(conn)
         conn.execute(
             text("UPDATE students SET name = 'Modified Name', awards = 'Modified Award' WHERE id = :sid"),
             {"sid": student_id}
         )
         conn.commit()
 
-        # Verify students table changed
-        updated_student = conn.execute(text("SELECT name FROM students WHERE id = :sid"), {"sid": student_id}).fetchone()
-        assert updated_student[0] == "Modified Name"
-
-        # Verify display_snapshot DID NOT CHANGE
+        # ...and STILL does not reach display_snapshot by itself.
         snapshot_after_edit = conn.execute(
             text("SELECT display_name, award FROM display_snapshot WHERE student_id = :sid"),
             {"sid": student_id}
@@ -456,7 +475,7 @@ def test_freeze_display_data_and_snapshot_immutability(engine):
         assert snapshot_after_refreeze[1] == "Modified Award"
 
 
-def test_master_pack_exported_and_imported_produces_identical_student_set(engine):
+def test_master_pack_exported_and_imported_produces_identical_student_set(test_engine):
     """A master pack exported from one venue database and imported into a
     second, empty venue database produces an identical student set.
     """
@@ -474,7 +493,7 @@ def test_master_pack_exported_and_imported_produces_identical_student_set(engine
         (photos_dir / "sample.jpg").write_bytes(b"photo_content")
 
         # Phase 1: populate DB and export into pack_file
-        with engine.connect() as conn:
+        with test_engine.connect() as conn:
             preview = validate_import(rows, mapping, conn)
             commit_import(preview, conn)
             freeze_display_data(conn)
@@ -491,12 +510,12 @@ def test_master_pack_exported_and_imported_produces_identical_student_set(engine
         assert pack_file.exists()
 
         # Phase 2: wipe the DB (new connection, independent of the one above)
-        drop_everything(engine)
+        drop_everything(test_engine)
         res = run_alembic("upgrade", "head")
         assert res.returncode == 0
 
         # Phase 3: import into the freshly-rebuilt DB
-        with engine.connect() as conn2:
+        with test_engine.connect() as conn2:
             assert conn2.execute(text("SELECT count(*) FROM students")).scalar() == 0
 
             with tempfile.TemporaryDirectory() as target_photos_dir:

@@ -4,9 +4,10 @@
 <p><a href="/admin/students">&larr; Students</a></p>
 <h1>{{ j.student.name }}</h1>
 <div class="card">
-  <div>PRN <b>{{ j.student.prn }}</b> &middot; Sequence {{ j.student.sequence_no }} &middot; Seat {{ j.student.seat_no or "not assigned" }}</div>
+  <div>PRN <b>{{ j.student.prn }}</b>{% if j.student.sequence_no %} &middot; Sequence {{ j.student.sequence_no }}{% endif %}</div>
   <div>{{ j.student.programme }} &middot; {{ j.student.school }}</div>
-  <div>Status: <b>{{ j.student.journey_status }}</b>{% if j.student.master_status != "ACTIVE" %} &middot; <b>Not active on the master list</b>{% endif %}</div>
+  <div>Status: <b>{{ j.student.journey_status }}</b>{% if j.student.master_status != "ACTIVE" %} &middot; <b>Not active on the master list</b>{% endif %}
+       {% if j.student.frozen %} &middot; <span class="muted">Display data frozen</span>{% endif %}</div>
   <div><a href="/admin/api/reports/student-history/export?format=csv&student_id={{ j.student.student_id }}">Download history (CSV)</a>
        &middot; <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}">XLSX</a></div>
 </div>
@@ -29,6 +30,26 @@
   </form>
   {% endif %}
 </div>
+
+{% if j.student.frozen %}
+<h2>Master patch</h2>
+<form method="post" action="/admin/students/{{ j.student.student_id }}/master-patch" class="card">
+  <p class="muted">The display data for this student has been frozen, so the LED, the printed pass and every
+    station screen are built from what is below. Changing any of it is a logged action: give a reason, and
+    the change, the reason and your name go into the audit trail together.</p>
+  <p class="muted">Leave a box empty to leave that value exactly as it is. The PRN cannot be changed here:
+    it is how the university's file finds this student on the next import.</p>
+  <div class="grid patch">
+    {% for field, label in patch_fields.items() %}
+    <label>{{ label }}
+      <input name="{{ field }}" placeholder="{{ j.student[patch_source[field]] if j.student[patch_source[field]] is not none else 'not set' }}"
+             autocomplete="off"></label>
+    {% endfor %}
+  </div>
+  <label>Reason <input name="reason" placeholder="Reason (required)" required></label>
+  <button class="big" type="submit">Apply master patch</button>
+</form>
+{% endif %}
 
 <h2>Journey</h2>
 <table>

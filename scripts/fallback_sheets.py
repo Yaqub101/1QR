@@ -1,4 +1,4 @@
-"""Print the paper fallback sheets: the student list with sequence number and seat, one sheet per activity.
+"""Print the paper fallback sheets: the student list, one sheet per activity.
 
 SYSTEM_SPEC 18 ("Last resort"): each station keeps a printed sheet so the event can carry on on paper, with the
 entries typed in later. This reads the CURRENT master list from the database and writes one printable page per
@@ -10,7 +10,8 @@ activity (open it in a browser and print, landscape).
 
 Rules it keeps:
   * READ ONLY. It never writes to the database.
-  * Every student in the master list is on every sheet, in sequence order, so the row count equals the master
+  * Every student in the master list is on every sheet, in name order (the university supplies no convocation
+    sequence numbers and no seats, so there is no other order to print in), so the row count equals the master
     count. An inactive student is printed and marked DO NOT SERVE rather than dropped, so a missing name never
     tempts anyone to add someone by hand. It refuses to write anything if the counts disagree.
   * No QR token and no photo is printed (AGENTS.md golden rule 1). The sheets are still student data: keep them
@@ -74,8 +75,6 @@ def render_sheet(activity: str, students: list[dict], *, event_name: str, genera
     for s in students:
         inactive = s["status"] != "ACTIVE"
         cells = [
-            f'<td class="num">{_cell(s["sequence_no"])}</td>',
-            f'<td>{_cell(s["seat_no"])}</td>',
             f'<td>{_cell(s["prn"])}</td>',
             f'<td>{_cell(s["name"])}</td>',
             f'<td>{_cell(s["programme"])}</td>',
@@ -89,7 +88,7 @@ def render_sheet(activity: str, students: list[dict], *, event_name: str, genera
             cells.append('<td class="tick">&#9744;</td><td class="time"></td><td class="initials"></td>')
         css = "student inactive" if inactive else "student"
         body.append(f'<tr class="{css}" data-prn="{html.escape(s["prn"], quote=True)}">{"".join(cells)}</tr>')
-    head = ["Seq", "Seat", "PRN", "Name", "Programme", "School"] + ([extra] if extra else []) + ["Done", "Time", "Initials"]
+    head = ["PRN", "Name", "Programme", "School"] + ([extra] if extra else []) + ["Done", "Time", "Initials"]
     note = f'<p class="howto"><strong>{html.escape(NOTE[activity])}</strong></p>' if activity in NOTE else ""
     return f"""<!doctype html>
 <html lang="en">
@@ -119,13 +118,13 @@ initials. Do not add students that are not on this list. Give the sheet to the A
 
 
 def read_master(database_url: str) -> tuple[list[dict], int, str]:
-    """(students in sequence order, count taken by a separate query, event name) from ONE consistent snapshot."""
+    """(students in name order, count taken by a separate query, event name) from ONE consistent snapshot."""
     engine = create_engine(database_url, pool_pre_ping=True)
     try:
         with engine.connect() as conn:
             conn.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))  # a snapshot; never writes
             rows = conn.execute(text(
-                "SELECT prn, name, programme, school, sequence_no, seat_no, status FROM students ORDER BY sequence_no"
+                "SELECT prn, name, programme, school, sequence_no, seat_no, status FROM students ORDER BY name, prn"
             )).mappings().all()
             count = conn.execute(text("SELECT count(*) FROM students")).scalar_one()
             event = conn.execute(text("SELECT event_name FROM settings WHERE id = 1")).scalar()

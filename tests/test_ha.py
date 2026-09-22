@@ -14,6 +14,7 @@ What CANNOT be proven here (no second machine, no real network): see docs/HA.md,
 """
 import hashlib
 import json
+import logging
 import os
 import pathlib
 import re
@@ -36,6 +37,7 @@ from backend.sync.rebuild import rebuild_central
 from tests.admin_support import build_dataset
 from tests.sync_support import Stack, forget_engine, status_rows, url_for
 from tests.test_auth import PASSWORD, RESTRICT_VIOLATION, api_login, new_client
+from tests.conftest import run_alembic
 from tests.test_schema import REPO_ROOT
 from tests.test_sync import register
 
@@ -415,6 +417,92 @@ class TestBackupSchedule:
         finally:
             drop_db(name + "_clean")
 
+
+# =========================================================================== A BACKUP THAT CAPTURED NOTHING
+class TestABackupNeverSucceedsQuietlyOnAnUnusableDatabase:
+    """SYSTEM_SPEC 21. A dump of a database whose migrations never ran is a file that LOOKS like a backup
+    and restores nothing. `pg_dump` produces one happily, and `pg_restore --list` reads it back happily, so
+    neither of the existing checks notices. The job must refuse it, say so at ERROR level and exit non-zero,
+    and must never write the "backup written" line for a dump that captured no rows.
+    """
+
+    def _run_cli(self, *args, url, dest, timeout=90):
+        env = {**os.environ, "DATABASE_URL": url, "BACKUP_DIR": str(dest)}
+        return subprocess.run([sys.executable, "-m", "backend.ha.backup", *args], cwd=REPO_ROOT, env=env,
+                              capture_output=True, text=True, timeout=timeout)
+
+    def test_a_schema_less_database_is_refused_and_leaves_no_file_behind(self, bare_database, tmp_path, caplog):
+        dest = tmp_path / "second-device"
+        with caplog.at_level(logging.INFO, logger="backend.ha"):
+            with pytest.raises(backup.BackupError) as raised:
+                backup.create_backup(bare_database, str(dest))
+        assert "alembic upgrade head" in str(raised.value)
+        assert "does not exist" in str(raised.value)
+        assert "backup written" not in caplog.text                     # never an INFO success line
+        assert backup.list_backups(str(dest)) == []
+        assert list(dest.glob("*")) == []                              # no dump, no manifest, no .partial
+
+    def test_a_migrated_but_completely_empty_database_captured_zero_rows_and_is_refused(self, bare_database, tmp_path, caplog):
+        assert run_alembic("upgrade", "head", database_url=bare_database).returncode == 0
+        dest = tmp_path / "second-device"
+        with caplog.at_level(logging.INFO, logger="backend.ha"):
+            with pytest.raises(backup.BackupError, match="zero rows"):
+                backup.create_backup(bare_database, str(dest))
+        assert "backup written" not in caplog.text
+        assert list(dest.glob("*")) == []
+
+    def test_a_missing_table_is_an_error_even_though_pg_dump_itself_succeeds(self, stack, tmp_path, caplog):
+        engine = stack.scratch("broken")
+        url = stack.urls["scratch-broken"]
+        build_dataset(engine)
+        dest = tmp_path / "second-device"
+
+        good = backup.create_backup(url, str(dest))                    # the same database, while its schema is whole
+        assert good.counts["activity_events"] > 0
+
+        with engine.begin() as c:
+            c.execute(text("DROP TABLE conflict_events CASCADE"))      # what a half-applied migration leaves behind
+        caplog.clear()                                                 # from here on, only the broken run's log
+        with caplog.at_level(logging.INFO, logger="backend.ha"):
+            with pytest.raises(backup.BackupError) as raised:
+                backup.create_backup(url, str(dest))
+        assert "conflict_events" in str(raised.value) and "does not exist" in str(raised.value)
+        assert "backup written" not in caplog.text
+        assert [b["name"] for b in backup.list_backups(str(dest))] == [good.name]   # only the good one is there
+        assert not list(dest.glob("*.partial"))
+
+    def test_the_command_line_exits_non_zero_and_logs_an_error_without_a_success_line(self, bare_database, tmp_path):
+        dest = tmp_path / "second-device"
+        done = self._run_cli("once", url=bare_database, dest=dest)
+        output = done.stdout + done.stderr
+        assert done.returncode != 0, output
+        assert "[ERROR]" in output, output
+        assert "written:" not in output and "backup written" not in output, output
+        assert not dest.exists() or list(dest.glob("*")) == []
+
+    def test_the_backup_job_refuses_to_start_against_a_schema_less_database(self, bare_database, tmp_path):
+        """`backend.ha.backup run` is what docker-compose starts. It must not sit in a retry loop
+        logging success against a database that has no schema."""
+        dest = tmp_path / "second-device"
+        try:
+            done = self._run_cli("run", url=bare_database, dest=dest, timeout=45)
+        except subprocess.TimeoutExpired:
+            pytest.fail("the backup job kept running against a schema-less database instead of failing loudly")
+        output = done.stdout + done.stderr
+        assert done.returncode != 0, output
+        assert "[ERROR]" in output, output
+        assert "backup written" not in output, output
+        assert not dest.exists() or list(dest.glob("*")) == []
+
+    def test_a_real_backup_of_a_real_database_still_succeeds_and_says_so(self, stack, tmp_path, caplog):
+        engine = stack.scratch("healthy")
+        build_dataset(engine)
+        dest = tmp_path / "second-device"
+        with caplog.at_level(logging.INFO, logger="backend.ha"):
+            info = backup.create_backup(stack.urls["scratch-healthy"], str(dest))
+        assert "backup written" in caplog.text
+        assert info.counts["students"] > 0 and info.alembic_revision
+        assert backup.verify_backup(info.path)["ok"]
 
 # =========================================================================== FAILOVER (documented best effort)
 class TestFailoverMaterials:

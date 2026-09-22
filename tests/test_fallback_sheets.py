@@ -27,13 +27,14 @@ AWKWARD_NAME = 'Anil <i>&</i> "Kumar" O\'Brien'
 
 
 def test_every_sheet_has_one_row_per_student_in_the_master_list(engine, tmp_path):
-    # Sequence numbers are deliberately NOT in insertion order, one student is inactive and has no seat.
+    # The sheets are printed in NAME order: the university supplies no sequence numbers and no seats,
+    # so most students have neither. One student is inactive and must still be printed, marked.
     students = [  # (prn, name, sequence_no, seat_no, status)
-        ("P05", "Fifth by insertion", 3, "A-03", "ACTIVE"),
-        ("P01", AWKWARD_NAME, 12, "B-12", "ACTIVE"),
-        ("P02", "अनिल कुमार", 1, "A-01", "ACTIVE"),
-        ("P03", "Left the course", 7, None, "INACTIVE"),
-        ("P04", "José Müller", 2, "A-02", "ACTIVE"),
+        ("P05", "Fifth by insertion", None, None, "ACTIVE"),
+        ("P01", AWKWARD_NAME, None, None, "ACTIVE"),
+        ("P02", "अनिल कुमार", None, None, "ACTIVE"),
+        ("P03", "Left the course", None, None, "INACTIVE"),
+        ("P04", "José Müller", None, None, "ACTIVE"),
     ]
     tokens = {}
     with engine.begin() as c:
@@ -48,7 +49,7 @@ def test_every_sheet_has_one_row_per_student_in_the_master_list(engine, tmp_path
 
     with engine.connect() as c:
         master_count = c.execute(text("SELECT count(*) FROM students")).scalar_one()
-        prns_in_sequence = c.execute(text("SELECT prn FROM students ORDER BY sequence_no")).scalars().all()
+        prns_in_order = c.execute(text("SELECT prn FROM students ORDER BY name, prn")).scalars().all()
     assert master_count == len(students) == 5
 
     run = subprocess.run(
@@ -63,9 +64,11 @@ def test_every_sheet_has_one_row_per_student_in_the_master_list(engine, tmp_path
         page = (tmp_path / name).read_text(encoding="utf-8")
         listed = [html.unescape(p) for p in re.findall(r'<tr class="student[^"]*" data-prn="([^"]*)"', page)]
         assert len(listed) == master_count, f"{name}: {len(listed)} rows, master list has {master_count}"
-        assert listed == prns_in_sequence, f"{name}: rows are not in sequence order"
+        assert listed == prns_in_order, f"{name}: rows are not in name order"
         assert f"{master_count} students" in page, f"{name}: the printed total is missing"
         assert "INACTIVE" in page, f"{name}: the inactive student must be marked, not silently dropped"
         assert not any(t in page for t in tokens.values()), f"{name}: a QR token was printed"
         assert "<i>&</i>" not in page and html.escape(AWKWARD_NAME) in page, f"{name}: a name was not escaped"
-        assert "B-12" in page and "अनिल कुमार" in page
+        assert "अनिल कुमार" in page
+        headings = re.findall(r"<th>([^<]*)</th>", page)
+        assert "Seat" not in headings and "Seq" not in headings, f"{name}: {headings}"

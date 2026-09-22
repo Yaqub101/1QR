@@ -17,7 +17,7 @@ _FIELDS = {
 }
 
 CARD_SQL = """
-    SELECT s.id, s.name, s.prn, s.programme, s.school, s.sequence_no, q.queue_position, q.status,
+    SELECT s.id, s.name, s.prn, s.programme, s.school, q.queue_position, q.status,
            EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS has_display_data
     FROM students s LEFT JOIN queue q ON q.student_id = s.id
 """
@@ -52,7 +52,7 @@ def private_card(row: Optional[dict]) -> Optional[dict]:
         return None
     return {
         "student_id": str(row["id"]), "name": row["name"], "prn": row["prn"], "photo_url": f"/photo/{row['id']}",
-        "programme": row["programme"], "school": row["school"], "sequence_no": row["sequence_no"],
+        "programme": row["programme"], "school": row["school"],
         "queue_position": row["queue_position"], "status": row["status"], "has_display_data": bool(row["has_display_data"]),
     }
 

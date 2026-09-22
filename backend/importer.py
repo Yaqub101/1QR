@@ -24,6 +24,19 @@ MAX_NAME_LENGTH = 200  # characters; overlong if > this
 # ──────────────────────────────────────────────────────────────────────────────
 # Column aliases accepted from the university's file (case-insensitive, stripped)
 # ──────────────────────────────────────────────────────────────────────────────
+FIELD_LABELS = {
+    "prn": "PRN / ID",
+    "name": "Full Name",
+    "programme": "Programme",
+    "school": "School / Department",
+    "sequence_no": "Sequence No",
+    "seat_no": "Seat No",
+    "awards": "Awards",
+    "photo": "Photo",
+    "status": "Record Status",
+}
+REQUIRED_FIELDS = ["prn", "name", "programme", "school"]
+
 _COLUMN_ALIASES: dict[str, list[str]] = {
     "prn": ["prn", "prnno", "prn no", "prn no.", "prn number", "student prn", "enrollment no", "enrollment number"],
     "name": [
@@ -56,6 +69,9 @@ _COLUMN_ALIASES: dict[str, list[str]] = {
         "photo", "photo file", "photo path", "photo_path",
         "photograph", "image", "pic",
     ],
+    "status": [
+        "status", "record status", "student status"
+    ]
 }
 
 
@@ -67,6 +83,14 @@ class ImportError:
     row: int
     field: str
     message: str
+
+
+@dataclasses.dataclass
+class ImportWarning:
+    row: int
+    field: str
+    message: str
+    prn: str | None = None
 
 
 @dataclasses.dataclass
@@ -83,7 +107,8 @@ class ImportPreview:
     to_skip: list[dict]           # rows whose PRN already exists in DB (skipped, NOT modified)
     errors: list[ImportError]     # fatal validation errors — blocks commit when non-empty
     flagged_duplicates: list[FlaggedDuplicate]
-    is_valid: bool
+    warnings: list[ImportWarning] = dataclasses.field(default_factory=list)
+    is_valid: bool = False
 
 
 @dataclasses.dataclass
@@ -110,9 +135,9 @@ def parse_file(
     """
     fname = filename.lower()
     if fname.endswith(".xlsx") or fname.endswith(".xls"):
-        df = pd.read_excel(file_or_path, engine="openpyxl", dtype=str)
+        df = pd.read_excel(file_or_path, engine="openpyxl", dtype=str, keep_default_na=False)
     else:
-        df = pd.read_csv(file_or_path, dtype=str)
+        df = pd.read_csv(file_or_path, dtype=str, keep_default_na=False)
 
     # Normalise column names: strip whitespace
     df.columns = [str(c).strip() for c in df.columns]
@@ -148,6 +173,7 @@ def validate_import(
     rows: list[dict],
     column_mapping: dict[str, str],
     conn: Connection,
+    photo_dir: str | None = None,
 ) -> ImportPreview:
     """Validate rows against the mapping and the current DB state.
 
@@ -165,21 +191,26 @@ def validate_import(
 
     errors: list[ImportError] = []
     flagged_duplicates: list[FlaggedDuplicate] = []
+    warnings: list[ImportWarning] = []
     to_create: list[dict] = []
     to_skip: list[dict] = []
 
     # Resolve per-row value using column_mapping
-    def _get(row: dict, canonical: str):
+    def _get(row_dict: dict, canonical_field: str) -> typing.Any:
         """Look up a canonical value from a row, trying both the mapped file
         column and the canonical name directly."""
-        # First look for a file column that maps to this canonical
+        val = None
         for file_col, canon in column_mapping.items():
-            if canon == canonical and file_col in row:
-                return row[file_col]
-        # Fallback: row may already use canonical keys
-        if canonical in row:
-            return row[canonical]
-        return None
+            if canon == canonical_field and file_col in row_dict:
+                val = row_dict[file_col]
+                break
+        if val is None and canonical_field in row_dict:
+            val = row_dict[canonical_field]
+            
+        import math
+        if isinstance(val, float) and math.isnan(val):
+            return None
+        return val
 
     # Fetch all existing PRNs from DB once
     existing_prns: set[str] = {
@@ -193,11 +224,12 @@ def validate_import(
     file_prns_seen: dict[str, int] = {}  # prn -> first row index (1-based)
     file_seqnos_seen: dict[int, int] = {}  # seq_no -> first row index
 
-    REQUIRED = ["prn", "name", "programme", "school", "sequence_no"]
+    REQUIRED = ["prn", "name", "programme", "school"]
 
     for idx, row in enumerate(rows, start=1):
         row_errors: list[ImportError] = []
         row_flags: list[FlaggedDuplicate] = []
+        row_warnings: list[ImportWarning] = []
 
         # ── Required fields ──────────────────────────────────────────────────
         values: dict[str, Any] = {}
@@ -209,14 +241,15 @@ def validate_import(
                 values[field] = val.strip() if isinstance(val, str) else val
 
         # ── Sequence_no validation ───────────────────────────────────────────
-        if "sequence_no" in values:
+        seq_raw = _get(row, "sequence_no")
+        if seq_raw is not None and str(seq_raw).strip() != "":
             try:
-                seq = int(values["sequence_no"])
+                seq = int(seq_raw)
                 if seq <= 0:
                     row_errors.append(ImportError(row=idx, field="sequence_no", message="sequence_no must be a positive integer"))
                     seq = None
             except (ValueError, TypeError):
-                row_errors.append(ImportError(row=idx, field="sequence_no", message=f"sequence_no must be an integer, got '{values['sequence_no']}'"))
+                row_errors.append(ImportError(row=idx, field="sequence_no", message=f"sequence_no must be an integer, got '{seq_raw}'"))
                 seq = None
             else:
                 values["sequence_no"] = seq
@@ -250,15 +283,33 @@ def validate_import(
         # ── Within-file duplicate sequence_no check ──────────────────────────
         if seq is not None:
             if seq in file_seqnos_seen:
-                row_errors.append(ImportError(
-                    row=idx, field="sequence_no",
-                    message=f"Duplicate sequence_no {seq} in file (also at row {file_seqnos_seen[seq]})",
+                row_warnings.append(ImportWarning(
+                    row=idx, field="sequence_no", prn=prn,
+                    message=f"Duplicate sequence number {seq} (also at row {file_seqnos_seen[seq]})"
                 ))
             else:
                 file_seqnos_seen[seq] = idx
 
         errors.extend(row_errors)
         flagged_duplicates.extend(row_flags)
+        
+        # Collect basic warnings
+        status = _get(row, "status")
+        if status and str(status).strip().lower() == "inactive":
+            row_warnings.append(ImportWarning(row=idx, field="status", prn=prn, message="Marked as inactive by the university, will be imported as inactive."))
+            values["status"] = "INACTIVE"
+        else:
+            values["status"] = "ACTIVE"
+
+        if not values.get("photo_path"):
+            row_warnings.append(ImportWarning(row=idx, field="photo", prn=prn, message="No photo provided."))
+        elif photo_dir:
+            import pathlib
+            photo_file = pathlib.Path(photo_dir) / values["photo_path"]
+            if not photo_file.exists():
+                row_warnings.append(ImportWarning(row=idx, field="photo", prn=prn, message=f"Photo named '{values['photo_path']}' not found in upload directory."))
+
+        warnings.extend(row_warnings)
 
         if row_errors:
             continue
@@ -285,6 +336,7 @@ def validate_import(
         to_skip=to_skip,
         errors=errors,
         flagged_duplicates=flagged_duplicates,
+        warnings=warnings,
         is_valid=is_valid,
     )
 
@@ -293,6 +345,8 @@ def commit_import(
     preview: ImportPreview,
     conn: Connection,
     operator_id: str | None = None,
+    venue_id: str | None = None,
+    filename: str | None = None,
 ) -> ImportSummary:
     """Transactionally commit a validated import preview.
 
@@ -311,9 +365,9 @@ def commit_import(
                 text(
                     """
                     INSERT INTO students (prn, name, programme, school,
-                                         sequence_no, seat_no, awards, photo_path)
+                                         sequence_no, seat_no, awards, photo_path, status)
                     VALUES (:prn, :name, :programme, :school,
-                            :sequence_no, :seat_no, :awards, :photo_path)
+                            :sequence_no, :seat_no, :awards, :photo_path, :status)
                     """
                 ),
                 {
@@ -321,10 +375,11 @@ def commit_import(
                     "name": r["name"],
                     "programme": r["programme"],
                     "school": r["school"],
-                    "sequence_no": r["sequence_no"],
+                    "sequence_no": r.get("sequence_no"),
                     "seat_no": r.get("seat_no"),
                     "awards": r.get("awards"),
                     "photo_path": r.get("photo_path"),
+                    "status": r.get("status", "ACTIVE"),
                 },
             )
             created += 1
@@ -341,8 +396,8 @@ def commit_import(
         conn.execute(
             text(
                 """
-                INSERT INTO audit_log (action, details)
-                VALUES ('IMPORT_STUDENTS', CAST(:details AS jsonb))
+                INSERT INTO audit_log (action, details, operator_id, venue_id)
+                VALUES ('IMPORT_STUDENTS', CAST(:details AS jsonb), :operator_id, :venue_id)
                 """
             ),
             {
@@ -352,7 +407,10 @@ def commit_import(
                     "updated": summary.updated,
                     "skipped": summary.skipped,
                     "errors": summary.errors,
-                })
+                    "filename": filename,
+                }),
+                "operator_id": operator_id,
+                "venue_id": venue_id,
             },
         )
         conn.commit()
@@ -361,3 +419,40 @@ def commit_import(
         raise
 
     return summary
+def read_and_validate(
+    engine, content: bytes, filename: str, mapping: dict[str, str] | None = None,
+    photo_dir: str | None = None
+) -> tuple[list[str], list[dict], dict[str, str], ImportPreview]:
+    """Parse, detect columns (or apply preset), and validate all at once."""
+    from backend.import_presets import detect_preset, apply_preset
+
+    # First attempt to parse as-is for detection
+    is_xls = filename.lower().endswith(".xls")
+    preset, header_row = detect_preset(content, engine="xlrd" if is_xls else "openpyxl")
+
+    if preset:
+        # Re-parse skipping junk rows
+        try:
+            if filename.lower().endswith(".xlsx"):
+                df = pd.read_excel(io.BytesIO(content), engine="openpyxl", header=header_row, dtype=str, keep_default_na=False)
+            elif filename.lower().endswith(".xls"):
+                df = pd.read_excel(io.BytesIO(content), engine="xlrd", header=header_row, dtype=str, keep_default_na=False)
+            else:
+                df = pd.read_csv(io.BytesIO(content), header=header_row, dtype=str, keep_default_na=False)
+        except Exception as exc:
+            raise ValueError(str(exc))
+            
+        cols, rows = apply_preset(preset, df)
+        # For a preset, the mapping is implied (columns are already canonical)
+        mapping = {c: c for c in cols}
+    else:
+        # Ordinary parse without preset
+        try:
+            cols, rows = parse_file(io.BytesIO(content), filename)
+        except Exception as exc:
+            raise ValueError(str(exc))
+        mapping = mapping or detect_column_mapping(cols)
+
+    with engine.begin() as conn:
+        preview = validate_import(rows, mapping, conn, photo_dir)
+        return cols, rows, mapping, preview

@@ -26,6 +26,11 @@ COPY alembic/ alembic/
 COPY alembic.ini .
 COPY templates/ templates/
 COPY static/ static/
+# The operational scripts the runbooks tell people to run inside the container:
+#   docker compose exec app python scripts/seed_admins.py
+#   docker compose exec app python scripts/fallback_sheets.py ...
+#   bash scripts/failover.sh
+COPY scripts/ scripts/
 
 # Expose port
 EXPOSE 8000

@@ -84,7 +84,7 @@ OUTSTANDING_FROM = f"""
 
 def outstanding_thobes(conn: Connection, offset_minutes: int, limit: int = OUTSTANDING_SHOWN) -> dict:
     total = int(conn.execute(text(f"SELECT count(*) FROM ({OUTSTANDING_FROM}) o")).scalar_one())
-    rows = conn.execute(text(OUTSTANDING_FROM + " ORDER BY al.server_time, s.sequence_no LIMIT :n"), {"n": limit}).mappings()
+    rows = conn.execute(text(OUTSTANDING_FROM + " ORDER BY al.server_time, s.sequence_no NULLS LAST, s.name LIMIT :n"), {"n": limit}).mappings()
     return {"count": total, "shown": limit, "students": [
         {"student_id": str(r["student_id"]), "prn": r["prn"], "name": r["name"], "school": r["school"],
          "allocated_at": iso_local(r["allocated_at"], offset_minutes), "stage_complete": bool(r["stage_complete"])} for r in rows]}

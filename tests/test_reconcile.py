@@ -83,7 +83,7 @@ class TestTheRule:
         done = stack.confirm(station, "THO-01", 1)
         assert done["result"] == "CONFIRMED"
         assert events(stack, "stadium", 1, "THOBE_ALLOCATION")[0]["flags"] == []          # present locally: a normal, unflagged event
-        assert scan_log(stack, "stadium", 1) == ["SUCCESS"]
+        assert scan_log(stack, "stadium", 1) == ["READY", "SUCCESS"]        # the scan, then the confirm
         assert exceptions(stack, "stadium") == []
 
     def test_missing_and_the_owner_fresh_is_blocked_with_a_plain_message(self, stack):
@@ -118,7 +118,7 @@ class TestTheRule:
             assert word not in (json.dumps(ready) + json.dumps(done)).lower(), word
         event = events(stack, "stadium", 4, "THOBE_ALLOCATION")[0]
         assert event["flags"] == ["PROVISIONAL"] and event["kind"] == "COMPLETE"
-        assert scan_log(stack, "stadium", 4) == ["PROVISIONAL"]
+        assert scan_log(stack, "stadium", 4) == ["READY", "PROVISIONAL"]    # the scan, then the confirm
         [item] = exceptions(stack, "stadium")
         assert item["status"] == "OPEN" and item["event_id"] == event["event_id"] and item["student_id"] == stack.student_id(4)
         assert item["details"]["missing"] == ["REGISTRATION"] and item["details"]["waiting_for_venues"] == ["college"]

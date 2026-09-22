@@ -25,6 +25,9 @@ class PhotoLinkReport:
     matched_count: int
     unmatched_photos: list[str]    # file paths with no matching student PRN
     unmatched_students: list[dict]  # student dicts {prn, id} with no photo
+    # Students whose display data is already frozen: their photo is master data now, so it can only
+    # be changed by a logged master patch (TODO Phase 3). The bulk linker reports them and moves on.
+    frozen_skipped: list[dict] = dataclasses.field(default_factory=list)
 
 
 def link_photos_by_prn(
@@ -44,16 +47,19 @@ def link_photos_by_prn(
     """
     photo_dir = pathlib.Path(photo_dir)
 
-    # Load all student PRNs from DB
-    rows = conn.execute(text("SELECT id, prn, photo_path FROM students")).fetchall()
+    # Load all student PRNs from DB, and note which of them are already frozen.
+    rows = conn.execute(text(
+        "SELECT s.id, s.prn, s.photo_path, EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS frozen "
+        "FROM students s")).fetchall()
     prn_to_info: dict[str, dict] = {
-        r[1].upper(): {"id": r[0], "prn": r[1], "photo_path": r[2]}
+        r[1].upper(): {"id": r[0], "prn": r[1], "photo_path": r[2], "frozen": r[3]}
         for r in rows
     }
 
     matched_count = 0
     unmatched_photos: list[str] = []
     matched_prns: set[str] = set()
+    frozen_skipped: list[dict] = []
 
     try:
         for photo_file in sorted(photo_dir.iterdir()):
@@ -67,10 +73,24 @@ def link_photos_by_prn(
             if prn_upper in prn_to_info:
                 student_info = prn_to_info[prn_upper]
                 photo_path = str(photo_file.resolve())
-                conn.execute(
-                    text("UPDATE students SET photo_path = :path WHERE id = :sid"),
-                    {"path": photo_path, "sid": student_info["id"]},
-                )
+                already_linked = student_info["photo_path"] == photo_path
+                if student_info["frozen"] and not already_linked:
+                    # The freeze has happened: this student's photo is only changed by a logged
+                    # master patch. Bulk linking must not slip past that (migration 0010 would
+                    # refuse the write anyway; reporting it is kinder than an exception).
+                    frozen_skipped.append({"prn": student_info["prn"], "id": str(student_info["id"]),
+                                           "photo": str(photo_file)})
+                    matched_prns.add(prn_upper)
+                    continue
+                if not already_linked:
+                    # Only write when the value would actually change. Writing the same path again
+                    # is not harmless: it rewrites the row and moves updated_at, which would break
+                    # "re-running the import never modifies an existing student" for anyone who
+                    # runs the import a second time with the photo folder attached.
+                    conn.execute(
+                        text("UPDATE students SET photo_path = :path WHERE id = :sid"),
+                        {"path": photo_path, "sid": student_info["id"]},
+                    )
                 matched_prns.add(prn_upper)
                 matched_count += 1
             else:
@@ -90,6 +110,7 @@ def link_photos_by_prn(
         matched_count=matched_count,
         unmatched_photos=unmatched_photos,
         unmatched_students=unmatched_students,
+        frozen_skipped=frozen_skipped,
     )
 
 

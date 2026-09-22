@@ -73,6 +73,10 @@ def set_user_active(conn: Connection, user_id, active: bool, *, actor_id) -> Non
     if not active and str(user_id) == str(actor_id):
         raise AccountError("SELF_DEACTIVATE", "You cannot switch off your own account.")
     user = _get(conn, user_id)
+    if not active and user["role"] in ("ADMIN", "DEPUTY_ADMIN"):
+        count = conn.execute(text("SELECT count(*) FROM users WHERE role IN ('ADMIN', 'DEPUTY_ADMIN') AND active = :act"), {"act": True}).scalar()
+        if count <= 1:
+            raise AccountError("LAST_ADMIN", "You cannot switch off the last remaining Admin/Deputy account.")
     conn.execute(text("UPDATE users SET active = :a WHERE id = :i"), {"a": active, "i": user_id})
     if not active:
         revoke_user_sessions(conn, user_id)

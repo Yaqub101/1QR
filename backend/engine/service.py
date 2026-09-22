@@ -1,6 +1,8 @@
 """The station engine: scan / search (preview) and confirm (the only write).
 
-    scan / search   read only. Identify the student, run the pipeline, return the card.
+    scan / search   records no ACTIVITY: no event, no outbox row, no effect. It does write the one row
+                    every attempt writes (the scan_log row, result READY or the refusal), because
+                    "every attempt written to scan_log" is what makes the log worth having.
     confirm         ONE database transaction writes, together and only together:
                         effects (e.g. the queue row) -> the activity event -> its outbox row
                         -> the audit row -> the scan_log row
@@ -139,6 +141,25 @@ def _terminal(conn: Connection, ctx: EngineContext, stage: str, outcome: Outcome
                 details={"stage": stage, "rule": outcome.rule, "detail": outcome.detail})
 
 
+def _ready(conn: Connection, ctx: EngineContext, stage: str, outcome: Outcome, *, token=None, prn=None) -> None:
+    """A preview that passed every rule. Nothing has been RECORDED - the operator has not confirmed yet -
+    but the attempt happened, and Phase 6 wants every attempt in scan_log. The row has no event_id, which
+    is what makes it useful: it is the only trace of a student who was shown at a station and then walked
+    away without being confirmed."""
+    log_attempt(conn, ctx, result="READY", message=outcome.message, student_id=outcome.student["id"],
+                token=token, prn=prn,
+                details={"stage": stage, "provisional": outcome.provisional,
+                         "provisional_missing": list(outcome.provisional_missing)})
+
+
+def _log_attempt_outcome(conn: Connection, ctx: EngineContext, stage: str, outcome: Outcome, *, token=None, prn=None) -> None:
+    """Every attempt, whichever way it went: the refusal, or the card the operator was shown."""
+    if outcome.log_result:
+        _terminal(conn, ctx, stage, outcome, token=token, prn=prn)
+    else:
+        _ready(conn, ctx, stage, outcome, token=token, prn=prn)
+
+
 def _preview_result(conn: Connection, ctx: EngineContext, outcome: Outcome, *, manual: bool, started: float) -> EngineResult:
     return EngineResult(
         result=outcome.result, message=outcome.message, activity=ctx.activity, station_id=ctx.station["station_id"],
@@ -156,8 +177,7 @@ def scan(engine, *, settings, guard, principal, station_id: str, token: str) -> 
             ctx = _context(conn, settings, guard, principal, station_id)
             student, refused = pipeline.identify_by_token(conn, token)
             outcome = refused or pipeline.evaluate(conn, ctx, student)
-            if outcome.log_result:
-                _terminal(conn, ctx, "scan", outcome, token=token)
+            _log_attempt_outcome(conn, ctx, "scan", outcome, token=token)
             return _preview_result(conn, ctx, outcome, manual=False, started=started)
     except StationAccessError:
         raise
@@ -175,8 +195,7 @@ def search(engine, *, settings, guard, principal, station_id: str, prn: str) -> 
             ctx = _context(conn, settings, guard, principal, station_id)
             student, refused = pipeline.identify_by_prn(conn, prn)
             outcome = refused or pipeline.evaluate(conn, ctx, student)
-            if outcome.log_result:
-                _terminal(conn, ctx, "search", outcome, prn=prn)
+            _log_attempt_outcome(conn, ctx, "search", outcome, prn=prn)
             return _preview_result(conn, ctx, outcome, manual=True, started=started)
     except StationAccessError:
         raise

@@ -132,20 +132,24 @@ class TestThobeAllocation:
         assert confirm(operator(apps, world, "THOBE_ALLOCATION"), "THOBE_ALLOCATION", token=s.token).json()["result"] == "CONFIRMED"
         assert (fingerprint(engine, row_sql), fingerprint(engine, tok_sql)) == before  # not one byte changed
         later = scan(operator(apps, world, "SEATING"), "SEATING", s.token).json()  # the same QR still works downstream
-        assert later["result"] == "READY" and field(later["student"], "seat_no") == "B-4"
+        assert later["result"] == "READY" and field(later["student"], "prn") == s.prn
 
 
 # =========================================================================== SEATING
 class TestSeating:
-    def test_shows_the_master_data_seat_and_ignores_any_client_supplied_seat(self, apps, world, engine):
-        s = ready_student(engine, "SEATING", seat_no="A-12")
+    """The university assigns no seats, so Seating is a plain "this student is seated" checkpoint,
+    exactly like Thobe Allocation: no seat is shown, none is asked for, and none is recorded."""
+
+    def test_no_seat_is_shown_and_a_client_supplied_seat_is_ignored(self, apps, world, engine):
+        s = ready_student(engine, "SEATING", seat_no="A-12")   # a leftover master seat changes nothing
         client = operator(apps, world, "SEATING")
         smuggled = {"seat_no": "Z-99", "seat": "Z-99", "details": {"seat_no": "Z-99"}}
         card = client.post("/scan", json={"token": s.token, "station_id": "SEA-01", **smuggled}).json()["student"]
-        assert field(card, "seat_no") == "A-12"
+        assert field(card, "seat_no") is None
+        assert not any("seat" in f["label"].lower() for f in card["fields"])
         done = client.post("/confirm", json={"token": s.token, "station_id": "SEA-01", **smuggled}).json()
-        assert done["result"] == "CONFIRMED" and field(done["student"], "seat_no") == "A-12"
-        assert events_of(engine, s, "SEATING")[0]["details"]["seat_no"] == "A-12"
+        assert done["result"] == "CONFIRMED"
+        assert events_of(engine, s, "SEATING")[0]["details"] == {}   # nothing smuggled onto the event
         assert q(engine, "SELECT seat_no FROM students WHERE id = :s", s=s.id)[0]["seat_no"] == "A-12"  # master untouched
 
     def test_blocked_without_thobe_allocation_with_the_specified_message(self, apps, world, engine):
@@ -157,23 +161,20 @@ class TestSeating:
             assert body["result"] == "REJECTED" and body["message"] == "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"
         assert totals(engine) == before and events_of(engine, s, "SEATING") == []
 
-    def test_duplicate_shows_the_earlier_seat_and_time_even_if_the_master_seat_later_changed(self, apps, world, engine):
+    def test_a_second_scan_names_the_time_it_was_confirmed_and_no_seat(self, apps, world, engine):
         s = ready_student(engine, "SEATING", seat_no="A-1")
-        earlier = seed_at(engine, s, "SEATING", hours_ago=2, details={"seat_no": "A-1"})
-        with engine.begin() as c:
-            c.execute(text("UPDATE students SET seat_no = 'Z-9' WHERE id = :s"), {"s": s.id})  # a later master patch
+        earlier = seed_at(engine, s, "SEATING", hours_ago=2)
         body = scan(operator(apps, world, "SEATING"), "SEATING", s.token).json()
         assert body["result"] == "DUPLICATE"
-        assert body["message"] == f"SEATING ALREADY COMPLETED — SEAT A-1 — {clock(earlier.server_time)}"
+        assert body["message"] == f"SEATING ALREADY CONFIRMED — {clock(earlier.server_time)}"
         assert len(events_of(engine, s, "SEATING")) == 1
 
-    def test_a_student_with_no_assigned_seat_is_still_seated_and_shown_as_not_assigned(self, apps, world, engine):
-        # ASSUMPTION (flagged in the report): a missing master seat must not stop a student at the gate.
+    def test_a_student_with_no_seat_on_the_master_list_is_seated_exactly_like_everyone_else(self, apps, world, engine):
         s = ready_student(engine, "SEATING", seat_no=None)
         card = scan(operator(apps, world, "SEATING"), "SEATING", s.token).json()["student"]
-        assert field(card, "seat_no") == "Not assigned"
+        assert [f["key"] for f in card["fields"]] == ["prn", "programme", "school"]
         assert confirm(operator(apps, world, "SEATING"), "SEATING", token=s.token).json()["result"] == "CONFIRMED"
-        assert events_of(engine, s, "SEATING")[0]["details"]["seat_no"] is None
+        assert events_of(engine, s, "SEATING")[0]["details"] == {}
 
 
 # =========================================================================== QUEUE
@@ -194,16 +195,17 @@ class TestQueue:
         assert totals(engine) == before
         assert q(engine, "SELECT count(*) AS n FROM queue WHERE student_id = :s", s=s.id)[0]["n"] == 0
 
-    def test_positions_follow_confirmation_order_not_the_universitys_sequence_number(self, apps, world, engine):
-        students = [ready_student(engine, "QUEUE") for _ in range(4)]  # sequence numbers ascending
+    def test_positions_follow_confirmation_order_and_nothing_else(self, apps, world, engine):
+        students = [ready_student(engine, "QUEUE") for _ in range(4)]  # created in one order...
         client = operator(apps, world, "QUEUE")
-        for s in reversed(students):  # ...but the LAST sequence number confirms FIRST
+        for s in reversed(students):                                   # ...confirmed in the opposite one
             assert confirm(client, "QUEUE", token=s.token).json()["result"] == "CONFIRMED"
         rows = {r["student_id"]: r["queue_position"] for r in self._queue_rows(engine, students)}
         positions = [rows[s.id] for s in reversed(students)]
         assert positions == sorted(positions) and positions == list(range(positions[0], positions[0] + 4))
         shown = scan(client, "QUEUE", ready_student(engine, "QUEUE").token).json()["student"]
-        assert field(shown, "sequence_no") is not None and "Position" in field(shown, "queue_position")  # shown, not used
+        assert "Position" in field(shown, "queue_position")
+        assert field(shown, "sequence_no") is None, "there is no convocation sequence number any more"
 
     @pytest.mark.parametrize("with_noise", [False, True], ids=["queue-only", "with-other-stadium-traffic"])
     def test_concurrent_confirms_from_three_queue_stations_get_strict_confirmation_order(self, apps, world, engine, tokens, with_noise):
@@ -401,7 +403,8 @@ class TestFullJourney:
         s, seen = self._walk(apps, world, engine, waive_return=False)
         assert seen == STATUS_AFTER_STEP[1:] and seen[-1] == "EXITED"
         assert len(events_of(engine, s)) == 7
-        assert [r["result"] for r in log_of(engine, s)] == ["SUCCESS"] * 7  # no false duplicate anywhere
+        # Each of the seven steps: the scan the operator was shown, then the confirm. No false duplicate anywhere.
+        assert [r["result"] for r in log_of(engine, s)] == ["READY", "SUCCESS"] * 7
 
     def test_the_same_journey_with_an_admin_waived_return_also_ends_exited(self, apps, world, engine):
         s, seen = self._walk(apps, world, engine, waive_return=True)

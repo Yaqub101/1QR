@@ -75,10 +75,14 @@ def restore_backup(dump_path: str, target_url: str, *, replace: bool = False) ->
     if done.returncode != 0:
         raise RestoreError(f"pg_restore failed: {done.stderr.strip()[:500]}")
 
-    revision, _, counts = backup._snapshot_facts(target_url)
+    facts = backup._snapshot_facts(target_url)
+    revision, counts = facts.revision, facts.counts
     mismatches = {t: (manifest["counts"].get(t), counts.get(t)) for t in manifest["counts"] if manifest["counts"].get(t) != counts.get(t)}
     if manifest.get("alembic_revision") != revision:
         mismatches["alembic_revision"] = (manifest.get("alembic_revision"), revision)
+    for table, problem in facts.problems:
+        # A table the restored database cannot answer for is a restore that did not land, not a count of zero.
+        mismatches.setdefault("schema", []).append(f"{table}: {problem}")
     return {"ok": not mismatches, "database": database, "restored_from": path.name, "counts": counts, "revision": revision,
             "mismatches": mismatches, "backup_taken_at": manifest["created_at"]}
 

@@ -8,6 +8,12 @@ After freeze_display_data() runs, subsequent changes to the students table do
 NOT alter display_snapshot. Only another explicit call to freeze_display_data()
 updates it. This is enforced by design: there are no triggers or FK cascades
 from students to display_snapshot — the snapshot is populated only here.
+
+Migration 0010 adds the other half of the rule: once a student has been frozen,
+neither that student's master row nor the snapshot may be changed by anything
+that has not announced itself with begin_master_patch_txn(). The two sanctioned
+doors are this freeze and backend/master_patch.py; everything else is refused by
+the database, not merely by convention.
 """
 from __future__ import annotations
 
@@ -21,6 +27,14 @@ from sqlalchemy.engine import Connection
 @dataclasses.dataclass
 class FreezeSummary:
     frozen_count: int
+
+
+def begin_master_patch_txn(conn: Connection) -> None:
+    """Mark THIS transaction as a sanctioned master-data change, so migration 0010's guard allows it.
+
+    `SET LOCAL`, so it lasts exactly as long as the transaction and cannot leak to the next caller
+    that borrows the same pooled connection."""
+    conn.execute(text("SELECT set_config('app.master_patch', 'on', true)"))
 
 
 def freeze_display_data(
@@ -38,6 +52,7 @@ def freeze_display_data(
     Logs action 'FREEZE_DISPLAY_SNAPSHOT' to audit_log.
     """
     try:
+        begin_master_patch_txn(conn)  # the freeze is one of the two doors migration 0010 allows
         # Upsert from students → display_snapshot
         conn.execute(
             text(
