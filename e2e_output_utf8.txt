@@ -1,0 +1,1181 @@
+﻿================================================================================
+END-TO-END ROLE-BASED QR SCAN VERIFICATION
+================================================================================
+
+================================================================================
+TASK 1: QR Decodability Verification
+================================================================================
+Logged in as Admin (session token: 1qi7gdZrlM...)
+Test Student: Ujwal Devidas Kuche (PRN: 202001101015, ID: 5fbfc321-670e-4cba-8a62-fc5e715b3987)
+Requesting generated pass PDF via: GET /admin/api/students/5fbfc321-670e-4cba-8a62-fc5e715b3987/pass.pdf
+HTTP Status: 200
+Content-Type: None
+Content-Length: 83745 bytes
+
+--- QR Code Verification Result ---
+QR Decoder Format : QR Code
+Decoded QR String : B87E371315453EBD5E3BE8D65D126FAE
+Database Token    : B87E371315453EBD5E3BE8D65D126FAE
+Exact Match       : True
+
+================================================================================
+TASK 2: Role Gating Verification (All Roles)
+================================================================================
+
+--- Testing Role: REGISTRATION (User: '1') ---
+Login successful. Session Token: dUCrRVSX__...
+1) Attempting ALLOWED activity: 'REGISTRATION'
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "ALREADY REGISTERED \u2014 8:50 PM",
+  "activity": "REGISTRATION",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001101015"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Technology(Civil Engineering)"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:50 PM",
+    "event_id": "2af2dcaa-4a8a-452d-9078-8be3061e859e",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 3.1
+}
+2) Attempting DISALLOWED activity: 'THOBE_ALLOCATION'
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That screen is not part of your role."
+  }
+}
+
+--- Testing Role: THOBE_ALLOCATION (User: '2') ---
+Login successful. Session Token: jr6L7TEMic...
+1) Attempting ALLOWED activity: 'THOBE_ALLOCATION'
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "THOBE ALREADY ALLOCATED \u2014 8:50 PM",
+  "activity": "THOBE_ALLOCATION",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001101015"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Technology(Civil Engineering)"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:50 PM",
+    "event_id": "9eae66c7-fc3f-48d8-9138-4be2afb18907",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 3.9
+}
+2) Attempting DISALLOWED activity: 'REGISTRATION'
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That screen is not part of your role."
+  }
+}
+
+--- Testing Role: SEATING (User: '3') ---
+Login successful. Session Token: HLThWvknCB...
+1) Attempting ALLOWED activity: 'SEATING'
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "SEATING ALREADY CONFIRMED \u2014 8:50 PM",
+  "activity": "SEATING",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001101015"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Technology(Civil Engineering)"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:50 PM",
+    "event_id": "a7ddcc4e-3a43-4e89-9c42-e43861ecd6dc",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 3.2
+}
+2) Attempting DISALLOWED activity: 'REGISTRATION'
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That screen is not part of your role."
+  }
+}
+
+--- Testing Role: QUEUE (User: '4') ---
+Login successful. Session Token: _uBl6x54TU...
+1) Attempting ALLOWED activity: 'QUEUE'
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "ALREADY IN QUEUE \u2014 POSITION 2 \u2014 8:50 PM",
+  "activity": "QUEUE",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001101015"
+      },
+      {
+        "key": "queue_position",
+        "label": "Queue position",
+        "value": "Position 2"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:50 PM",
+    "event_id": "2bfba945-9743-42d6-8201-d48d5de0a301",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 4.2
+}
+2) Attempting DISALLOWED activity: 'REGISTRATION'
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That screen is not part of your role."
+  }
+}
+
+--- Testing Role: STAGE (User: '5') ---
+Login successful. Session Token: TWnw81kh6P...
+1) Attempting ALLOWED activity: 'STAGE'
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "DEGREE ALREADY RECEIVED \u2014 8:51 PM",
+  "activity": "STAGE",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Technology(Civil Engineering)"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:51 PM",
+    "event_id": "9f5fce31-4376-4418-8c21-18dde9aa86ea",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 4.0
+}
+2) Attempting DISALLOWED activity: 'REGISTRATION'
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That screen is not part of your role."
+  }
+}
+
+--- Testing Role: THOBE_RETURN (User: '6') ---
+Login successful. Session Token: 9RGic4SG6W...
+1) Attempting ALLOWED activity: 'THOBE_RETURN'
+HTTP Status: 200
+Response Body: {
+  "result": "READY",
+  "colour": "blue",
+  "message": "Check the photo, then confirm.",
+  "activity": "THOBE_RETURN",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001101015"
+      },
+      {
+        "key": "thobe_issued",
+        "label": "Thobe issued",
+        "value": "Yes \u2014 issued 8:50 PM"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": null,
+  "elapsed_ms": 4.1
+}
+2) Attempting DISALLOWED activity: 'REGISTRATION'
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That screen is not part of your role."
+  }
+}
+
+--- Testing Role: LUNCH (User: '7') ---
+Login successful. Session Token: 2YhmLpJyx2...
+1) Attempting ALLOWED activity: 'LUNCH'
+HTTP Status: 200
+Response Body: {
+  "result": "REJECTED",
+  "colour": "red",
+  "message": "LUNCH NOT AVAILABLE \u2014 THOBE RETURN PENDING",
+  "activity": "LUNCH",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001101015"
+      },
+      {
+        "key": "eligibility",
+        "label": "Eligibility",
+        "value": "Thobe return pending"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": null,
+  "elapsed_ms": 3.5
+}
+2) Attempting DISALLOWED activity: 'REGISTRATION'
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That screen is not part of your role."
+  }
+}
+
+--- Testing Role: ADMIN (User: 'admin') ---
+1) Attempting Activity 'REGISTRATION' as ADMIN (Admin has all 7 activity permissions):
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "ALREADY REGISTERED \u2014 8:50 PM",
+  "activity": "REGISTRATION",
+  "manual": false,
+  "student": {
+    "student_id": "5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "name": "Ujwal Devidas Kuche",
+    "photo_url": "/photo/5fbfc321-670e-4cba-8a62-fc5e715b3987",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001101015"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Technology(Civil Engineering)"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:50 PM",
+    "event_id": "2af2dcaa-4a8a-452d-9078-8be3061e859e",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 2.6
+}
+2) Verifying Admin boundary: Operator '1' accessing Admin-only endpoint (/admin/api/dashboard):
+HTTP Status: 403
+Response Body: {
+  "detail": {
+    "code": "FORBIDDEN",
+    "message": "That page is for the Admin only."
+  }
+}
+3) Attempting non-existent activity name as Admin:
+HTTP Status: 404
+Response Body: {
+  "detail": {
+    "code": "UNKNOWN_ACTIVITY",
+    "message": "That activity does not exist."
+  }
+}
+
+================================================================================
+TASK 3: Sequential / Prerequisite Enforcement
+================================================================================
+Fresh Test Student A: Jinisha Rajeev Gupta (PRN: 202001108037)
+
+--- Prerequisite Pair 1: THOBE_ALLOCATION before REGISTRATION ---
+Step 3.1: Operator '2' attempts /confirm for THOBE_ALLOCATION (Prereq REGISTRATION missing):
+HTTP Status: 200
+Response Body: {
+  "result": "REJECTED",
+  "colour": "red",
+  "message": "THOBE NOT AVAILABLE \u2014 REGISTRATION PENDING",
+  "activity": "THOBE_ALLOCATION",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": null,
+  "elapsed_ms": 3.6
+}
+
+Step 3.2: Operator '1' confirms REGISTRATION:
+HTTP Status: 200
+Response Body: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "REGISTRATION",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "72660b04-8cd9-4c9a-b906-00779d0c098c",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 5.2
+}
+
+Step 3.3: Operator '2' retries THOBE_ALLOCATION (Prereq now met):
+HTTP Status: 200
+Response Body: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "THOBE_ALLOCATION",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "50cb9b69-6448-4d73-9248-283f49615ca8",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 5.4
+}
+
+--- Prerequisite Pair 2: QUEUE before SEATING ---
+Step 3.4: Operator '4' attempts /confirm for QUEUE (Prereq SEATING missing):
+HTTP Status: 200
+Response Body: {
+  "result": "REJECTED",
+  "colour": "red",
+  "message": "QUEUE NOT AVAILABLE \u2014 SEATING PENDING",
+  "activity": "QUEUE",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "queue_position",
+        "label": "Queue position",
+        "value": "Position 7 (when confirmed)"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": null,
+  "elapsed_ms": 3.9
+}
+
+Step 3.5: Operator '3' confirms SEATING:
+HTTP Status: 200
+Response Body: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "SEATING",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "9457e16f-2b86-4142-a07f-2cdf5d76d695",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 5.2
+}
+
+Step 3.6: Operator '4' retries QUEUE (Prereq now met):
+HTTP Status: 200
+Response Body: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "QUEUE",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "queue_position",
+        "label": "Queue position",
+        "value": "Position 7"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "20edc7ca-0da8-41dd-9c51-e08391f2e2ab",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 6.3
+}
+
+================================================================================
+TASK 4: Duplicate Scan Handling
+================================================================================
+Student A was registered at Step 3.2. Response 1 was CONFIRMED:
+Original confirmation: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "REGISTRATION",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "72660b04-8cd9-4c9a-b906-00779d0c098c",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 5.2
+}
+
+Scanning Student A again for REGISTRATION (Operator '1'):
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "ALREADY REGISTERED \u2014 8:51 PM",
+  "activity": "REGISTRATION",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:51 PM",
+    "event_id": "72660b04-8cd9-4c9a-b906-00779d0c098c",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 2.7
+}
+
+Attempting /confirm Student A again for REGISTRATION (Operator '1'):
+HTTP Status: 200
+Response Body: {
+  "result": "DUPLICATE",
+  "colour": "amber",
+  "message": "ALREADY REGISTERED \u2014 8:51 PM",
+  "activity": "REGISTRATION",
+  "manual": false,
+  "student": {
+    "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "name": "Jinisha Rajeev Gupta",
+    "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108037"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": {
+    "time": "8:51 PM",
+    "event_id": "72660b04-8cd9-4c9a-b906-00779d0c098c",
+    "kind": "COMPLETE"
+  },
+  "event": null,
+  "elapsed_ms": 3.6
+}
+
+================================================================================
+TASK 5: Full Seven-Activity Journey for One Student
+================================================================================
+Full-Journey Student B: Syed Munawwar Syed Mehmood (PRN: 202001108047, ID: c1e9cdb5-4ac6-46ce-b151-099b74076676)
+Initial DB Status: step 0 -> 'REGISTERED / NOT REPORTED'
+
+--- 1/7: REGISTRATION ---
+HTTP Status: 200
+Response: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "REGISTRATION",
+  "manual": false,
+  "student": {
+    "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "name": "Syed Munawwar Syed Mehmood",
+    "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108047"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "1fdee5dd-ccce-49dd-b078-b41d0ce18de2",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 4.6
+}
+Post-Registration DB Status: step 1 -> 'REPORTED / THOBE NOT RECEIVED'
+
+--- 2/7: THOBE_ALLOCATION ---
+HTTP Status: 200
+Response: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "THOBE_ALLOCATION",
+  "manual": false,
+  "student": {
+    "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "name": "Syed Munawwar Syed Mehmood",
+    "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108047"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "dd4519f3-fdd9-45bd-972c-b9fe33028178",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 4.9
+}
+Post-Thobe DB Status: step 2 -> 'NOT SEATED'
+
+--- 3/7: SEATING ---
+HTTP Status: 200
+Response: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "SEATING",
+  "manual": false,
+  "student": {
+    "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "name": "Syed Munawwar Syed Mehmood",
+    "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108047"
+      },
+      {
+        "key": "programme",
+        "label": "Programme",
+        "value": "Bachelor of Architecture"
+      },
+      {
+        "key": "school",
+        "label": "School",
+        "value": "Engineering & Technology"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "19010764-0f14-45c0-bd8a-a6f71805b81d",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 4.9
+}
+Post-Seating DB Status: step 3 -> 'NOT QUEUED'
+
+--- 4/7: QUEUE ---
+HTTP Status: 200
+Response: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "QUEUE",
+  "manual": false,
+  "student": {
+    "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "name": "Syed Munawwar Syed Mehmood",
+    "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108047"
+      },
+      {
+        "key": "queue_position",
+        "label": "Queue position",
+        "value": "Position 8"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "99d8033c-0f66-4e7f-b615-d37f7c1cdb70",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 5.7
+}
+Post-Queue DB Status: step 4 -> 'DEGREE NOT RECEIVED'
+
+--- 5/7: STAGE ---
+Stage Takeover HTTP Status: 200
+Stage Display-Next HTTP Status: 200
+Student Jinisha Rajeev Gupta was ahead in queue, completing to advance to Student B...
+Stage Display-Next HTTP Status: 200
+Student B (Syed Munawwar Syed Mehmood) is now on stage!
+Display-Next Response for Student B: {
+  "ok": true,
+  "message": "Showing the next student.",
+  "changed": true,
+  "state": {
+    "version": 29,
+    "you_control": true,
+    "controller": {
+      "username": "5",
+      "live": true
+    },
+    "led_mode": "SHOWING",
+    "led_name": "Syed Munawwar Syed Mehmood",
+    "current": {
+      "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+      "name": "Syed Munawwar Syed Mehmood",
+      "prn": "202001108047",
+      "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+      "programme": "Bachelor of Architecture",
+      "school": "Engineering & Technology",
+      "queue_position": 8,
+      "status": "DISPLAYED",
+      "has_display_data": true
+    },
+    "next": null,
+    "after_next": null,
+    "previous": {
+      "student_id": "7b38ab53-c245-46ad-9b8b-011431c42e5d",
+      "name": "Jinisha Rajeev Gupta",
+      "prn": "202001108037",
+      "photo_url": "/photo/7b38ab53-c245-46ad-9b8b-011431c42e5d",
+      "programme": "Bachelor of Architecture",
+      "school": "Engineering & Technology",
+      "queue_position": 7,
+      "status": "DONE",
+      "has_display_data": true
+    },
+    "queue_depth": 0
+  }
+}
+Stage Complete for Student B HTTP Status: 200
+Response: {
+  "ok": true,
+  "message": "Degree recorded.",
+  "changed": true,
+  "state": {
+    "version": 30,
+    "you_control": true,
+    "controller": {
+      "username": "5",
+      "live": true
+    },
+    "led_mode": "HOME",
+    "led_name": null,
+    "current": null,
+    "next": null,
+    "after_next": null,
+    "previous": {
+      "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+      "name": "Syed Munawwar Syed Mehmood",
+      "prn": "202001108047",
+      "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+      "programme": "Bachelor of Architecture",
+      "school": "Engineering & Technology",
+      "queue_position": 8,
+      "status": "DONE",
+      "has_display_data": true
+    },
+    "queue_depth": 0
+  }
+}
+Post-Stage DB Status: step 5 -> 'THOBE NOT RETURNED'
+
+--- 6/7: THOBE_RETURN ---
+HTTP Status: 200
+Response: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "THOBE_RETURN",
+  "manual": false,
+  "student": {
+    "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "name": "Syed Munawwar Syed Mehmood",
+    "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108047"
+      },
+      {
+        "key": "thobe_issued",
+        "label": "Thobe issued",
+        "value": "Yes \u2014 issued 8:51 PM"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "a1e97ecf-10eb-48e1-a64e-f24d39fe0fed",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 6.2
+}
+Post-Thobe Return DB Status: step 6 -> 'LUNCH ELIGIBLE'
+
+--- 7/7: LUNCH ---
+HTTP Status: 200
+Response: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "LUNCH",
+  "manual": false,
+  "student": {
+    "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "name": "Syed Munawwar Syed Mehmood",
+    "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108047"
+      },
+      {
+        "key": "eligibility",
+        "label": "Eligibility",
+        "value": "Thobe returned 8:51 PM"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "e61c08aa-ffbf-4a8e-961d-b5008c3b864c",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 5.4
+}
+Post-Lunch DB Status: step 7 -> 'EXITED'
+
+CONFIRMED: Student status transitioned through all 7 steps and became EXITED ONLY AFTER LUNCH.
+
+================================================================================
+TASK 6: Stage / Public LED Behavior Verification
+================================================================================
+LED Test Student C: Tanuja Suresh Jadhav (PRN: 202001108049, ID: a25bdb74-0f67-420d-aeab-4215150cd5cf)
+
+--- 1. Public LED State BEFORE Queue Scan (GET /led/state) ---
+HTTP Status: 200
+LED Payload:
+{
+  "mode": "HOME",
+  "version": 31,
+  "holding": {
+    "title": "Convocation Ceremony",
+    "text": ""
+  },
+  "student": null,
+  "preload": []
+}
+
+--- 2. Operator '4' (QUEUE) confirms Student C into the Queue ---
+HTTP Status: 200
+Queue Confirm Result: {
+  "result": "CONFIRMED",
+  "colour": "green",
+  "message": "Done.",
+  "activity": "QUEUE",
+  "manual": false,
+  "student": {
+    "student_id": "a25bdb74-0f67-420d-aeab-4215150cd5cf",
+    "name": "Tanuja Suresh Jadhav",
+    "photo_url": "/photo/a25bdb74-0f67-420d-aeab-4215150cd5cf",
+    "fields": [
+      {
+        "key": "prn",
+        "label": "PRN",
+        "value": "202001108049"
+      },
+      {
+        "key": "queue_position",
+        "label": "Queue position",
+        "value": "Position 9"
+      }
+    ]
+  },
+  "earlier": null,
+  "event": {
+    "event_id": "590224bc-83b7-4bd7-83e4-0b104cf3d94f",
+    "time": "8:51 PM"
+  },
+  "elapsed_ms": 6.3
+}
+
+--- 3. Public LED State AFTER Queue Scan (GET /led/state) ---
+HTTP Status: 200
+LED Payload:
+{
+  "mode": "HOME",
+  "version": 31,
+  "holding": {
+    "title": "Convocation Ceremony",
+    "text": ""
+  },
+  "student": null,
+  "preload": [
+    {
+      "photo_url": "/led/photo/01ae12b1f312d9ec"
+    }
+  ]
+}
+VERIFICATION: Confirming Queue scan did NOT change the public LED:
+-> PASSED: Public LED is completely unchanged by Queue scan.
+
+--- 4. Stage Operator calls POST /stage/display-next ---
+HTTP Status: 200
+Display Next Response: {
+  "ok": true,
+  "message": "Showing the next student.",
+  "changed": true,
+  "state": {
+    "version": 33,
+    "you_control": true,
+    "controller": {
+      "username": "5",
+      "live": true
+    },
+    "led_mode": "SHOWING",
+    "led_name": "Tanuja Suresh Jadhav",
+    "current": {
+      "student_id": "a25bdb74-0f67-420d-aeab-4215150cd5cf",
+      "name": "Tanuja Suresh Jadhav",
+      "prn": "202001108049",
+      "photo_url": "/photo/a25bdb74-0f67-420d-aeab-4215150cd5cf",
+      "programme": "Bachelor of Architecture",
+      "school": "Engineering & Technology",
+      "queue_position": 9,
+      "status": "DISPLAYED",
+      "has_display_data": true
+    },
+    "next": null,
+    "after_next": null,
+    "previous": {
+      "student_id": "c1e9cdb5-4ac6-46ce-b151-099b74076676",
+      "name": "Syed Munawwar Syed Mehmood",
+      "prn": "202001108047",
+      "photo_url": "/photo/c1e9cdb5-4ac6-46ce-b151-099b74076676",
+      "programme": "Bachelor of Architecture",
+      "school": "Engineering & Technology",
+      "queue_position": 8,
+      "status": "DONE",
+      "has_display_data": true
+    },
+    "queue_depth": 0
+  }
+}
+
+--- 5. Public LED State AFTER 'DISPLAY NEXT' (GET /led/state) ---
+HTTP Status: 200
+LED Payload:
+{
+  "mode": "SHOWING",
+  "version": 33,
+  "holding": {
+    "title": "Convocation Ceremony",
+    "text": ""
+  },
+  "student": {
+    "name": "Tanuja Suresh Jadhav",
+    "photo_url": "/led/photo/01ae12b1f312d9ec",
+    "programme": "Bachelor of Architecture",
+    "school": "Engineering & Technology",
+    "award": null
+  },
+  "preload": []
+}
+
+--- 6. LED Privacy & Field Whitelist Audit ---
+Keys present on LED student object: ['name', 'photo_url', 'programme', 'school', 'award']
+-> APPROVED FIELDS ONLY: 'name', 'photo_url', 'programme', 'school', 'award'
+-> ABSOLUTELY NO PRN, phone, email, sequence number, seat, or internal student UUID
+-> Photo URL is opaque: '/led/photo/01ae12b1f312d9ec'
+-> PASSED: Stage / LED Privacy & Control verified completely.
+
+All 6 verification tasks completed successfully!
