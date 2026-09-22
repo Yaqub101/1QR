@@ -88,6 +88,29 @@ def set_user_active(conn: Connection, user_id, active: bool, *, actor_id) -> Non
     )
 
 
+def delete_user(conn: Connection, user_id, *, actor_id) -> None:
+    user = _get(conn, user_id)
+    if str(user_id) == str(actor_id):
+        raise AccountError("SELF_DELETE", "You cannot delete your own account.")
+    if user["active"] and user["role"] in ("ADMIN", "DEPUTY_ADMIN"):
+        count = conn.execute(text("SELECT count(*) FROM users WHERE role IN ('ADMIN', 'DEPUTY_ADMIN') AND active = :act"), {"act": True}).scalar()
+        if count <= 1:
+            raise AccountError("LAST_ADMIN", "You cannot delete the last remaining Admin/Deputy account.")
+
+    try:
+        conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
+    except IntegrityError as exc:
+        raise AccountError("USER_HAS_ACTIVITY", "Cannot delete this user because they have recorded activity in the system. Switch the account off instead.") from exc
+
+    revoke_user_sessions(conn, user_id)
+    write_audit(
+        conn,
+        "USER_DELETED",
+        operator_id=actor_id,
+        details={"username": user["username"], "user_id": user_id, "role": user["role"]},
+    )
+
+
 def reset_password(conn: Connection, user_id, new_password: str, *, actor_id) -> None:
     user = _get(conn, user_id)
     try:

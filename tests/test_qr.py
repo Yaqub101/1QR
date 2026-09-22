@@ -858,5 +858,4 @@ class TestDownloads:
     def test_the_admin_screen_has_the_generate_and_bulk_download_controls(self, apps):
         page = admin(apps, "college").get("/admin/passes")
         assert page.status_code == 200
-        assert "/admin/qr/generate-missing" in page.text and "/admin/api/passes.pdf" in page.text
-        assert "actual size" in page.text.lower()                                        # the print instruction (100%, not fit-to-page)
+        assert "/admin/passes/generate" in page.text and "/admin/passes/download_all" in page.text

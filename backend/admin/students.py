@@ -57,6 +57,7 @@ def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
     off = settings.event_utc_offset_minutes
     student = conn.execute(text(
         "SELECT s.id, s.prn, s.name, s.programme, s.school, s.awards, s.photo_path, s.sequence_no, s.seat_no, s.status, "
+        "s.email, s.mobile, "
         "v.step, EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS frozen "
         "FROM students s JOIN student_status v ON v.student_id = s.id WHERE s.id = :s"), {"s": sid}).mappings().one_or_none()
     if student is None:
@@ -104,6 +105,7 @@ def journey(conn: Connection, student_id, settings, guard) -> Optional[dict]:
                     "programme": student["programme"], "school": student["school"], "awards": student["awards"],
                     "photo_path": student["photo_path"], "sequence_no": student["sequence_no"],
                     "seat_no": student["seat_no"], "master_status": student["status"],
+                    "email": student["email"], "mobile": student["mobile"],
                     "frozen": bool(student["frozen"]),
                     "journey_status": STATUS_LABEL[student["step"]]},
         "events": timeline,

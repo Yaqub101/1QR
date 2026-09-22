@@ -959,6 +959,75 @@ class TestUserManagement:
                                  "AND details->>'username'=:u"), {"u": username}).one()
         assert row.operator_id == world.user_ids["deputy"]
 
+    def test_admin_can_delete_a_user(self, apps, world, engine):
+        username = f"del-{uuid.uuid4().hex[:6]}"
+        client = self._admin(apps)
+        client.post("/admin/users", data={"username": username, "full_name": "", "role": "LUNCH", "password": "x"*12})
+        row = self._row(engine, username)
+        assert row is not None
+
+        response = client.post(f"/admin/users/{row['id']}/delete", follow_redirects=False)
+        assert "msg" in redirect_query(response)
+        assert self._row(engine, username) is None
+
+        with engine.connect() as c:
+            assert c.execute(text("SELECT count(*) FROM audit_log WHERE action='USER_DELETED' AND details->>'username'=:u"), {"u": username}).scalar() == 1
+
+    def test_deleting_self_is_refused(self, apps, world, engine):
+        client = self._admin(apps)
+        response = client.post(f"/admin/users/{world.user_ids['admin']}/delete", follow_redirects=False)
+        assert "error" in redirect_query(response)
+
+    def test_deleting_last_admin_is_refused(self, apps, world, engine):
+        from backend import users
+        from backend.users import AccountError
+        conn = engine.connect()
+        trans = conn.begin()
+        try:
+            # Change all other admins to LUNCH so deputy is the last admin
+            conn.execute(text("UPDATE users SET role='LUNCH' WHERE id != :i"), {"i": world.user_ids["deputy"]})
+            with pytest.raises(AccountError) as exc:
+                users.delete_user(conn, world.user_ids["deputy"], actor_id=world.user_ids["admin"])
+            assert exc.value.code == "LAST_ADMIN"
+        finally:
+            trans.rollback()
+            conn.close()
+
+    def test_deleting_the_last_active_admin_is_refused_even_if_an_inactive_admin_row_exists(self, engine, world):
+        from backend import users
+        from backend.users import AccountError
+        conn = engine.connect()
+        trans = conn.begin()
+        try:
+            extra_id = users.create_user(conn, username=f"extra-admin-{uuid.uuid4().hex[:6]}", password=PASSWORD,
+                                          role="DEPUTY_ADMIN", actor_id=world.user_ids["admin"])
+            users.set_user_active(conn, extra_id, False, actor_id=world.user_ids["admin"])
+            users.set_user_active(conn, world.user_ids["deputy"], False, actor_id=world.user_ids["admin"])
+            # admin is now the only ACTIVE admin/deputy account: both the deputy and the freshly
+            # created extra admin are inactive rows that must not count toward "one remains".
+            with pytest.raises(AccountError) as exc:
+                users.delete_user(conn, world.user_ids["admin"], actor_id=extra_id)
+            assert exc.value.code == "LAST_ADMIN"
+        finally:
+            trans.rollback()
+            conn.close()
+
+    def test_deleting_an_inactive_admin_does_not_require_another_admin_to_remain(self, engine, world):
+        from backend import users
+        conn = engine.connect()
+        trans = conn.begin()
+        try:
+            extra_id = users.create_user(conn, username=f"extra-admin-{uuid.uuid4().hex[:6]}", password=PASSWORD,
+                                          role="DEPUTY_ADMIN", actor_id=world.user_ids["admin"])
+            users.set_user_active(conn, extra_id, False, actor_id=world.user_ids["admin"])
+            # This inactive account isn't protecting anything: deleting it must not be blocked by
+            # the LAST_ADMIN guard just because it's still the only other admin/deputy row.
+            users.delete_user(conn, extra_id, actor_id=world.user_ids["admin"])
+            assert conn.execute(text("SELECT count(*) FROM users WHERE id = :i"), {"i": extra_id}).scalar() == 0
+        finally:
+            trans.rollback()
+            conn.close()
+
     def test_the_user_list_never_shows_password_hashes(self, apps, world):
         page = self._admin(apps).get("/admin/users")
         assert page.status_code == 200 and "argon2" not in page.text and "lunch-user" in page.text
@@ -1153,9 +1222,8 @@ class TestUserDeactivation:
         from backend import users
         from backend.users import AccountError
         with engine.begin() as conn:
-            # The world starts with an admin and a deputy (both are admin roles).
-            # We deactivate the deputy to leave only one admin.
-            users.set_user_active(conn, world.user_ids["deputy"], False, actor_id=world.user_ids["admin"])
+            # Set ALL admins except the main admin to inactive
+            conn.execute(text("UPDATE users SET active=False WHERE role IN ('ADMIN', 'DEPUTY_ADMIN') AND id != :i"), {"i": world.user_ids["admin"]})
             
             # Cannot deactivate the original admin since it's the last one
             with pytest.raises(AccountError) as exc:

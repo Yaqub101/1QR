@@ -457,24 +457,6 @@ def reissue_form(request: Request, student_id: str, reason: str = Form(""), prin
     return redirect(f"/admin/students/{student_id}", msg="A new QR has been issued. The old one no longer works. Print the new pass.")
 
 
-@router.get("/passes")
-def passes_page(request: Request, principal: Principal = Depends(require_admin)):
-    with request.app.state.engine.connect() as conn:
-        counts = conn.execute(text(
-            "SELECT count(*) AS active, count(*) FILTER (WHERE EXISTS (SELECT 1 FROM qr_tokens t WHERE t.student_id = s.id AND t.active)) AS with_token "
-            "FROM students s WHERE s.status = 'ACTIVE'")).mappings().one()
-        schools = [r[0] for r in conn.execute(text("SELECT DISTINCT school FROM students WHERE status = 'ACTIVE' ORDER BY school"))]
-    return render(request, "admin_passes.html", principal=principal, counts=counts, schools=schools)
-
-
-@router.post("/qr/generate-missing")
-def generate_missing_form(request: Request, principal: Principal = Depends(require_admin)):
-    result = qr_tokens.generate_missing_tokens(request.app.state.engine, operator_id=principal.user_id, venue_id=_venue_of(request))
-    if result.created:
-        return redirect("/admin/passes", msg=f"{result.created} new QR codes were created.")
-    return redirect("/admin/passes", msg="Every active student already has a QR. Nothing was changed.")
-
-
 @router.post("/students/{student_id}/reverse")
 def reverse_form(request: Request, student_id: str, event_id: str = Form(...), reason: str = Form(""),
                  principal: Principal = Depends(require_admin)):

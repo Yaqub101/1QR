@@ -86,6 +86,16 @@ def reset_password(request: Request, user_id: str, password: str = Form(...),
     return redirect("/admin/users", msg="Password changed. They have been signed out.")
 
 
+@router.post("/users/{user_id}/delete")
+def delete_user(request: Request, user_id: str, principal: Principal = Depends(require_admin)):
+    try:
+        with request.app.state.engine.begin() as conn:
+            users_svc.delete_user(conn, _uuid_or_404(user_id), actor_id=principal.user_id)
+    except AccountError as exc:
+        return redirect("/admin/users", error=exc.message)
+    return redirect("/admin/users", msg="Account deleted.")
+
+
 # ── stations ────────────────────────────────────────────────────────────────
 @router.get("/stations", dependencies=[Depends(require_admin), Depends(require_venue_mode)])
 def stations_page(request: Request, principal: Principal = Depends(require_admin)):

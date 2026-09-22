@@ -6,6 +6,15 @@
 photos/
 exports/
 
+# Real university export files (contain real students' PII: name, PRN, email, mobile, and on the
+# raw file, far more than that). These must never be committed, wherever they happen to be dropped.
+StudentConvocationDetailReport*.xls
+StudentConvocationDetailReport*.xlsx
+*.xls
+*.xlsx
+!tests/fixtures/**/*.xls
+!tests/fixtures/**/*.xlsx
+
 # Database dumps (SQL migration files are kept)
 *.dump
 *.sql

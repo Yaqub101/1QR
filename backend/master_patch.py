@@ -46,6 +46,8 @@ PATCHABLE_FIELDS: dict[str, str] = {
     "sequence_no": "Convocation sequence no.",
     "seat_no": "Seat no.",
     "status": "Master status",
+    "email": "Email",
+    "mobile": "Mobile",
 }
 
 # The master fields the LED's snapshot is built from -> the snapshot column they land in.
@@ -150,8 +152,8 @@ def apply_master_patch(engine, *, student_id, changes: Mapping[str, Any], reason
     with engine.begin() as conn:
         begin_master_patch_txn(conn)  # tells migration 0010's guard that this is the sanctioned door
         current = conn.execute(
-            text("SELECT id, prn, name, programme, school, photo_path, awards, sequence_no, seat_no, status "
-                 "FROM students WHERE id = :i FOR UPDATE"), {"i": str(student_id)}).mappings().one_or_none()
+            text("SELECT id, prn, name, programme, school, photo_path, awards, sequence_no, seat_no, status, "
+                 "email, mobile FROM students WHERE id = :i FOR UPDATE"), {"i": str(student_id)}).mappings().one_or_none()
         if current is None:
             raise MasterPatchError(404, "STUDENT_NOT_FOUND", "That student does not exist.")
         if not is_frozen(conn, current["id"]):

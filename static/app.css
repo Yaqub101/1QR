@@ -13,6 +13,7 @@ label { display:grid; gap:.25rem; font-weight:600; }
 input, select { font:inherit; padding:.6rem; border:1px solid var(--line); border-radius:6px; }
 button { font:inherit; padding:.5rem .9rem; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
 button.big { padding:.9rem 1.2rem; background:var(--brand); color:#fff; border:0; font-weight:700; }
+button.danger { background:var(--bad); color:var(--badink); border-color:var(--badink); }
 .flash { padding:.7rem 1rem; border-radius:6px; }
 .flash.ok { background:var(--ok); color:var(--okink); }
 .flash.bad { background:var(--bad); color:var(--badink); }

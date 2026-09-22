@@ -510,7 +510,11 @@ class TestSearchAndJourney:
         assert find(s.prn) == find(s.prn.lower()) == [str(s.id)]
         assert find("xylophone-qwe") == [str(s.id)]
         assert find(str(s.seq)) == [str(s.id)]
-        assert find("") == [] and find("   ") == []
+        # A blank (or whitespace-only) query is not "no results": it is the first page of every
+        # student, the same thing an admin sees on first opening the screen before typing anything.
+        # That is more useful for browsing the roster than an empty list would be.
+        total_students = scalar(engine, "SELECT count(*) FROM students")
+        assert len(find("")) == len(find("   ")) == min(total_students, 25)
         assert find("%") == [] and find("_") == []            # a typed wildcard matches nothing special
         assert find("no-one-has-this-name") == []
 

@@ -12,14 +12,27 @@ from __future__ import annotations
 import dataclasses
 import io
 import json
+import math
 import pathlib
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 MAX_NAME_LENGTH = 200  # characters; overlong if > this
+
+# Which pandas engine reads which spreadsheet format. openpyxl only understands the modern,
+# zip-based .xlsx/.xlsm container; a genuine legacy .xls (the OLE2/BIFF format most university
+# systems still export, including Apache POI's HSSFWorkbook) needs xlrd instead — openpyxl raises
+# on one immediately. Anything else is read as CSV.
+_EXCEL_ENGINE_BY_EXTENSION = {".xlsx": "openpyxl", ".xlsm": "openpyxl", ".xls": "xlrd"}
+
+
+def excel_engine_for(filename: str) -> Optional[str]:
+    """The pandas `engine=` this filename's extension needs, or None if it is not an Excel file at all."""
+    suffix = pathlib.Path((filename or "").lower()).suffix
+    return _EXCEL_ENGINE_BY_EXTENSION.get(suffix)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Column aliases accepted from the university's file (case-insensitive, stripped)
@@ -34,6 +47,8 @@ FIELD_LABELS = {
     "awards": "Awards",
     "photo": "Photo",
     "status": "Record Status",
+    "email": "Email",
+    "mobile": "Mobile",
 }
 REQUIRED_FIELDS = ["prn", "name", "programme", "school"]
 
@@ -71,7 +86,14 @@ _COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "status": [
         "status", "record status", "student status"
-    ]
+    ],
+    "email": [
+        "email", "email id", "e-mail", "e-mail id", "email address", "student email",
+    ],
+    "mobile": [
+        "mobile", "mobile no", "mobile no.", "mobile number", "phone", "phone number",
+        "contact number", "contact no", "contact no.",
+    ],
 }
 
 
@@ -133,9 +155,9 @@ def parse_file(
     Strips leading/trailing whitespace from all string values and column names.
     Empty strings are normalised to None.
     """
-    fname = filename.lower()
-    if fname.endswith(".xlsx") or fname.endswith(".xls"):
-        df = pd.read_excel(file_or_path, engine="openpyxl", dtype=str, keep_default_na=False)
+    engine = excel_engine_for(filename)
+    if engine:
+        df = pd.read_excel(file_or_path, engine=engine, dtype=str, keep_default_na=False)
     else:
         df = pd.read_csv(file_or_path, dtype=str, keep_default_na=False)
 
@@ -196,7 +218,7 @@ def validate_import(
     to_skip: list[dict] = []
 
     # Resolve per-row value using column_mapping
-    def _get(row_dict: dict, canonical_field: str) -> typing.Any:
+    def _get(row_dict: dict, canonical_field: str) -> Any:
         """Look up a canonical value from a row, trying both the mapped file
         column and the canonical name directly."""
         val = None
@@ -206,8 +228,7 @@ def validate_import(
                 break
         if val is None and canonical_field in row_dict:
             val = row_dict[canonical_field]
-            
-        import math
+
         if isinstance(val, float) and math.isnan(val):
             return None
         return val
@@ -267,18 +288,58 @@ def validate_import(
         values["seat_no"] = _get(row, "seat_no")
         values["awards"] = _get(row, "awards")
         values["photo_path"] = _get(row, "photo")
+        # Optional contact details. Many rows have no email at all — that is allowed, not an
+        # error and not even a note: only a MISSING PHOTO gets a warning below, because a photo
+        # affects the pass; a missing email or mobile affects nothing this system does today.
+        values["email"] = _get(row, "email")
+        values["mobile"] = _get(row, "mobile")
 
-        # ── Within-file duplicate PRN check ──────────────────────────────────
         prn = values.get("prn")
+
+        # Status has to be settled before the duplicate check just below: two rows that share a
+        # PRN but disagree on whether the student is active are a real conflict, not a repeat.
+        status = _get(row, "status")
+        if status and str(status).strip().lower() == "inactive":
+            row_warnings.append(ImportWarning(row=idx, field="status", prn=prn, message="Marked as inactive by the university, will be imported as inactive."))
+            values["status"] = "INACTIVE"
+        else:
+            values["status"] = "ACTIVE"
+
+        if not values.get("photo_path"):
+            row_warnings.append(ImportWarning(row=idx, field="photo", prn=prn, message="No photo provided."))
+        elif photo_dir:
+            photo_file = pathlib.Path(photo_dir) / values["photo_path"]
+            if not photo_file.exists():
+                row_warnings.append(ImportWarning(row=idx, field="photo", prn=prn, message=f"Photo named '{values['photo_path']}' not found in upload directory."))
+
+        # ── Within-file duplicate PRN ─────────────────────────────────────────
+        # An EXACT repeat of an earlier row — same PRN AND every other value the same — is the
+        # export tool listing the same student twice (a re-run report, a pagination artefact: the
+        # real university file does this with PRN 202308116012, same student, different Sr.No).
+        # That is a normal duplicate, exactly like a student already on the list: it is skipped,
+        # noted, and does NOT block the rest of the file. A PRN that repeats with DIFFERENT data
+        # is a genuine conflict — nothing here can guess which row is right — and still blocks.
+        exact_repeat = False
         if prn:
-            if prn in file_prns_seen:
+            earlier = file_prns_seen.get(prn)
+            if earlier is None:
+                file_prns_seen[prn] = {"row": idx, "values": dict(values)}
+            elif earlier["values"] == values:
+                exact_repeat = True
+                row_flags.append(FlaggedDuplicate(
+                    row=idx, prn=prn, type="in_file",
+                    message=f"Row {idx} repeats row {earlier['row']} exactly (also PRN '{prn}') — treated as a duplicate, not an error."))
+                row_warnings.append(ImportWarning(
+                    row=idx, field="prn", prn=prn,
+                    message=f"This row repeats row {earlier['row']} exactly. Only the first is imported."))
+            else:
                 row_errors.append(ImportError(
                     row=idx, field="prn",
-                    message=f"Duplicate PRN '{prn}' in file (also at row {file_prns_seen[prn]})",
+                    message=f"Duplicate PRN '{prn}' in file with different data (also at row {earlier['row']}) — cannot tell which is right",
                 ))
-                row_flags.append(FlaggedDuplicate(row=idx, prn=prn, type="in_file", message=f"Duplicate PRN in file at rows {file_prns_seen[prn]} and {idx}"))
-            else:
-                file_prns_seen[prn] = idx
+                row_flags.append(FlaggedDuplicate(
+                    row=idx, prn=prn, type="in_file",
+                    message=f"Duplicate PRN in file at rows {earlier['row']} and {idx}, with different data"))
 
         # ── Within-file duplicate sequence_no check ──────────────────────────
         if seq is not None:
@@ -292,26 +353,13 @@ def validate_import(
 
         errors.extend(row_errors)
         flagged_duplicates.extend(row_flags)
-        
-        # Collect basic warnings
-        status = _get(row, "status")
-        if status and str(status).strip().lower() == "inactive":
-            row_warnings.append(ImportWarning(row=idx, field="status", prn=prn, message="Marked as inactive by the university, will be imported as inactive."))
-            values["status"] = "INACTIVE"
-        else:
-            values["status"] = "ACTIVE"
-
-        if not values.get("photo_path"):
-            row_warnings.append(ImportWarning(row=idx, field="photo", prn=prn, message="No photo provided."))
-        elif photo_dir:
-            import pathlib
-            photo_file = pathlib.Path(photo_dir) / values["photo_path"]
-            if not photo_file.exists():
-                row_warnings.append(ImportWarning(row=idx, field="photo", prn=prn, message=f"Photo named '{values['photo_path']}' not found in upload directory."))
-
         warnings.extend(row_warnings)
 
         if row_errors:
+            continue
+
+        if exact_repeat:
+            to_skip.append({"row": idx, "prn": prn, **values})
             continue
 
         # ── Check against DB ─────────────────────────────────────────────────
@@ -365,9 +413,11 @@ def commit_import(
                 text(
                     """
                     INSERT INTO students (prn, name, programme, school,
-                                         sequence_no, seat_no, awards, photo_path, status)
+                                         sequence_no, seat_no, awards, photo_path, status,
+                                         email, mobile)
                     VALUES (:prn, :name, :programme, :school,
-                            :sequence_no, :seat_no, :awards, :photo_path, :status)
+                            :sequence_no, :seat_no, :awards, :photo_path, :status,
+                            :email, :mobile)
                     """
                 ),
                 {
@@ -380,6 +430,8 @@ def commit_import(
                     "awards": r.get("awards"),
                     "photo_path": r.get("photo_path"),
                     "status": r.get("status", "ACTIVE"),
+                    "email": r.get("email"),
+                    "mobile": r.get("mobile"),
                 },
             )
             created += 1
@@ -423,30 +475,27 @@ def read_and_validate(
     engine, content: bytes, filename: str, mapping: dict[str, str] | None = None,
     photo_dir: str | None = None
 ) -> tuple[list[str], list[dict], dict[str, str], ImportPreview]:
-    """Parse, detect columns (or apply preset), and validate all at once."""
-    from backend.import_presets import detect_preset, apply_preset
+    """Parse, detect columns (or apply a saved preset), and validate all at once.
 
-    # First attempt to parse as-is for detection
-    is_xls = filename.lower().endswith(".xls")
-    preset, header_row = detect_preset(content, engine="xlrd" if is_xls else "openpyxl")
+    Detection only ever runs against the file's OWN format's engine (`excel_engine_for`); a CSV is
+    never handed to `pandas.read_excel` at all, and an Excel file is never mis-read with the wrong
+    engine for its extension (openpyxl cannot open a legacy .xls; xlrd cannot open a modern .xlsx).
+    """
+    from backend.import_presets import apply_preset, detect_preset
+
+    excel_engine = excel_engine_for(filename)
+    preset, header_row = (detect_preset(content, engine=excel_engine) if excel_engine else (None, None))
 
     if preset:
-        # Re-parse skipping junk rows
         try:
-            if filename.lower().endswith(".xlsx"):
-                df = pd.read_excel(io.BytesIO(content), engine="openpyxl", header=header_row, dtype=str, keep_default_na=False)
-            elif filename.lower().endswith(".xls"):
-                df = pd.read_excel(io.BytesIO(content), engine="xlrd", header=header_row, dtype=str, keep_default_na=False)
-            else:
-                df = pd.read_csv(io.BytesIO(content), header=header_row, dtype=str, keep_default_na=False)
+            df = pd.read_excel(io.BytesIO(content), engine=excel_engine, header=header_row,
+                               dtype=str, keep_default_na=False)
         except Exception as exc:
             raise ValueError(str(exc))
-            
         cols, rows = apply_preset(preset, df)
-        # For a preset, the mapping is implied (columns are already canonical)
+        # For a preset, the mapping is implied (columns are already canonical): identity, always.
         mapping = {c: c for c in cols}
     else:
-        # Ordinary parse without preset
         try:
             cols, rows = parse_file(io.BytesIO(content), filename)
         except Exception as exc:
