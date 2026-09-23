@@ -24,13 +24,13 @@ For **TODO Phase 18** (Exit Gate 18: "each location passes the hardware checklis
 | **UPS** | The battery box that keeps things running when the mains power cuts. |
 | **Uplinks** | The two ways to reach the Internet: the venue broadband, and the 4G/5G SIM router. |
 
-**Numbers.** The desk counts below are the **starting plan** from TODO Phase 0 (Registration 6; Robe Allocation 5; Seating 4; Queue 3; Stage 1 plus 1 backup; Robe Return 4; Lunch 5). The project owner has not confirmed them. Write the final number in each blank when it is decided.
+**Numbers.** The desk counts below are the **starting plan** from TODO Phase 0 (Reporting 6; Robe Allocation 5; Seating 4; Queue 3; Stage 1 plus 1 backup; Robe Return 4; Lunch 5). The project owner has not confirmed them. Write the final number in each blank when it is decided.
 
 **Why so many spares:** the whole design says one broken thing must never stop a place (SYSTEM_SPEC section 18). Spares are how that is kept.
 
 ---
 
-# COLLEGE (Registration)
+# COLLEGE (Reporting)
 
 Place: ______________________  Date checked: ____ / ____ / ______
 
@@ -51,7 +51,7 @@ Place: ______________________  Date checked: ____ / ____ / ______
 
 - [ ] **SERVER laptop** is labelled SERVER, on Ethernet, and its health page shows `"db": "up"` (open `http://college.local:8000/health`, or the address on the setup card).
 - [ ] **STANDBY laptop** is labelled STANDBY, on Ethernet, and switched on. **[IT lead]** It is copying from the SERVER.
-- [ ] **Desk laptops:** number needed ____ (plan: 6 Registration). Each has its station name on a label. Each has been **bound to its station** by the Admin ("Set up this laptop"). Each has been signed in once by its own operator.
+- [ ] **Desk laptops:** number needed ____ (plan: 6 Reporting). Each has its station name on a label. Each has been **bound to its station** by the Admin ("Set up this laptop"). Each has been signed in once by its own operator.
 - [ ] **One spare desk laptop** is set up, charged and labelled SPARE.
 - [ ] **REBIND TEST.** The Admin binds the spare laptop to any station. It takes **under a minute**. Time it: ______ seconds.
 - [ ] **Chargers and batteries.** Every laptop is fully charged and has its charger. Desks are near a power socket.
@@ -81,9 +81,9 @@ Place: ______________________  Date checked: ____ / ____ / ______
 ## E. Paper (the last resort)
 
 - [ ] **Fallback sheets printed** after the master list was frozen. **[IT lead]** They were made with `scripts/fallback_sheets.py`. The **total on the sheet equals the master count** the Admin gave us: sheet says ______, Admin says ______.
-- [ ] The Registration sheet is at **every** Registration desk, plus a spare copy.
+- [ ] The Reporting sheet is at **every** Reporting desk, plus a spare copy.
 - [ ] The **one-page failover sheet** for College ([docs/failover/COLLEGE.md](../failover/COLLEGE.md)) is printed and kept **next to the STANDBY laptop** and with the Admin. The phone numbers on it are filled in.
-- [ ] The **one-page instruction sheet** for the Registration desk is at every desk.
+- [ ] The **one-page instruction sheet** for the Reporting desk is at every desk.
 - [ ] Pens and clipboards for the paper sheets.
 
 **Signed off**

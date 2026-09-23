@@ -19,13 +19,13 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         activity="REGISTRATION",
         prerequisites=(),
         display_fields=("prn", "programme", "school"),
-        confirm_label="CONFIRM REGISTRATION",
-        duplicate_message="ALREADY REGISTERED — {time}",
+        confirm_label="CONFIRM REPORTING",
+        duplicate_message="ALREADY REPORTED — {time}",
         flag_rules=("late_registration",),  # after the cutoff: accepted and flagged LATE
     ),
     "THOBE_ALLOCATION": ActivityConfig(
         activity="THOBE_ALLOCATION",
-        prerequisites=(Prerequisite("REGISTRATION", "ROBE NOT AVAILABLE — REGISTRATION PENDING"),),
+        prerequisites=(Prerequisite("REGISTRATION", "ROBE NOT AVAILABLE — REPORTING PENDING"),),
         display_fields=("prn", "programme", "school"),
         confirm_label="CONFIRM ROBE GIVEN",
         duplicate_message="ROBE ALREADY ALLOCATED — {time}",

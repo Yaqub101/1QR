@@ -396,7 +396,7 @@ def test_activity_events_untouched(engine, tmp_path):
     p_journey = f"PRN_JRN_{uuid.uuid4().hex[:6]}"
     with engine.begin() as conn:
         s_id = _insert_student(conn, p_journey, "Journey Student")
-        # Add a Registration event
+        # Add a Reporting event
         conn.execute(
             text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details) "
                  "VALUES (:sid, 'REGISTRATION', 'COMPLETE', gen_random_uuid(), ARRAY[]::text[], '{}'::jsonb)"),

@@ -7,9 +7,9 @@
   <div class="stat"><b id="n-reported">{{ d.counts.reported }}</b><span>Reported</span></div>
   <div class="stat"><b id="n-yet">{{ d.counts.yet_to_report }}</b><span>Yet to report</span></div>
   <div class="stat"><b id="n-pct">{{ d.counts.reporting_percent }}%</b><span>Reporting</span></div>
-  <div class="stat"><b id="n-not-attended">{{ d.counts.not_attended }}</b><span>Not attended (never registered)</span></div>
+  <div class="stat"><b id="n-not-attended">{{ d.counts.not_attended }}</b><span>Not attended (never reported)</span></div>
 </div>
-{% if d.counts.registration_reversed %}<p class="muted">{{ d.counts.registration_reversed }} of the yet-to-report students had a registration that an Admin reversed.</p>{% endif %}
+{% if d.counts.registration_reversed %}<p class="muted">{{ d.counts.registration_reversed }} of the yet-to-report students had their reporting reversed by an Admin.</p>{% endif %}
 
 <h2>Journey funnel</h2>
 <table class="funnel">

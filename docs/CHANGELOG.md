@@ -1,3 +1,19 @@
+## [0.18.0] - "Registration" (the activity) is now called "Reporting"
+
+### Changed
+- Operator screen: `CONFIRM REPORTING`, `ALREADY REPORTED — {time}`, `ROBE NOT AVAILABLE — REPORTING PENDING`.
+- The activity/role name is **Reporting** in the station heading, user management, reports, the student history
+  and the funnel. "Not Attended (never reported)", "Incomplete journey (reported, not yet exited)".
+- Report slug `late-registrations` is now `late-reporting` ("Late reporting").
+- AGENTS.md, SYSTEM_SPEC, TODO, the ops docs, README, `.env.example`.
+
+### Not changed (on purpose)
+- The activity code `REGISTRATION` and everything derived from it: the station URL `/station/registration`,
+  the `activity-registration` report slug, Python names and stored data. The same reasoning applies as for `THOBE_*`.
+- "Registered" in the sense of *on the master list* is a different meaning and stays: the `REGISTERED / NOT
+  REPORTED` status, the dashboard's "Registered (master list)" count, the "paid-registrations" import wording.
+- The backup milestone label `after-registration-closes` (existing dump files are named with it).
+
 ## [0.17.0] - "Thobe" is now called "Robe"
 
 ### Changed

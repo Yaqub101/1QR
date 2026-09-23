@@ -15,11 +15,11 @@ The brief says not to redesign the workflow unless there is a genuine contradict
 
 | # | Issue | Resolution in this spec |
 |---|---|---|
-| C1 | **Strict sequence vs. offline across locations.** The Stadium needs to know Registration (done at College). The Hall needs to know Stage completion and the issued robe number (done at Stadium). If a link is down, that data may be stale. | Section 11: single-writer ownership plus a **provisional acceptance** policy. **DECIDED:** accept as provisional; Admin reviews later. |
+| C1 | **Strict sequence vs. offline across locations.** The Stadium needs to know Reporting (done at College). The Hall needs to know Stage completion and the issued robe number (done at Stadium). If a link is down, that data may be stale. | Section 11: single-writer ownership plus a **provisional acceptance** policy. **DECIDED:** accept as provisional; Admin reviews later. |
 | C2 | ~~Robe Return compares the returned robe with the issued robe number.~~ | **RESOLVED — no longer applies.** All robes are identical and unnumbered, so Allocation and Return are simple confirmations. There is no number to compare and no mismatch state. |
-| C3 | **"Not Attended" wording (Section 4).** Attendance = Registration done, but "students who did not complete the required journey can be identified as Not Attended". These conflict. | **DECIDED:** Not Attended = never registered. "Journey incomplete" is a separate exceptions report. |
+| C3 | **"Not Attended" wording (Section 4).** Attendance = Reporting done, but "students who did not complete the required journey can be identified as Not Attended". These conflict. | **DECIDED:** Not Attended = never reported. "Journey incomplete" is a separate exceptions report. |
 | C4 | **Queue Position vs. Sequence Number.** Sequence number is the official order; queue position is dynamic. What decides who is "Next" on stage? | **DECIDED:** Stage "Next" = the order students were queued (first come, first shown). Queue Position = order of queue confirmation (1, 2, 3…), decided by a per-venue counter, not by clock time. The university Sequence Number is still shown and stored, and is used for reporting and an out-of-sequence report, but it does not control the stage order. |
-| C5 | **Fallback outside Registration.** Manual PRN search is defined only for Registration. A damaged QR can occur at any station. | **DECIDED:** PRN-only manual search is available at all 7 stations, with the same photo/visual-verification rule as Registration. Manual entries are flagged `MANUAL` in the audit trail. |
+| C5 | **Fallback outside Reporting.** Manual PRN search is defined only for Reporting. A damaged QR can occur at any station. | **DECIDED:** PRN-only manual search is available at all 7 stations, with the same photo/visual-verification rule as Reporting. Manual entries are flagged `MANUAL` in the audit trail. |
 | C6 | **Lost-robe dead-end.** If a student doesn't return their robe, Return stays blocked and so does Lunch. No path is defined for a lost or unreturned robe. | **DECIDED:** Admin-only resolution path (Section 16): Admin approves "Return Waived / Lost" with a reason, which unlocks Lunch. |
 | C7 | **"Exactly one Central Administrator"** is itself a single point of failure (illness, phone dead). | **DECIDED:** one Admin plus a named deputy account with identical powers. |
 
@@ -48,7 +48,7 @@ REGISTERED → REPORTED → ROBE NOT RECEIVED → NOT SEATED → NOT QUEUED
 
 | Step | Activity | Location | Student status *after* completing it |
 |---|---|---|---|
-| 1 | Registration | College | REPORTED / ROBE NOT RECEIVED |
+| 1 | Reporting | College | REPORTED / ROBE NOT RECEIVED |
 | 2 | Robe Allocation | Stadium | NOT SEATED |
 | 3 | Seating | Stadium | NOT QUEUED |
 | 4 | Queue | Stadium | DEGREE NOT RECEIVED |
@@ -64,7 +64,7 @@ There is no Exit station. Lunch completion = EXITED.
 
 | Activity | Operator sees | Operator does | Data recorded |
 |---|---|---|---|
-| Registration | Photo, name, PRN, programme, school, sequence no. | Visually verifies, confirms | Time, station, operator |
+| Reporting | Photo, name, PRN, programme, school, sequence no. | Visually verifies, confirms | Time, station, operator |
 | Robe Allocation | Student details | Hands over one robe and confirms (robes are identical: no numbers, no sizes) | Time, station, operator |
 | Seating | Student + university-assigned seat | Confirms seating (does NOT choose the seat) | Seat, time, operator |
 | Queue | Student, sequence no., current queue position | Confirms queue | Queue confirm time, position at that time |
@@ -84,7 +84,7 @@ There is no Exit station. Lunch completion = EXITED.
 
 | Role | Count | Can do |
 |---|---|---|
-| Registration Operator | per desk | Registration page only |
+| Reporting Operator | per desk | Reporting page only |
 | Robe Allocation Operator | 1+ | Robe Allocation page only |
 | Seating Operator | 1+ | Seating page only |
 | Queue Operator | 1+ | Queue page only |
@@ -105,8 +105,8 @@ Rules:
 The status is **derived**, not stored by hand, from a student's completed events:
 
 ```
-No Registration event                  → REGISTERED / NOT REPORTED
-Registration done                      → REPORTED / ROBE NOT RECEIVED
+No Reporting event                  → REGISTERED / NOT REPORTED
+Reporting done                      → REPORTED / ROBE NOT RECEIVED
 + Robe Allocation                     → NOT SEATED
 + Seating                              → NOT QUEUED
 + Queue                                → DEGREE NOT RECEIVED
@@ -154,7 +154,7 @@ SCAN → valid token? → student exists? → prerequisites OK? → already done
  local router/switch       local router/switch        local router/switch
  dual internet (WAN)       dual internet (WAN)        dual internet (WAN)
         │                          │                          │
- Registration desks       Robe · Seating · Queue      Robe Return · Lunch
+ Reporting desks       Robe · Seating · Queue      Robe Return · Lunch
                           Stage Controller + LED
 ```
 
@@ -251,11 +251,11 @@ This is the heart of the design. The questions the brief required answering:
 
 | Activity | Only written by |
 |---|---|
-| Registration | COLLEGE |
+| Reporting | COLLEGE |
 | Robe Allocation, Seating, Queue, Stage | STADIUM |
 | Robe Return, Lunch | HALL |
 
-A Hall server **rejects** a Registration event. A College server can't record Lunch. So two venues can never create competing records for the same student and activity. This removes almost all conflict cases by design.
+A Hall server **rejects** a Reporting event. A College server can't record Lunch. So two venues can never create competing records for the same student and activity. This removes almost all conflict cases by design.
 
 ### 11.3 Same student scanned at two locations during an outage?
 The student can legitimately be scanned at different venues for *different* activities (normal). The only real risk is a **duplicate within one venue**, which the venue's own database blocks with a unique constraint on (student, activity).
@@ -267,12 +267,12 @@ The student can legitimately be scanned at different venues for *different* acti
 
 ### 11.5 Cross-location prerequisites when data may be stale (the C1/C2 issue)
 
-The Stadium needs Registration (from College). The Hall needs Stage completion and the issued robe number (from Stadium). Rules:
+The Stadium needs Reporting (from College). The Hall needs Stage completion and the issued robe number (from Stadium). Rules:
 
 | Situation | Behaviour |
 |---|---|
 | Prerequisite is present locally | Allow normally |
-| Prerequisite is missing **and** the owning venue synced recently (fresh, e.g. within 2 minutes) | **Block**: the student genuinely hasn't done it. Show "NOT AVAILABLE — REGISTRATION PENDING" |
+| Prerequisite is missing **and** the owning venue synced recently (fresh, e.g. within 2 minutes) | **Block**: the student genuinely hasn't done it. Show "NOT AVAILABLE — REPORTING PENDING" |
 | Prerequisite is missing **and** the owning venue's data is stale (sync gap) | Accept as **PROVISIONAL**; operator sees a normal confirmation |
 | Provisional event later disproved on sync | Admin gets an exception; the student's record is flagged; nothing is silently deleted |
 | Robe Return when the Stadium's Robe Allocation record hasn't synced yet | Accept as **PROVISIONAL**; if the allocation never appears after sync, the Admin gets an exception |
@@ -424,7 +424,7 @@ Per venue:
 | Continuous copy of events | Real time when connected | Central (off-site) |
 | Standby copy | Continuous | Standby laptop at the same venue |
 | Full database dump | Every 5 minutes | Second device at the venue |
-| Milestone backups | Before event, after registration closes, after ceremony | Central + a USB drive kept by the Admin |
+| Milestone backups | Before event, after reporting closes, after ceremony | Central + a USB drive kept by the Admin |
 | Final export | End of event | Reports (CSV/XLSX) + database backup |
 
 **Recovery drills, rehearsed before the event:** restore a venue from a backup on a clean laptop; rebuild central from venue data; regenerate all reports from the restored data.
@@ -442,8 +442,8 @@ Per venue:
 1. Each venue starts primary + standby, confirms sync 🟢, runs a dummy scan at every station.
 2. Operators log in on their pre-bound stations.
 3. Admin monitors the dashboard and the exception list.
-4. Registration opens (College), then Stadium and Hall stations as students arrive.
-5. When registration closes, take a milestone backup.
+4. Reporting opens (College), then Stadium and Hall stations as students arrive.
+5. When reporting closes, take a milestone backup.
 6. After the ceremony: wait for all venues to reach 🟢 with 0 pending, take a backup, and export the final reports.
 
 **After the event:** reconcile exceptions, sign off the final reports, archive/wipe data per policy.
@@ -501,14 +501,14 @@ Chaos and rehearsal tests:
 Answered one at a time, in order of impact.
 
 1. ~~Cross-location stale-data policy~~ — **DECIDED:** provisional acceptance; Admin reviews later. *(Section 11.5)*
-2. ~~Definition of "Not Attended"~~ — **DECIDED:** never registered. Students who registered but didn't finish the journey appear in a separate "Incomplete journey" exceptions report.
+2. ~~Definition of "Not Attended"~~ — **DECIDED:** never reported. Students who registered but didn't finish the journey appear in a separate "Incomplete journey" exceptions report.
 3. ~~Stage order~~ — **DECIDED:** first come, first shown (order of queue confirmation). Sequence number is displayed and reported but does not control order.
 4. ~~Fallback at all stations~~ — **DECIDED:** PRN-only manual search at every station with photo check.
 5. ~~Lost/damaged robe path~~ — **DECIDED:** Admin-approved "Return Waived / Lost" with reason unlocks Lunch.
 6. ~~Deputy Admin~~ — **DECIDED:** one Admin plus a named deputy with identical powers; every action is audited under the individual's own login.
 7. ~~LED behaviour if Stadium server fails~~ — **DECIDED:** keep the current student for up to 10 seconds, then show the holding screen.
 8. ~~Robe details~~ — **DECIDED:** robes are identical and unnumbered, so Allocation and Return are simple confirmations (no number, no size, no comparison). **ASSUMPTION:** the goal is only to track that one was issued and returned; the final reports add a physical robe stock count check.
-9. **Numbers:** expected student count is **DECIDED: 1,000–3,000** (plan for 3,000). Registration window is **NOT DECIDED yet**; plan with 2 hours until confirmed. Still open: stations per activity per venue and registration cutoff (both follow from the window). *Sizing guide (ASSUMPTION: about 10–15 seconds per student per desk, so roughly 240–360 students per desk per hour):* a 2-hour registration window for 3,000 students needs about 5–6 registration desks. 3,000 students × 7 activities ≈ 21,000 events in total, which is small for PostgreSQL, so server load is not a concern; operator throughput is.
+9. **Numbers:** expected student count is **DECIDED: 1,000–3,000** (plan for 3,000). Reporting window is **NOT DECIDED yet**; plan with 2 hours until confirmed. Still open: stations per activity per venue and reporting cutoff (both follow from the window). *Sizing guide (ASSUMPTION: about 10–15 seconds per student per desk, so roughly 240–360 students per desk per hour):* a 2-hour reporting window for 3,000 students needs about 5–6 reporting desks. 3,000 students × 7 activities ≈ 21,000 events in total, which is small for PostgreSQL, so server load is not a concern; operator throughput is.
 10. **Central hosting:** account owner is **DECIDED: the university** (student data stays under the university's control). Still open: cloud provider and region (recommend a region in India for data residency), and who at the university IT team creates the account and grants the build team deploy access.
 11. **Photo/data pre-loading:** about **half of the student list is available now**; the delivery date for the rest is **not known yet**. Design consequence (DECIDED): the import must be incremental. Re-importing updates students by PRN without duplicates, generates tokens only for students who don't have one, and never changes an existing QR. Passes can be issued in batches. Recommend a **master freeze** (e.g. 24 hours before the event) after which changes go only through the Admin's logged "master patch", pushed to all three venues through sync. Still open: who delivers the rest of the list and photos, and by when.
 12. **Late arrivals:** flag only, or block after a cutoff?

@@ -50,7 +50,7 @@ Delete or disable entirely — do not leave dead code half-wired in:
   session. **The logged-in operator's ROLE determines which activity they can
   perform**, from that same generic scan screen, wherever they are.
 - **Role list stays the same as before**, just untied from a venue:
-  Registration Operator, Robe Allocation Operator, Seating Operator, Queue
+  Reporting Operator, Robe Allocation Operator, Seating Operator, Queue
   Operator, Stage Operator, Robe Return Operator, Lunch Operator, Admin, Deputy
   Admin. A person can hold more than one role if you want that (e.g., cover two
   activities) — confirm with the project owner if that's needed; default to one
@@ -114,7 +114,7 @@ Do this carefully:
    Do NOT just delete failing tests to make the suite green — replace venue-based
    test scenarios with role-based equivalents that test the same underlying
    guarantee (e.g., "a Robe operator cannot confirm a Lunch activity" instead of
-   "the Hall server rejects a Registration event").
+   "the Hall server rejects a Reporting event").
    Update docs/TODO.md's phase table to reflect Phases 14 and 15 being dropped and
    Phases 5, 6, 17, 18 being simplified, per this document's "Updated TODO.md phase
    status" section — reconcile it properly against the file's actual structure,

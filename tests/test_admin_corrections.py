@@ -111,7 +111,7 @@ class TestReversalNeverMutatesHistory:
         assert a[0]["student_id"] == s.id and a[0]["activity"] == "SEATING" and "CORRECTED" in a[0]["flags"]
 
     def test_the_derived_status_changes_because_a_row_was_added_not_because_one_was_edited(self, apps, engine):
-        s, ids = journey_upto(engine, "THOBE_RETURN")               # Registration .. Stage done
+        s, ids = journey_upto(engine, "THOBE_RETURN")               # Reporting .. Stage done
         status = lambda: scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id)  # noqa: E731
         assert status() == "ROBE NOT RETURNED"
         assert reverse(apps, "stadium", ids["STAGE"], "pressed COMPLETE by accident").status_code == 200
@@ -211,15 +211,15 @@ class TestReversalNeverMutatesHistory:
 
     def test_after_a_reversal_the_student_can_be_done_again_and_duplicates_are_still_blocked(self, apps, engine, world):
         s = make_student(engine)
-        registration = operator(apps, world, "REGISTRATION")
-        first = confirm(registration, "REGISTRATION", token=s.token).json()
+        reporting = operator(apps, world, "REGISTRATION")
+        first = confirm(reporting, "REGISTRATION", token=s.token).json()
         assert first["result"] == "CONFIRMED"
         original = scalar(engine, "SELECT event_id FROM activity_events WHERE student_id = :s AND kind = 'COMPLETE'", s=s.id)
-        assert confirm(registration, "REGISTRATION", token=s.token).json()["result"] == "DUPLICATE"
+        assert confirm(reporting, "REGISTRATION", token=s.token).json()["result"] == "DUPLICATE"
         assert reverse(apps, "college", original, "wrong student").status_code == 200
-        assert scan(registration, "REGISTRATION", s.token).json()["result"] == "READY"       # reopened, by a NEW row
-        assert confirm(registration, "REGISTRATION", token=s.token).json()["result"] == "CONFIRMED"
-        assert confirm(registration, "REGISTRATION", token=s.token).json()["result"] == "DUPLICATE"
+        assert scan(reporting, "REGISTRATION", s.token).json()["result"] == "READY"       # reopened, by a NEW row
+        assert confirm(reporting, "REGISTRATION", token=s.token).json()["result"] == "CONFIRMED"
+        assert confirm(reporting, "REGISTRATION", token=s.token).json()["result"] == "DUPLICATE"
         cycles = rows(engine, "SELECT kind, completion_cycle FROM activity_events WHERE student_id = :s ORDER BY server_time", s=s.id)
         assert [(r["kind"], r["completion_cycle"]) for r in cycles] == [("COMPLETE", 1), ("REVERSAL", 1), ("COMPLETE", 2)]
         assert scalar(engine, "SELECT kind FROM activity_events WHERE event_id = :e", e=original) == "COMPLETE"  # cycle 1 still there

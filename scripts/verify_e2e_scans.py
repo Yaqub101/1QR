@@ -2,7 +2,7 @@
 
 Verifies:
 1. QR decodability against live PDF and database.
-2. Role gating for all 8 roles (Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch, Admin).
+2. Role gating for all 8 roles (Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch, Admin).
 3. Sequential/prerequisite enforcement.
 4. Duplicate scan handling.
 5. Full 7-activity journey for one student with intermediate status checks and final EXITED check.
@@ -245,7 +245,7 @@ def main():
     prn_a = student_a["prn"]
     print(f"Fresh Test Student A: {student_a['name']} (PRN: {prn_a})")
 
-    # Pair 1: Robe Allocation BEFORE Registration
+    # Pair 1: Robe Allocation BEFORE Reporting
     print("\n--- Prerequisite Pair 1: THOBE_ALLOCATION before REGISTRATION ---")
     tok_thobe = login("2", "12345678")
     print("Step 3.1: Operator '2' attempts /confirm for THOBE_ALLOCATION (Prereq REGISTRATION missing):")
@@ -259,7 +259,7 @@ def main():
     print(f"Response Body: {json.dumps(body_t1, indent=2)}")
     assert status_t1 == 200
     assert body_t1["result"] == "REJECTED"
-    assert "REGISTRATION PENDING" in body_t1["message"]
+    assert "REPORTING PENDING" in body_t1["message"]
 
     print("\nStep 3.2: Operator '1' confirms REGISTRATION:")
     tok_reg = login("1", "12345678")
@@ -402,13 +402,13 @@ def main():
     print(f"Initial DB Status: step {step0} -> '{status0}'")
     assert status0 == "REGISTERED / NOT REPORTED"
 
-    # Step 1: Registration
+    # Step 1: Reporting
     print("\n--- 1/7: REGISTRATION ---")
     st1, bd1, _ = http_req("/confirm", "POST", {"token": tok_b, "activity": "REGISTRATION"}, token=login("1", "12345678"))
     print(f"HTTP Status: {st1}\nResponse: {json.dumps(bd1, indent=2)}")
     assert st1 == 200 and bd1["result"] == "CONFIRMED"
     s1_step, s1_status = get_student_status(sid_b)
-    print(f"Post-Registration DB Status: step {s1_step} -> '{s1_status}'")
+    print(f"Post-Reporting DB Status: step {s1_step} -> '{s1_status}'")
     assert s1_status == "REPORTED / ROBE NOT RECEIVED"
 
     # Step 2: Robe Allocation

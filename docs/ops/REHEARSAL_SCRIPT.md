@@ -53,14 +53,14 @@ This is a **walk-through with checks**, read out by a Director, watched by Obser
 
 ### The cast (the Director fills in the PRN of each; the state means "which steps this student has ALREADY done before the scenario starts")
 
-**Step count.** Steps in order: 1 Registration, 2 Robe Allocation, 3 Seating, 4 Queue, 5 Stage, 6 Robe Return, 7 Lunch. **State N** = the first N steps are done and nothing else.
+**Step count.** Steps in order: 1 Reporting, 2 Robe Allocation, 3 Seating, 4 Queue, 5 Stage, 6 Robe Return, 7 Lunch. **State N** = the first N steps are done and nothing else.
 
 | Label | PRN | Start state | Used in |
 |---|---|---|---|
 | **S1** | | 0 (nothing) | Scenarios 1 and 2 |
 | **F1** | | 2 (registered, robe given) | Scenario 2 |
 | **S2** | | 1 (registered only) | Scenario 3 |
-| **S3** | | 0 (never registered) | Scenario 3 |
+| **S3** | | 0 (never reported) | Scenario 3 |
 | **S4** | | 2 | Scenario 3 |
 | **S5** | | 5 (through Stage; robe **not** returned) | Scenarios 3 and 8 |
 | **S7** | | 0 | Scenario 4 (damaged QR, PRN search) |
@@ -96,7 +96,7 @@ The Director gets the states ready by having the operators scan the dummy studen
 
 | # | Where | Who | What happens |
 |---|---|---|---|
-| 1 | College, Registration | Operator | Scans S1's pass. Looks at the photo. Presses **CONFIRM REGISTRATION**. |
+| 1 | College, Reporting | Operator | Scans S1's pass. Looks at the photo. Presses **CONFIRM REPORTING**. |
 | 2 | Stadium, Robe Allocation | Operator | Scans. Hands over one robe. Presses **CONFIRM ROBE GIVEN**. |
 | 3 | Stadium, Seating | Operator | Scans. Reads the seat the university assigned. Presses **CONFIRM SEATING**. The operator does **not** choose a seat. |
 | 4 | Stadium, Queue | Operator | Scans. Presses **CONFIRM QUEUE**. |
@@ -119,7 +119,7 @@ The Director gets the states ready by having the operators scan the dummy studen
 
 **Then the Admin opens S1's page ("Find a student") at any place, once all places show 🟢:**
 
-- [ ] The Journey table has **exactly seven rows**, one per activity, in this order: Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch.
+- [ ] The Journey table has **exactly seven rows**, one per activity, in this order: Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch.
 - [ ] Every row says **COMPLETE** in the Record column and **ACTIVE** in the State column. There are no flags, no reasons, no reversals.
 - [ ] The **Station / by** column shows the right station name and the operator's name for each row. (Write the station names here: ________________________)
 - [ ] The times **increase** down the table and match the Observers' wall-clock notes to within a minute.
@@ -139,7 +139,7 @@ The Director gets the states ready by having the operators scan the dummy studen
 
 | # | Where | Operator scans S1's pass again | You should see: **amber** banner reading |
 |---|---|---|---|
-| 1 | College, Registration | again | `ALREADY REGISTERED — <time>` |
+| 1 | College, Reporting | again | `ALREADY REPORTED — <time>` |
 | 2 | Stadium, Robe Allocation | again | `ROBE ALREADY ALLOCATED — <time>` |
 | 3 | Stadium, Seating | again | `SEATING ALREADY COMPLETED — SEAT <seat> — <time>` |
 | 4 | Stadium, Queue | again | `ALREADY IN QUEUE — POSITION <n> — <time>` |
@@ -174,15 +174,15 @@ The desks must say **no**, in one plain sentence, and record nothing. All places
 
 | # | Where | Student | What the operator does | You should see: **red** banner reading |
 |---|---|---|---|---|
-| 1 | **College** | | Registration is the first step, so **there is nothing to skip here.** Write "n/a, first step" and go on. | n/a |
+| 1 | **College** | | Reporting is the first step, so **there is nothing to skip here.** Write "n/a, first step" and go on. | n/a |
 | 2 | **Stadium**, Seating | S2 (registered only) | Scans S2's pass | `SEATING NOT AVAILABLE — ROBE NOT RECEIVED` |
 | 3 | **Stadium**, Queue | S4 (robe given, not seated) | Scans S4's pass | `QUEUE NOT AVAILABLE — SEATING PENDING` |
-| 4 | **Stadium**, Robe Allocation | S3 (never registered) | Scans S3's pass | `ROBE NOT AVAILABLE — REGISTRATION PENDING` |
+| 4 | **Stadium**, Robe Allocation | S3 (never reported) | Scans S3's pass | `ROBE NOT AVAILABLE — REPORTING PENDING` |
 | 5 | **Hall**, Robe Return | S4 (no Stage yet) | Scans S4's pass | `ROBE RETURN NOT AVAILABLE — STAGE PENDING` |
 | 6 | **Hall**, Lunch | S5 (robe not returned) | Scans S5's pass | `LUNCH NOT AVAILABLE — ROBE RETURN PENDING` |
 
 - [ ] Every row 2 to 6: the banner is **red**, the message is **one plain sentence**, and there is **no confirm button**.
-- [ ] Rows 2, 3 and 6 are **same-place** blocks. Rows 4 and 5 are **cross-place** blocks (Registration is done at College, Stage at Stadium).
+- [ ] Rows 2, 3 and 6 are **same-place** blocks. Rows 4 and 5 are **cross-place** blocks (Reporting is done at College, Stage at Stadium).
 - [ ] After each, the student's Admin page shows **no new record**. The attempt appears under **"Refused and repeated scans"** with the same message.
 - [ ] Each place's dashboard **Out-of-order attempts** went up by the number tried there (Stadium 3, Hall 2).
 - [ ] **Stage** cannot be skipped by a scan: there is no scan on the Stage screen. The Stage operator can only show someone who is waiting in the queue. Write "n/a" for Stage.
@@ -210,7 +210,7 @@ SELECT occurred_at, station_id, result, message FROM scan_log WHERE result = 'IN
 The operator says "the QR will not scan". They open **"QR damaged? Search by PRN"**, type S7's PRN and press **Search**.
 
 - [ ] The student's card with **photo** appears with the blue banner *Check the photo, then confirm.* The operator **looks at the person in front of them** and compares the photo. Only then presses confirm.
-- [ ] **Green** *Done.* Do this at **three** desks: Registration (College), Robe Allocation (Stadium), Seating (Stadium). Write which: ________________
+- [ ] **Green** *Done.* Do this at **three** desks: Reporting (College), Robe Allocation (Stadium), Seating (Stadium). Write which: ________________
 - [ ] Once all places show 🟢, the Admin dashboard **Manual entries** number is **3 higher** than before, at each place.
 - [ ] Open the report **Reports and exports, "Manual entries"**: S7 is listed 3 times, one per activity, flagged **MANUAL**. The Journey page for S7 shows **MANUAL** in the Flags column.
 - [ ] **Stage:** the Stage operator uses **SEARCH** on the Stage screen (type a name or PRN of someone waiting in the queue). That is the Stage's own version of the PRN search. Tick when tried in Scenario 7: [ ]
@@ -218,15 +218,15 @@ The operator says "the QR will not scan". They open **"QR damaged? Search by PRN
 
 **C. Inactive student (S8)**
 
-- [ ] At Registration, the operator scans S8's pass. **Red**: `STUDENT NOT ACTIVE — CONTACT ADMIN`. No confirm button. No record.
+- [ ] At Reporting, the operator scans S8's pass. **Red**: `STUDENT NOT ACTIVE — CONTACT ADMIN`. No confirm button. No record.
 
 **PASS** if every box is ticked.
 
 ---
 
-## Scenario 5: Late registration, then close registration
+## Scenario 5: Late reporting, then close reporting
 
-**Where:** College.  **Who:** the Director and a Registration operator.  **Students:** S9, S10.
+**Where:** College.  **Who:** the Director and a Reporting operator.  **Students:** S9, S10.
 
 1. **The Director sets the cutoff to 5 minutes from now** (at the **College** server):
 
@@ -240,16 +240,16 @@ UPDATE settings SET late_cutoff = now() + interval '5 minutes' WHERE id = 1;
 3. **Wait until the wall clock is past the cutoff** (the Director says "cutoff has passed").
 4. **After the cutoff:** the operator registers **S10**.
 
-- [ ] Both registrations show a normal **green** *Done.* The operator is **not** told anything different for S10. (Late registration is accepted.)
+- [ ] Both reporting show a normal **green** *Done.* The operator is **not** told anything different for S10. (Late reporting is accepted.)
 - [ ] S9's Journey row has **no flag**. S10's Journey row shows **LATE** in the Flags column.
-- [ ] **Reports and exports, "Late registrations"** lists **S10 and only S10** (plus nobody else, as no earlier registration was after the cutoff).
+- [ ] **Reports and exports, "Late reporting"** lists **S10 and only S10** (plus nobody else, as no earlier reporting was after the cutoff).
 - [ ] The Director then **clears the cutoff** so the rest of the rehearsal is not flagged LATE:
 
 ```sql
 UPDATE settings SET late_cutoff = NULL WHERE id = 1;
 ```
 
-**Then: "registration has closed" (SYSTEM_SPEC 22, step 5).** The Director calls it. **At each place:**
+**Then: "reporting has closed" (SYSTEM_SPEC 22, step 5).** The Director calls it. **At each place:**
 
 - [ ] The IT lead takes a **milestone backup**: `python -m backend.ha.backup milestone --label after-registration-closes`. It prints `written: ...`. College [ ]  Stadium [ ]  Hall [ ]
 
@@ -372,7 +372,7 @@ This is a **full** outage: **unplug both Stadium uplinks** (broadband **and** th
 **You should see while the Stadium is offline:**
 
 - [ ] **Step 2:** the Stadium operators see **nothing different**. No error, no "one moment". They are never asked to do anything (offline is not stopped).
-- [ ] **Step 4 (inside the first minute or two):** **red** `ROBE NOT AVAILABLE — REGISTRATION PENDING`. The Stadium's information about the College is still recent, so the software says the student truly has not registered.
+- [ ] **Step 4 (inside the first minute or two):** **red** `ROBE NOT AVAILABLE — REPORTING PENDING`. The Stadium's information about the College is still recent, so the software says the student truly has not registered.
 - [ ] **After about two minutes** the Stadium Admin dashboard's **Sync and freshness** table shows the Stadium as **🟡 OFFLINE — LOCAL MODE · N waiting**. Write the time it turned 🟡: ______  N at that moment: ______ . N **grows** as work continues: ______ later.
 - [ ] College and Hall still show 🟢 for themselves.
 - [ ] **Step 5:** now the same scan gives the normal **blue** card and a **green** *Done.* The operator is **not** told it is provisional. The Stadium's information is old, so the software accepts it and flags it.
@@ -470,13 +470,13 @@ Take these from the exported reports and the dashboard. Write the numbers:
 | Check | Numbers | Pass if |
 |---|---|---|
 | **Master count** (from the university's file) | ______ | this is the population |
-| **Reported + Not attended + Registration reversed** | ______ + ______ + ______ = ______ | equals the master count |
-| For **each of the seven "Everyone" (per-activity) reports**: completed + not completed | Registration ____ Robe ____ Seating ____ Queue ____ Stage ____ Return ____ Lunch ____ | each equals the master count |
+| **Reported + Not attended + Reporting reversed** | ______ + ______ + ______ = ______ | equals the master count |
+| For **each of the seven "Everyone" (per-activity) reports**: completed + not completed | Reporting ____ Robe ____ Seating ____ Queue ____ Stage ____ Return ____ Lunch ____ | each equals the master count |
 | **Robe stock check** ("Robe count" report) | issued ______ = returned ______ + waived ______ + outstanding ______ | the left side equals the right side |
 | **Stage outcomes**: completed + skipped-and-not-completed | ______ + ______ | matches the Director's tally |
 | **Provisional entries** | dashboard ____  report ____ | equal, and equal to what Scenario 9 planned |
 | **Manual entries** | dashboard ____  report ____ | equal, and equal to the Director's tally (Scenario 4) |
-| **Late registrations** | report ____ | equals the Director's tally (Scenario 5) |
+| **Late reporting** | report ____ | equals the Director's tally (Scenario 5) |
 | **Funnel numbers at College, Stadium, Hall and central** | ____ / ____ / ____ / ____ | all four are identical |
 
 - [ ] Every row passes.
@@ -500,7 +500,7 @@ Take these from the exported reports and the dashboard. Write the numbers:
 
 | Activity | Confirmed by operators (count) | Should equal, on the Admin dashboard funnel |
 |---|---|---|
-| Registration | | |
+| Reporting | | |
 | Robe Allocation | | |
 | Seating | | |
 | Queue | | |
@@ -526,7 +526,7 @@ Timings to write down (Exit Gate 19 also wants these):
 | 2 Duplicate scans | | | | |
 | 3 Skipped steps | | | | |
 | 4 Unknown / damaged / inactive | | | | |
-| 5 Late registration | | | | |
+| 5 Late reporting | | | | |
 | 6 Queue ordering | | | | |
 | 7 Wrong student, HOME, SKIP, PREVIOUS | | | | |
 | 8 Lost robe waiver | | | | |

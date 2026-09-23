@@ -1,6 +1,6 @@
 # Station Contract — configuring an activity on the station engine
 
-**Audience:** whoever builds Phases 7–12 (Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch).
+**Audience:** whoever builds Phases 7–12 (Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch).
 **You need to have read:** `AGENTS.md`, `docs/ARCHITECTURE_PIVOT.md` and this file. Nothing else about the codebase is assumed.
 **Authority:** `docs/SYSTEM_SPEC.md` decides behaviour, as amended by `docs/ARCHITECTURE_PIVOT.md`; this file decides *how you express it*. If they disagree, stop and ask the project owner.
 
@@ -97,8 +97,8 @@ All seven are already in `activities.py` (the engine's own test-suite needs all 
 
 | Activity (phase) | Prerequisites → message when missing | Card fields | Confirm label | Already-done message | Extras in config | Not covered by the engine (ask / build separately) |
 |---|---|---|---|---|---|---|
-| **REGISTRATION** (7) | none | prn, programme, school, sequence_no | CONFIRM REGISTRATION | `ALREADY REGISTERED — {time}` | flag rule `late_registration` | setting the cutoff |
-| **THOBE_ALLOCATION** (8) | REGISTRATION → `ROBE NOT AVAILABLE — REGISTRATION PENDING` | prn, programme, school | CONFIRM ROBE GIVEN | `ROBE ALREADY ALLOCATED — {time}` | — | — |
+| **REGISTRATION** (7) | none | prn, programme, school, sequence_no | CONFIRM REPORTING | `ALREADY REPORTED — {time}` | flag rule `late_registration` | setting the cutoff |
+| **THOBE_ALLOCATION** (8) | REGISTRATION → `ROBE NOT AVAILABLE — REPORTING PENDING` | prn, programme, school | CONFIRM ROBE GIVEN | `ROBE ALREADY ALLOCATED — {time}` | — | — |
 | **SEATING** (9) | THOBE_ALLOCATION → `SEATING NOT AVAILABLE — ROBE NOT RECEIVED` | prn, seat_no | CONFIRM SEATING | `SEATING ALREADY COMPLETED — SEAT {seat_no} — {time}` | record `seat_no` | — |
 | **QUEUE** (10) | SEATING → `QUEUE NOT AVAILABLE — SEATING PENDING` | sequence_no, queue_position | CONFIRM QUEUE | `ALREADY IN QUEUE — POSITION {queue_position} — {time}` | effect `enqueue` | queue-depth indicator; out-of-sequence report |
 | **STAGE** (11) | QUEUE → `STAGE NOT AVAILABLE — QUEUE PENDING` | programme, school | COMPLETE | `DEGREE ALREADY RECEIVED — {time}` | — | *Built in Phase 11* (`backend/stage/`): the Stage Controller and public LED. It records COMPLETE through `service.confirm_in_transaction` and SKIP through `service.record_skip`; never write Stage events by hand. |

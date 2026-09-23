@@ -67,9 +67,9 @@ STUDENT_COLS = [("prn", "PRN"), ("name", "Name"), ("school", "School"), ("progra
 def not_attended(conn, settings, params) -> Report:
     rows = _rows(conn, f"SELECT s.prn, s.name, s.school, s.programme, s.sequence_no, s.status AS master_status "
                        f"FROM students s WHERE {NEVER_REGISTERED} ORDER BY s.sequence_no NULLS LAST, s.name", {}, settings.event_utc_offset_minutes)
-    return Report("not-attended", "Not Attended (never registered)", STUDENT_COLS + [("master_status", "Master status")], rows,
-                  {"not_attended": len(rows)}, "No Registration event of any kind. A student whose Registration an Admin reversed is "
-                  "not listed here; they show as Not Completed on the Registration report.")
+    return Report("not-attended", "Not Attended (never reported)", STUDENT_COLS + [("master_status", "Master status")], rows,
+                  {"not_attended": len(rows)}, "No Reporting event of any kind. A student whose Reporting an Admin reversed is "
+                  "not listed here; they show as Not Completed on the Reporting activity report.")
 
 
 # ------------------------------------------------------------------ per activity
@@ -123,7 +123,7 @@ def incomplete_journey(conn, settings, params) -> Report:
         rows.append({"prn": r["prn"], "name": r["name"], "school": r["school"], "programme": r["programme"],
                      "sequence_no": r["sequence_no"], "journey_status": STATUS_LABEL[step],
                      "not_yet_done": ", ".join(ACTIVITY_LABEL[a] for a in ACTIVITIES if a not in done)})
-    return Report("incomplete-journey", "Incomplete journey (registered, not yet exited)",
+    return Report("incomplete-journey", "Incomplete journey (reported, not yet exited)",
                   STUDENT_COLS + [("journey_status", "Status"), ("not_yet_done", "Activities not done")], rows,
                   {"incomplete": len(rows)})
 
@@ -298,15 +298,15 @@ def audit_report(conn, settings, params) -> Report:
 REPORTS: dict[str, tuple[str, str, Callable]] = {  # key -> (group, description, builder)
     "school-summary": ("Summaries", "Reporting and every stage of the journey, school by school.", summary(False)),
     "programme-summary": ("Summaries", "The same, programme by programme.", summary(True)),
-    "not-attended": ("Attendance", "Students with no Registration event at all.", not_attended),
-    "incomplete-journey": ("Attendance", "Registered but not yet exited, and what each still has to do.", incomplete_journey),
+    "not-attended": ("Attendance", "Students with no Reporting event at all.", not_attended),
+    "incomplete-journey": ("Attendance", "Reported but not yet exited, and what each still has to do.", incomplete_journey),
     **{f"activity-{a.lower().replace('_', '-')}": ("Per activity", f"Everyone, completed or not, for {ACTIVITY_LABEL[a]}.", activity_report(a))
        for a in ACTIVITIES},
     "stage-outcomes": ("Stage", "Who completed and who was skipped, with the reasons.", stage_outcomes),
     "outstanding-robes": ("Robes", "Robe allocated but not returned or waived.", outstanding_thobes),
     "waived-robes": ("Robes", "Return Waived / Lost approvals, with reasons.", waived_thobes),
     "robe-count": ("Robes", "Issued, returned, waived and outstanding, for the physical stock check.", thobe_count),
-    "late-registrations": ("Flags", "Registrations flagged LATE.", flagged("late-registrations", "Late registrations", "LATE", "REGISTRATION")),
+    "late-reporting": ("Flags", "Reporting records flagged LATE.", flagged("late-reporting", "Late reporting", "LATE", "REGISTRATION")),
     "provisional": ("Flags", "Events confirmed provisionally.", flagged("provisional", "Provisional events", "PROVISIONAL")),
     "manual": ("Flags", "Events entered by manual PRN search.", flagged("manual", "Manual entries", "MANUAL")),
     "corrections": ("Admin", "Every reversal and waiver, with the reason and the record it corrects.", corrections),

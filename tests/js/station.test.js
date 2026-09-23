@@ -62,7 +62,7 @@ function harness(overrides = {}) {
 const READY = { result: "READY", colour: "blue", message: "Check the photo, then confirm.", activity: "REGISTRATION",
   manual: false, student: { student_id: "s-1", name: "Asha Rao", photo_url: "/photo/s-1", fields: [{ key: "prn", label: "PRN", value: "E1" }] } };
 const CONFIRMED = { result: "CONFIRMED", colour: "green", message: "REGISTERED", student: READY.student };
-const DUPLICATE = { result: "DUPLICATE", colour: "amber", message: "ALREADY REGISTERED — 11:21 AM", student: READY.student };
+const DUPLICATE = { result: "DUPLICATE", colour: "amber", message: "ALREADY REPORTED — 11:21 AM", student: READY.student };
 const REJECTED = { result: "REJECTED", colour: "red", message: "STUDENT NOT ACTIVE — CONTACT ADMIN", student: READY.student };
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));

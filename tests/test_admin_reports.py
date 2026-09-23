@@ -219,7 +219,7 @@ class TestAttendanceAndJourneyReports:
                                                    "(SELECT student_id FROM activity_events WHERE activity = 'REGISTRATION')")}
         got = [r["prn"] for r in body["rows"]]
         assert set(got) == expected == via_sql and len(got) == len(set(got)) == body["totals"]["not_attended"] == 4
-        assert data.people["B"].prn not in got  # registered once (then reversed): has an event, so not "never registered"
+        assert data.people["B"].prn not in got  # registered once (then reversed): has an event, so not "never reported"
         assert all(data.people[k].prn in got for k in ("A1", "A2", "A3", "A4"))
 
     def test_not_attended_plus_reversed_plus_reported_reconciles_to_the_master_count(self, apps):
@@ -261,11 +261,11 @@ class TestThobeReports:
 
 class TestFlagAndCorrectionReports:
     def test_late_provisional_and_manual_lists(self, apps, data):
-        late = report(apps, "late-registrations")["rows"]
-        assert {r["prn"] for r in late} == {data.people["C1"].prn, data.people["E1"].prn} and all(r["activity"] == "Registration" for r in late)
+        late = report(apps, "late-reporting")["rows"]
+        assert {r["prn"] for r in late} == {data.people["C1"].prn, data.people["E1"].prn} and all(r["activity"] == "Reporting" for r in late)
         assert [r["prn"] for r in report(apps, "provisional")["rows"]] == [data.people["I"].prn]
         manual = report(apps, "manual")["rows"]
-        assert {(r["prn"], r["activity"]) for r in manual} == {(data.people["C2"].prn, "Registration"), (data.people["F2"].prn, "Queue")}
+        assert {(r["prn"], r["activity"]) for r in manual} == {(data.people["C2"].prn, "Reporting"), (data.people["F2"].prn, "Queue")}
 
     def test_corrections_report_links_each_correction_to_its_original(self, apps, data):
         body = report(apps, "corrections")
@@ -346,7 +346,7 @@ class TestExports:
     def test_every_report_in_the_catalogue_runs_and_exports_in_both_formats(self, apps, data):
         catalogue = get(apps, "hall", "/admin/api/reports").json()["reports"]
         keys = {c["key"] for c in catalogue}
-        assert {"not-attended", "incomplete-journey", "outstanding-robes", "waived-robes", "robe-count", "late-registrations",
+        assert {"not-attended", "incomplete-journey", "outstanding-robes", "waived-robes", "robe-count", "late-reporting",
                 "provisional", "manual", "corrections", "exceptions", "school-summary", "programme-summary", "stage-outcomes",
                 "audit", "student-history"} <= keys
         assert {slug(a) for a in ORDER} <= keys
@@ -390,8 +390,8 @@ class TestLiveUpdate:
     def test_dashboard_reflects_a_scan_made_elsewhere_immediately(self, apps, engine, world, data):
         before = dash(apps)["counts"]
         s = make_student(engine)
-        registration = operator(apps, world, "REGISTRATION")
-        assert confirm(registration, "REGISTRATION", token=s.token).json()["result"] == "CONFIRMED"
+        reporting = operator(apps, world, "REGISTRATION")
+        assert confirm(reporting, "REGISTRATION", token=s.token).json()["result"] == "CONFIRMED"
         after = dash(apps)["counts"]  # no cache, no wait: the very next read
         assert after["registered"] == before["registered"] + 1 and after["reported"] == before["reported"] + 1
         assert after["yet_to_report"] == before["yet_to_report"] and after["not_attended"] == before["not_attended"]

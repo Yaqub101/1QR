@@ -182,7 +182,7 @@ SET late_cutoff = '2026-10-15 11:00:00+05:30',
 WHERE id = 1;
 ```
 
-- [ ] `late_cutoff` set to the **registration cutoff agreed in Phase 0**: ____ / ____ / ______ at ______. (Only College uses it, but set it everywhere so the copies agree.)
+- [ ] `late_cutoff` set to the **reporting cutoff agreed in Phase 0**: ____ / ____ / ______ at ______. (Only College uses it, but set it everywhere so the copies agree.)
 - [ ] `event_name` and the holding-screen text are the university's approved wording: ______________________
 - [ ] Check it: `SELECT event_name, late_cutoff, holding_screen_text FROM settings;` shows the values at College [ ]  Stadium [ ]  Hall [ ]. On the Stadium big screen, the holding screen shows the event name and text.
 - [ ] Because this bypasses the software's audit log, **write here who did it and when**: ______________________  ______________

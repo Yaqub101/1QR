@@ -1,7 +1,7 @@
 """Phases 7-12 bundle: the guarantees that matter for Robe Allocation, Seating, Queue, Robe Return, Lunch.
 
 All five are CONFIGURATION on the Phase 6 engine (backend/engine/activities.py); nothing here tests a
-separate pipeline. Registration and Stage keep their Phase 6 tests.
+separate pipeline. Reporting and Stage keep their Phase 6 tests.
 
 HOW THESE TESTS ARE RUN: every test below uses ONE shared PostgreSQL test database with a single app
 instance. In this single-server, role-based model, each operator's role determines which activity they

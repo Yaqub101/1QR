@@ -265,7 +265,7 @@ def assert_history_untouched(before, after):
 
 
 def student_journey(engine, apps, world, student_pool, i=1):
-    """Student i: Registration seeded, then robe, seating, queue and stage through the REAL API. Returns event ids."""
+    """Student i: Reporting seeded, then robe, seating, queue and stage through the REAL API. Returns event ids."""
     raw_event(engine, student_pool, i, "REGISTRATION")
     for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE"):
         op = operator(apps, world, activity)

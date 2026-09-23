@@ -102,7 +102,7 @@ KEPT_AUDIT_ACTIONS = ("LOGIN", "LOGIN_FAILED", "USER_SEEDED", "USER_CREATED", "U
 COUNT_LABELS = (
     ("students", "Students"),
     ("qr_tokens", "QR codes"),
-    ("activity_events", "Activity records (registration, robe, seating, queue, stage, return, lunch)"),
+    ("activity_events", "Activity records (reporting, robe, seating, queue, stage, return, lunch)"),
     ("scan_log", "Scan attempts"),
     ("queue", "Queue entries"),
     ("exceptions", "Exceptions"),

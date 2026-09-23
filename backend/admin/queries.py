@@ -6,8 +6,8 @@ at most one active completion per activity (the Phase 2 unique index), so counti
 students.
 
 Population: every row of `students` (the university master list), whatever its status, so every figure
-reconciles to the master count. "Reported" = an active Registration; "Not Attended" = NO Registration event
-of any kind (SYSTEM_SPEC C3); a student whose Registration was reversed is neither (they are "Yet to Report").
+reconciles to the master count. "Reported" = an active Reporting; "Not Attended" = NO Reporting event
+of any kind (SYSTEM_SPEC C3); a student whose Reporting was reversed is neither (they are "Yet to Report").
 """
 from __future__ import annotations
 

@@ -20,7 +20,7 @@ ACTIVITIES = (
 )
 
 ACTIVITY_LABEL = {
-    "REGISTRATION": "Registration",
+    "REGISTRATION": "Reporting",
     "THOBE_ALLOCATION": "Robe Allocation",
     "SEATING": "Seating",
     "QUEUE": "Queue",

@@ -93,7 +93,7 @@ EFFECTS: dict[str, Callable] = {"enqueue": _enqueue}  # (conn, student, ctx) -> 
 
 # ------------------------------------------------------------------ flag rules
 def _late_registration(conn, student, ctx) -> Optional[str]:
-    """Registration after the cutoff is accepted and flagged LATE (TODO Phase 7 assumption)."""
+    """Reporting after the cutoff is accepted and flagged LATE (TODO Phase 7 assumption)."""
     late = conn.execute(text("SELECT late_cutoff IS NOT NULL AND now() > late_cutoff FROM settings")).scalar()
     return "LATE" if late else None
 

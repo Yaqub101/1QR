@@ -1,6 +1,6 @@
 # Convocation Event Management System
 
-The system tracks each university student through seven activities (Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) using one QR code, across three physical locations (College, Stadium, Hall). Because there is no single reliable network between them, each location runs its own local server and keeps working with no Internet. Every action is saved locally first, and a background sync process copies actions to a central system and shares them with the other locations whenever a connection is available. Each activity is recorded at exactly one location, events are append-only, and operators only ever see SCAN → VERIFY → CONFIRM.
+The system tracks each university student through seven activities (Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) using one QR code, across three physical locations (College, Stadium, Hall). Because there is no single reliable network between them, each location runs its own local server and keeps working with no Internet. Every action is saved locally first, and a background sync process copies actions to a central system and shares them with the other locations whenever a connection is available. Each activity is recorded at exactly one location, events are append-only, and operators only ever see SCAN → VERIFY → CONFIRM.
 
 ## Status
 
@@ -109,7 +109,7 @@ The operator-screen logic (scanner-suffix stripping, debounce, focus, colour and
 ### 3b. First-time event setup
 
 1. Create the Admin and Deputy accounts (credentials come from the environment or a prompt, never from a file): `python -m backend.seed`
-2. Sign in as Admin, open **Stations**, and create the stations for this venue (an activity is fixed to its venue: College = Registration; Stadium = Robe Allocation, Seating, Queue, Stage; Hall = Robe Return, Lunch).
+2. Sign in as Admin, open **Stations**, and create the stations for this venue (an activity is fixed to its venue: College = Reporting; Stadium = Robe Allocation, Seating, Queue, Stage; Hall = Robe Return, Lunch).
 3. On each operator laptop, sign in as Admin, open **Set up this laptop**, tap its station, then sign out. The laptop now *is* that station; the operator signs in with their own login and never chooses an activity.
 4. Operators open the site; the scan box is ready. A spare laptop is rebound the same way in three steps.
 

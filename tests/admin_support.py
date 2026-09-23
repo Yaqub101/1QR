@@ -82,7 +82,7 @@ class Person(SimpleNamespace):
     """A student and what the model says is true of them."""
 
 
-# 22 students with a KNOWN answer: never registered, reversed registration, every stage of the journey, skips, a
+# 22 students with a KNOWN answer: never reported, reversed reporting, every stage of the journey, skips, a
 # waiver, a reversed return, flagged events, queue rows, a student on stage, exceptions, scan attempts and outbox rows.
 # Used by the report tests and by the restore drill (which must regenerate every report identically).
 def build_dataset(engine):
@@ -111,12 +111,12 @@ def build_dataset(engine):
             add_event(engine, p.s, "STAGE", kind="SKIP", details={"reason": reason})
         return do
 
-    # A: never registered (no Registration event of any kind). Names chosen to break naive exports.
+    # A: never reported (no Reporting event of any kind). Names chosen to break naive exports.
     person("A1", S1, "अनिल कुमार")
     person("A2", S1, "José Müller")
     person("A3", S2, "李小龍")
     person("A4", S3, "=SUM(1+1)")
-    # B: registered, then an Admin reversed it. Has a Registration event, so NOT "Not Attended".
+    # B: registered, then an Admin reversed it. Has a Reporting event, so NOT "Not Attended".
     person("B", S2, "Siobhán O'Brien", steps=1, then=[reversal("REGISTRATION", "wrong student scanned")])
     person("C1", S1, steps=1, flags={"REGISTRATION": ["LATE"]})
     person("C2", S2, steps=1, flags={"REGISTRATION": ["MANUAL"]})
