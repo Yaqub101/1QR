@@ -22,6 +22,7 @@ from backend.admin import students as students_svc
 from backend.admin.corrections import CorrectionError
 from backend import master_patch as master_patch_svc
 from backend import passes as passes_svc
+from backend import pass_cache
 from backend import qr_tokens
 from backend.audit import write_audit
 from backend.security.deps import http_error, require_admin
@@ -212,7 +213,9 @@ def api_passes(request: Request, school: Optional[str] = None, offset: Optional[
         data = passes_svc.to_pass_data(selected)
     except qr_tokens.TokenError as exc:
         raise _token_fail(exc)
-    result = passes_svc.render_sheets(data, title)
+    result = pass_cache.get_or_render_sheets(
+        title, selected, data, extra={"school": school, "offset": first, "limit": count}
+    )
     with engine.begin() as conn:
         write_audit(conn, "PASSES_DOWNLOADED", operator_id=principal.user_id,
                     details={"count": result.count, "school": school, "offset": first, "limit": count,
@@ -342,7 +345,7 @@ def passes_download_all(request: Request, principal: Principal = Depends(require
         except qr_tokens.TokenError as e:
             return redirect("/admin/passes", error=e.message)
         event_name = passes_svc.event_title(conn, fallback="Convocation")
-    result = passes_svc.render_sheets(data, event_name)
+    result = pass_cache.get_or_render_sheets(event_name, rows, data)
     response = Response(content=result.pdf, media_type="application/pdf")
     response.headers["Content-Disposition"] = 'attachment; filename="all_passes.pdf"'
     return response

@@ -17,11 +17,13 @@ Supports:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
 import io
 import os
 import pathlib
 import re
+import threading
 import zipfile
 from collections import defaultdict
 from typing import Any, Iterable, Mapping, Optional, Sequence, Union
@@ -208,6 +210,7 @@ def import_photos_from_zip(
     dest_dir: Union[pathlib.Path, str] = "photos",
     prn_filter: Optional[Iterable[str]] = None,
     store: Optional[PhotoStore] = None,
+    max_workers: Optional[int] = None,
 ) -> PhotoImportReport:
     """Import and match photos from a ZIP archive to existing student records.
 
@@ -326,8 +329,9 @@ def import_photos_from_zip(
         else:
             read_zf = zipfile.ZipFile(io.BytesIO(zip_source), "r")
 
+        to_upload: list[tuple[int, Any, str, dict, str, str]] = []
         with read_zf:
-            for parsed, zip_entry in valid_photos:
+            for idx, (parsed, zip_entry) in enumerate(valid_photos):
                 photo_key = parsed.prn
                 # Resolve canonical PRN: direct or via spreadsheet mapping
                 canonical_prn = id_mapping.get(photo_key, photo_key)
@@ -366,25 +370,63 @@ def import_photos_from_zip(
                     })
                     continue
 
-                # Store the bytes (one entry in memory at a time). Only a confirmed write links the photo.
+                to_upload.append((idx, parsed, zip_entry, student, stored_name, photo_path_str))
+
+            # Bounded concurrent photo saving (Phase 3 optimization)
+            workers = max_workers
+            if workers is None:
                 try:
-                    store.save(stored_name, read_zf.read(zip_entry))
-                except PhotoStoreError as exc:
-                    storage_failed.append({"filename": parsed.original_filename, "prn": student["prn"], "reason": str(exc)})
-                    continue
+                    from backend.config import get_settings
+                    workers = getattr(get_settings(), "photo_import_concurrency", 4)
+                except Exception:
+                    workers = 4
+            workers = max(1, int(workers))
+
+            results: list[tuple[int, Any, dict, str, str, bool, Optional[str]]] = []
+            zip_lock = threading.Lock()
+
+            def _process_candidate(item):
+                i_idx, p_parsed, z_entry, s_student, s_name, p_str = item
+                try:
+                    with zip_lock:
+                        data = read_zf.read(z_entry)
                 except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
-                    storage_failed.append({"filename": parsed.original_filename, "prn": student["prn"],
-                                           "reason": "This file inside the ZIP is damaged and could not be read."})
+                    return (i_idx, p_parsed, s_student, s_name, p_str, False,
+                            "This file inside the ZIP is damaged and could not be read.")
+                try:
+                    store.save(s_name, data)
+                    return (i_idx, p_parsed, s_student, s_name, p_str, True, None)
+                except PhotoStoreError as exc:
+                    return (i_idx, p_parsed, s_student, s_name, p_str, False, str(exc))
+                except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
+                    return (i_idx, p_parsed, s_student, s_name, p_str, False,
+                            "This file inside the ZIP is damaged and could not be read.")
+                except Exception as exc:
+                    return (i_idx, p_parsed, s_student, s_name, p_str, False, str(exc))
+
+            if workers <= 1 or len(to_upload) <= 1:
+                for item in to_upload:
+                    results.append(_process_candidate(item))
+            else:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                    results = list(executor.map(_process_candidate, to_upload))
+
+            # Sort by original encounter order so result arrays remain fully deterministic
+            results.sort(key=lambda r: r[0])
+
+            for _, parsed, student, stored_name, photo_path_str, success, reason in results:
+                if not success:
+                    storage_failed.append({"filename": parsed.original_filename, "prn": student["prn"], "reason": reason})
                     continue
 
                 if student["photo_path"] != photo_path_str:
                     conn.execute(
                         text("UPDATE students SET photo_path = :path WHERE id = :sid"),
-                        {"path": photo_path_str, "sid": student_id},
+                        {"path": photo_path_str, "sid": student["id"]},
                     )
 
                 matched_students.append({
-                    "student_id": str(student_id),
+                    "student_id": str(student["id"]),
                     "prn": student["prn"],
                     "photo_path": photo_path_str,
                 })

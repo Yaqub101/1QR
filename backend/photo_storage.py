@@ -282,9 +282,58 @@ def _default_deleter(public_ids: list, **options) -> dict:
     return cloudinary.api.delete_resources(public_ids, **options)
 
 
+import urllib3
+from urllib3.util import Retry, Timeout
+
+_http_pool: Optional[urllib3.PoolManager] = None
+_http_pool_lock = threading.Lock()
+
+
+def get_http_pool() -> urllib3.PoolManager:
+    """Thread-safe, bounded HTTP connection pool for GET photo delivery."""
+    global _http_pool
+    with _http_pool_lock:
+        if _http_pool is None:
+            retries = Retry(
+                total=2,
+                connect=2,
+                read=2,
+                status=2,
+                status_forcelist=[500, 502, 503, 504],
+                allowed_methods=["GET"],
+                backoff_factor=0.2,
+                raise_on_status=False,
+            )
+            _http_pool = urllib3.PoolManager(
+                num_pools=4,
+                maxsize=10,
+                retries=retries,
+                timeout=Timeout(connect=5.0, read=30.0),
+            )
+        return _http_pool
+
+
+def close_http_pool() -> None:
+    """Cleanly close and clear the HTTP connection pool."""
+    global _http_pool
+    with _http_pool_lock:
+        if _http_pool is not None:
+            _http_pool.clear()
+            _http_pool = None
+
+
 def _default_fetcher(url: str, timeout: float) -> tuple[bytes, Optional[str]]:
-    with urllib.request.urlopen(url, timeout=timeout) as response:   # noqa: S310 (https, built by the SDK)
-        return response.read(), response.headers.get_content_type()
+    pool = get_http_pool()
+    req_timeout = Timeout(connect=min(5.0, timeout), read=timeout)
+    resp = pool.request("GET", url, timeout=req_timeout)
+    if resp.status == 404:
+        raise urllib.error.HTTPError(url, 404, "Not Found", resp.headers, None)
+    if resp.status >= 400:
+        raise urllib.error.HTTPError(url, resp.status, resp.reason or "HTTP Error", resp.headers, None)
+    content_type = resp.headers.get("Content-Type")
+    if content_type:
+        content_type = content_type.split(";")[0].strip()
+    return resp.data, content_type
 
 
 def _plain_admin_error(exc: BaseException) -> str:

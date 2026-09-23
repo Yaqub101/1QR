@@ -243,7 +243,8 @@ def _commit_batch(request: Request, batch_id: str, principal: Principal):
             report = import_photos_from_zip(
                 batch.photos_zip_path, engine,
                 excel_source=batch.upload_path if excel_engine_for(batch.filename) else None,
-                excel_filename=batch.filename, store=store)
+                excel_filename=batch.filename, store=store,
+                max_workers=getattr(request.app.state.settings, "photo_import_concurrency", 4))
             photos = _zip_report(report, zip_meta, store)
         except Exception:
             logger.exception("photo import failed after the students were committed (batch %s)", batch_id)

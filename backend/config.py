@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     cloudinary_api_key: Optional[str] = None
     cloudinary_api_secret: Optional[str] = None
     cloudinary_folder: str = "convocation/student-photos"
+    # Concurrency for uploading photos during bulk imports (bounded thread pool).
+    photo_import_concurrency: int = 4
 
     # Backups (Phase 17). The directory should be on a SECOND device.
     backup_dir: Optional[str] = None

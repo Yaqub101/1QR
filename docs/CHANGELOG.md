@@ -1,3 +1,22 @@
+## [0.23.0] - Production Performance Optimization for 26 September Event
+
+### Added
+- **`backend/pass_cache.py`**: safe, disk-backed artifact caching for generated pass PDFs (`PassArtifactCache`).
+  - Cryptographic SHA-256 fingerprinting covers event title, pass template version, query filters, and all student fields (PRN, name, programme, sequence number, photo path, and QR token).
+  - Stale artifacts are never served: any change to student data, QR token, photo, or event title invalidates the fingerprint immediately.
+  - In-process single-flight locking prevents duplicate concurrent ReportLab rendering of the same PDF.
+- **`scripts/benchmark_passes.py`**: multi-stage performance benchmark measuring DB query, photo retrieval, image decode/crop/resize, ReportLab PDF drawing, artifact caching, and subsequent download latency.
+- **`tests/test_optimization.py`** (14 tests): comprehensive test suite validating transformed pass photo delivery, original photo isolation, authenticated Cloudinary signing, cache key partitioning, visual dimensions preservation, artifact caching, invalidation on data changes, bounded import concurrency, import idempotency, duplicate/frozen/orphan handling, and bounded memory consumption.
+
+### Changed
+- **`backend/photo_storage.py`**: replaced single-use `urllib.request.urlopen` with a thread-safe, bounded `urllib3.PoolManager` connection pool (`get_http_pool`, `close_http_pool`) for GET photo delivery.
+  - Features bounded connection pool (`maxsize=10`), safe retries on idempotent GET requests (`500, 502, 503, 504`), connect/read timeouts, and preservation of `HTTPError` exceptions.
+- **`backend/photos.py` & `backend/web_import.py`**: added bounded concurrent photo uploads (`max_workers=4`, configurable via `Settings.photo_import_concurrency`).
+  - Candidate parsing, duplicate handling, orphan checks, and frozen student skips remain sequential and in-memory.
+  - Photo saving runs in a bounded thread pool streaming entries on demand with per-photo error isolation.
+  - All database updates remain strictly sequential on a single connection within the transaction, committing once at the end.
+- **`backend/admin/routes.py`**: wired `pass_cache.get_or_render_sheets` into `/passes/download_all` and `/api/passes.pdf`. First request generates and caches artifact; subsequent unchanged requests return in ~12ms.
+
 ## [0.22.0] - Docs pass for the redesign, optional-seating status labels, versioned scripts and stylesheets
 
 ### Changed
