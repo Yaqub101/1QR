@@ -46,12 +46,13 @@ ACTIVITIES = [
     "LUNCH",
 ]
 
-# SYSTEM_SPEC section 5: label after completing each step (index 0 = nothing done)
+# SYSTEM_SPEC section 5: label after completing each step (index 0 = nothing done). Seating is optional since
+# the role/flow redesign, so steps 2 and 3 say what is done and that the Queue is next, not "NOT SEATED".
 STATUS_AFTER_STEP = [
     "REGISTERED / NOT REPORTED",
     "REPORTED / ROBE NOT RECEIVED",
-    "NOT SEATED",
-    "NOT QUEUED",
+    "ROBE RECEIVED / NOT QUEUED",
+    "SEATED / NOT QUEUED",
     "DEGREE NOT RECEIVED",
     "ROBE NOT RETURNED",
     "LUNCH ELIGIBLE",
@@ -716,8 +717,7 @@ class TestSmallTables:
         with db_error(conn, UNIQUE_VIOLATION):
             conn.execute(text("INSERT INTO settings (id) VALUES (1)"))
 
-    @pytest.mark.parametrize("role", ["ADMIN", "REGISTRATION", "THOBE_ALLOCATION", "SEATING",
-                                      "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH"])
+    @pytest.mark.parametrize("role", ["ADMIN", "DEPUTY_ADMIN", "REGISTRY", "SEATING", "QUEUE", "STAGE", "LUNCH", "CALLER"])
     def test_every_spec_role_is_accepted(self, conn, role):
         new_user(conn, role=role)
 
@@ -769,17 +769,21 @@ class TestStudentStatus:
         add_event(conn, s, "REGISTRATION")
         assert status_of(conn, s) == "REPORTED / ROBE NOT RECEIVED"
 
-    def test_thobe_allocation_moves_to_not_seated(self, conn):
+    def test_thobe_allocation_moves_to_robe_received_not_queued(self, conn):
         s = new_student(conn)
         complete_steps(conn, s, 1)
         add_event(conn, s, "THOBE_ALLOCATION")
-        assert status_of(conn, s) == "NOT SEATED"
+        assert status_of(conn, s) == "ROBE RECEIVED / NOT QUEUED"
 
-    def test_seating_moves_to_not_queued(self, conn):
+    def test_seating_moves_to_seated_not_queued(self, conn):
         s = new_student(conn)
         complete_steps(conn, s, 2)
         add_event(conn, s, "SEATING")
-        assert status_of(conn, s) == "NOT QUEUED"
+        assert status_of(conn, s) == "SEATED / NOT QUEUED"
+
+    def test_no_status_label_says_a_seat_is_still_owed(self, conn):
+        view = conn.execute(text("SELECT pg_get_viewdef('student_status'::regclass)")).scalar_one()
+        assert "NOT SEATED" not in view and "ROBE RECEIVED / NOT QUEUED" in view
 
     def test_queue_moves_to_degree_not_received(self, conn):
         s = new_student(conn)

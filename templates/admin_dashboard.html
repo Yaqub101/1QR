@@ -4,5 +4,5 @@
 <p><a href="/admin">&larr; Admin</a></p>
 <h1>Dashboard</h1>
 <div id="live" data-url="/admin/dashboard/live">{% include "_dashboard_body.html" %}</div>
-<script src="/static/admin_dashboard.js"></script>
+<script src="{{ asset_url('admin_dashboard.js') }}"></script>
 {% endblock %}

@@ -49,23 +49,58 @@ Delete or disable entirely — do not leave dead code half-wired in:
 - **Stations no longer determine the activity.** A station is just a device/browser
   session. **The logged-in operator's ROLE determines which activity they can
   perform**, from that same generic scan screen, wherever they are.
-- **Role list stays the same as before**, just untied from a venue:
-  Reporting Operator, Robe Allocation Operator, Seating Operator, Queue
-  Operator, Stage Operator, Robe Return Operator, Lunch Operator, Admin, Deputy
-  Admin. A person can hold more than one role if you want that (e.g., cover two
-  activities) — confirm with the project owner if that's needed; default to one
-  role per account unless asked otherwise.
+- **Roles are untied from any venue.** At the pivot the role list was the seven
+  activity operators plus Admin and Deputy Admin. **Superseded by the role/flow
+  redesign below:** the roles are now REGISTRY, SEATING, QUEUE, STAGE, LUNCH,
+  CALLER, ADMIN and DEPUTY_ADMIN. One role per account.
 - **Duplicate prevention rule is unchanged**: still enforced by a database unique
   constraint on (student, activity, completed), still per-activity not global. This
   was never about venues — it stays exactly as strong as before.
-- **The 7-activity flow, prerequisite order, messages, Stage Controller, LED
-  behavior, admin dashboard, reports, QR/pass design — all unchanged.** This pivot
-  only removes the venue/sync/offline layer sitting underneath them. Every rule in
-  SYSTEM_SPEC §2–6, §12–17 about the activities themselves still applies as written.
+- **At the pivot, the 7-activity flow, prerequisite order, messages, Stage
+  Controller, LED behavior, admin dashboard, reports and QR/pass design were
+  unchanged**: the pivot only removed the venue/sync/offline layer underneath them.
+  The role/flow redesign below then changed the roles, the scan points, the Seating
+  prerequisite and the Stage controls; see that section.
 - **Standby server** (for hardware failure, e.g. the one server's machine dies):
   keep this. A single hot standby with the same fixed address the app connects to,
   promoted manually or via a simple script if the primary dies. This is not the same
   as the old per-venue offline design — it's just normal single-server HA.
+
+## Role/flow redesign (R1–R3, after the pivot)
+
+Approved by the project owner to cut QR scan points from 7 to 3 and bring the turnover
+between two students on stage down to 1–5 seconds. This section wins over SYSTEM_SPEC
+wherever they disagree.
+
+- **Three QR scan points: Registry, Queue, Lunch.** All seven activities are still recorded
+  as separate append-only events, each with its own per-activity unique constraint.
+- **Registry desk (role REGISTRY)** replaces the Reporting, Robe Allocation and Robe Return
+  operators. The desk works out the step from the student's record:
+  - not yet reported → ONE confirm (`CONFIRM REPORTING + ROBE`) records Reporting AND Robe
+    Allocation in one transaction;
+  - robe given and Stage completed → `CONFIRM ROBE RETURN` (a plain confirmation; robes are
+    unnumbered);
+  - otherwise a plain "already done" message.
+  The client sends back the step it was shown; if the student moved on, nothing is written.
+- **Seating is optional.** The Seating page still exists and records a "seated" checkpoint,
+  but nothing requires it: the Queue now requires Robe Allocation. Status labels: step 2 is
+  `ROBE RECEIVED / NOT QUEUED`, step 3 is `SEATED / NOT QUEUED`.
+- **Queue (role QUEUE)** scans the student into the live queue. A queue scan never changes
+  the LED or the Caller screen.
+- **Stage (role STAGE)**: one advance action, **NEXT**. In one transaction it records the
+  degree (the Stage event) for the student on stage and shows the next one; there is no
+  separate "mark received". SEND on any of the next 15 waiting students does the same out of
+  order. NEXT and SEND name the student the screen believes is on stage, so a double press
+  never advances twice. SHOW AGAIN, HOME, PREVIOUS, SKIP (with reason) and TAKE OVER remain.
+  DISPLAY NEXT and COMPLETE are gone.
+- **LED (public)** unchanged: the approved display snapshot only (name, photo, programme,
+  school, award). Its visual template is still to come from the project owner.
+- **Caller screen (role CALLER; also Stage operator and Admins)**: internal and read-only. It
+  shows the name and programme of the student on the LED, built from the LED's own payload
+  and changing on the LED's own signal. No PRN, phone, email, photo or id; no controls. After
+  5 seconds without contact it hides the name and warns the caller not to call.
+- **Lunch (role LUNCH)** unchanged: needs the robe back (or the Admin's waiver).
+- Migrations: `0014_registry_role`, `0015_caller_role`, `0016_optional_seating_labels`.
 
 ## Updated TODO.md phase status (informal — Antigravity should reconcile this
    properly against the real TODO.md structure as part of the migration work)

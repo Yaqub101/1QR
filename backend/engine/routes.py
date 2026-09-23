@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from backend import photo_storage
-from backend.engine import service
+from backend.engine import registry, service
 from backend.security.deps import http_error, require_user
 from backend.security.sessions import Principal
 
@@ -38,6 +38,7 @@ class ConfirmBody(BaseModel):
     activity: str
     token: Optional[str] = None       # confirm the student just scanned...
     student_id: Optional[str] = None  # ...or the one found by manual PRN search (always flagged MANUAL)
+    step: Optional[str] = None        # Registry desk only: the step the operator was shown (ENTRY / ROBE / RETURN)
 
     @model_validator(mode="after")
     def exactly_one_way_to_identify(self):
@@ -57,18 +58,30 @@ def _call(request: Request, principal: Principal, fn, **kwargs) -> dict:
     return result.to_dict()
 
 
+def _is_registry(activity: str) -> bool:
+    """The Registry desk is one scan point for three activities (backend/engine/registry.py)."""
+    return (activity or "").strip().upper() == registry.STATION
+
+
 @router.post("/scan")
 def scan(body: ScanBody, request: Request, principal: Principal = Depends(require_user)):
+    if _is_registry(body.activity):
+        return _call(request, principal, registry.scan, token=body.token)
     return _call(request, principal, service.scan, activity=body.activity, token=body.token)
 
 
 @router.post("/search")
 def search(body: SearchBody, request: Request, principal: Principal = Depends(require_user)):
+    if _is_registry(body.activity):
+        return _call(request, principal, registry.search, prn=body.prn)
     return _call(request, principal, service.search, activity=body.activity, prn=body.prn)
 
 
 @router.post("/confirm")
 def confirm(body: ConfirmBody, request: Request, principal: Principal = Depends(require_user)):
+    if _is_registry(body.activity):
+        return _call(request, principal, registry.confirm, token=body.token, student_id=body.student_id,
+                     step=body.step)
     return _call(request, principal, service.confirm, activity=body.activity, token=body.token,
                  student_id=body.student_id)
 

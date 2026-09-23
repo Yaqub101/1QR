@@ -57,7 +57,8 @@ def download_links(html):
 
 def test_every_page_loads_the_loading_script(apps):
     for url in ("/admin", "/admin/import", "/admin/passes", "/admin/system", "/admin/users"):
-        assert '<script src="/static/busy.js" defer></script>' in page(apps, url)
+        # versioned by content (tests/test_static_assets.py), still loaded deferred on every page
+        assert re.search(r'<script src="/static/busy\.js\?v=[0-9a-f]{10}" defer></script>', page(apps, url)), url
     assert admin(apps).get("/static/busy.js").status_code == 200
 
 

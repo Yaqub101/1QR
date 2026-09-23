@@ -1,7 +1,8 @@
 # Convocation System — Implementation TODO (v3)
 
-**One student → one QR → seven activities → three locations → local operation → automatic sync.**
-Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build order. If they disagree, stop and ask the project owner.
+**One student → one QR → seven recorded activities → three QR scan points (Registry, Queue, Lunch) → one server.**
+Source of truth for behaviour: `docs/SYSTEM_SPEC.md` as amended by `docs/ARCHITECTURE_PIVOT.md` (single server, and the
+role/flow redesign R1–R3). This file is the build order. If they disagree, stop and ask the project owner.
 
 ---
 
@@ -23,14 +24,18 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 | Topic | Decision |
 |---|---|
-| Stack | Python FastAPI + PostgreSQL (+ SQLAlchemy, Alembic, Jinja2 + HTMX, SSE), Docker Compose; custom outbox sync. **Not** Firebase, **not** the Admitto codebase |
-| Architecture | Central cloud server + one local server (with hot standby) at each of College, Stadium, Hall |
-| Activity ownership | Reporting → College. Robe Allocation, Seating, Queue, Stage → Stadium. Robe Return, Lunch → Hall |
-| QR | One opaque random token per student, used at all 7 stations |
-| Cross-location stale data | Accept as **provisional**; Admin reviews later |
+| Stack | Python FastAPI + PostgreSQL (+ SQLAlchemy, Alembic, Jinja2 + HTMX, SSE), Docker Compose. **Not** Firebase, **not** the Admitto codebase. (The custom outbox sync was dropped by the pivot.) |
+| Architecture | **Superseded by the pivot:** ONE server and database, plus one hot standby for hardware failure. No per-venue servers, no offline mode |
+| Activity ownership | **Superseded:** no venue ownership. The operator's role decides: REGISTRY, SEATING, QUEUE, STAGE, LUNCH, CALLER, ADMIN, DEPUTY_ADMIN |
+| QR | One opaque random token per student, used at the three scan points (Registry, Queue, Lunch) and the optional Seating page |
+| Scan points (redesign R1) | Registry desk: ONE confirm records Reporting + Robe Allocation; later the same desk records the Robe Return. Then Queue and Lunch |
+| Seating (redesign R1) | Optional checkpoint; never a prerequisite. The Queue requires the robe |
+| Stage (redesign R2) | NEXT records the degree for the student on stage and shows the next one in one transaction; the Stage sees the next 15 waiting |
+| Caller screen (redesign R3) | Read-only CALLER role; shows the LED's student (name + programme) from the LED's own payload |
+| Cross-location stale data | **Dropped by the pivot** (one server: every prerequisite is a hard block) |
 | "Not Attended" | Never registered. Registered-but-incomplete goes in a separate exceptions report |
 | Stage order | First come, first shown (order of queue confirmation). **Superseded: the university supplies no Convocation Sequence Number at all**, so nothing shows, sorts by or validates against one |
-| Manual fallback | PRN-only search with photo check, at all 7 stations |
+| Manual fallback | PRN-only search with photo check, at every scan screen |
 | Robes | Identical, unnumbered. Allocation and Return are simple confirmations |
 | Lost/unreturned robe | Admin approves "Return Waived / Lost" with reason; unlocks Lunch |
 | Admin | One Admin plus a named deputy (identical powers) |
@@ -47,7 +52,7 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 
 > **Architecture Pivot Note:** Per `docs/ARCHITECTURE_PIVOT.md`, the 3-venue distributed sync system was superseded by a single-server, role-based architecture. Phases 14 and 15 are **DROPPED**. Phases 5, 6, 17, and 18 are **SIMPLIFIED**.
 >
-> **Tracked Follow-up:** QUEUE concurrency deadlock is confirmed pre-existing and unrelated to this pivot; tracked as a follow-up item.
+> **Role/flow redesign:** Phases R1–R3 below cut the QR scan points from 7 to 3 (see `docs/ARCHITECTURE_PIVOT.md`, "Role/flow redesign"). The pre-existing QUEUE concurrency deadlock was fixed in R1 (a per-student lock before taking a queue place).
 
 | # | Phase | Milestone | Status |
 |---|---|---|---|
@@ -72,14 +77,18 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 | 19 | Outage and load testing (simplified: single server) | M5 | Pending |
 | 20 | Rehearsal, freeze, handover | M5 | Pending |
 | 21 | Go/No-Go acceptance and sign-off | — | Pending |
+| R1 | Redesign: Registry desk (REGISTRY role, one entry confirm, robe return), Seating optional | — | Built and tested; awaiting the project owner's commit approval |
+| R2 | Redesign: Stage NEXT (records the degree and advances), 15-student waiting list | — | Built and tested; awaiting the project owner's commit approval |
+| R3 | Redesign: Caller screen and CALLER role | — | Built and tested; awaiting the project owner's commit approval |
 
 ---
 
 ## Addendum — Camera-Based QR Scanning (post-Phase 13)
 
-Adds an in-browser "Scan with camera" option to the 6 activity stations that already had the
-manual scan-box + PRN-search pattern (Reporting, Robe Allocation, Seating, Queue, Robe
-Return, Lunch): `templates/station.html`, `static/camera_scan.js`, `static/station.js`,
+**Since the role/flow redesign** the camera option is on the Registry desk, the Queue, Lunch and the optional
+Seating page (the old per-activity pages keep it for the Admin). Originally it was added to the 6 activity
+stations that already had the manual scan-box + PRN-search pattern (Reporting, Robe Allocation, Seating,
+Queue, Robe Return, Lunch): `templates/station.html`, `static/camera_scan.js`, `static/station.js`,
 vendored `static/jsqr.min.js` (Apache-2.0, no CDN dependency). A decoded QR is handed to the
 exact same `submitScan()` the manual scan box already used, so it goes through the unchanged
 `/scan` → `/confirm` path with no new backend code, no new endpoint, and no change to
@@ -594,44 +603,44 @@ Run these against the real hardware, with real scanners and people.
 ## Phase 21 — Go/No-Go Acceptance and Sign-Off
 
 ### Mandatory test cases
-- [ ] **MC-1** One QR passes through all seven activities across the three locations; each recorded once with the right time/station/operator
+- [ ] **MC-1** One QR passes through all seven activities via the three scan points (Registry entry, Queue, Stage NEXT, Registry return, Lunch); each recorded once with the right time and operator
 - [ ] **MC-2** Same activity twice → no duplicate and the earlier record shown; a different activity is never wrongly rejected
-- [ ] **MC-3** Unknown QR rejected cleanly and logged; PRN manual search works at all seven stations with photo check
-- [ ] **MC-4** Every venue rejects activities it doesn't own
-- [ ] **MC-5** Two stations at one venue confirm at the same time without collision (including the same student and activity)
-- [ ] **MC-6** Skipping a step is blocked with a plain message for same-venue prerequisites
-- [ ] **MC-7** Cross-venue stale data → accepted as PROVISIONAL and reviewed by the Admin; fresh data → blocked
-- [ ] **MC-8** Stadium offline for 30 minutes: no lost or duplicated events after reconnect
+- [ ] **MC-3** Unknown QR rejected cleanly and logged; PRN manual search works at every scan screen with photo check
+- [ ] **MC-4** Every role is refused activities outside it (e.g. a Registry operator cannot confirm Lunch; a Caller can do nothing)
+- [ ] **MC-5** Two stations confirm at the same time without collision (including the same student and activity)
+- [ ] **MC-6** Skipping a required step is blocked with a plain message (Seating is never required)
+- ~~**MC-7** Cross-venue stale data~~ — dropped by the pivot (one server)
+- ~~**MC-8** Stadium offline for 30 minutes~~ — dropped by the pivot (no offline mode)
 - [ ] **MC-9** Queue order is first come, first shown; sequence number is displayed but doesn't reorder
-- [ ] **MC-10** A queue scan never changes the LED; only DISPLAY NEXT does
+- [ ] **MC-10** A queue scan never changes the LED or the Caller screen; only the Stage operator does
 - [ ] **MC-11** LED shows correct student/photo/programme and no private data; holds 10 s on server loss, then the holding screen
-- [ ] **MC-12** Stage COMPLETE creates the Stage record; Reporting or Queue alone doesn't
+- [ ] **MC-12** Stage NEXT creates the Stage record for the student on stage (one per student, even on a double press); Reporting or Queue alone doesn't
 - [ ] **MC-13** Lunch blocked without Return; the Admin waiver unlocks it; Lunch = EXITED
 - [ ] **MC-14** Corrections keep the original, log who and why; operators can't correct
 - [ ] **MC-15** Late reporting is accepted and flagged LATE
 - [ ] **MC-16** Primary server failover under 2 minutes with data intact
 - [ ] **MC-17** Backup stage laptop takes over
-- [ ] **MC-18** Backup restores and every report regenerates identically; central rebuilds from venue data
-- [ ] **MC-19** Reissued QR: old token NOT ACTIVE everywhere after sync; new works at all stations
+- [ ] **MC-18** Backup restores and every report regenerates identically
+- [ ] **MC-19** Reissued QR: old token NOT ACTIVE at once (one server); new works at every scan point
 - [ ] **MC-20** Not Attended = never reported; incomplete journeys appear in their own report
 
 ### Go/No-Go acceptance criteria
 - [ ] **AC-1** 100% of active students imported with unique IDs (including the late-arriving half of the list)
 - [ ] **AC-2** 100% have exactly one active token; printed and on-phone QRs scan
-- [ ] **AC-3** All three locations run independently with the internet unplugged
-- [ ] **AC-4** Sync catches up automatically after an outage with zero manual entry
+- ~~**AC-3** Three locations run with the internet unplugged~~ — dropped by the pivot
+- ~~**AC-4** Sync catches up after an outage~~ — dropped by the pivot
 - [ ] **AC-5** Duplicate, invalid and out-of-order handling demonstrated at every activity
 - [ ] **AC-6** Dashboard and per-activity reports reconcile with the master counts
-- [ ] **AC-7** Queue → Stage Controller → LED works on the real venue display; the correct student appears in about 1 second
+- [ ] **AC-7** Queue → Stage NEXT → LED and Caller screen work on the real venue display; the correct student appears in about 1 second and the stage turnover fits the 1–5 second target
 - [ ] **AC-8** The Stage operator can HOLD and recover from a wrong student
 - [ ] **AC-9** Failover, restore and central-rebuild drills each demonstrated
-- [ ] **AC-10** Dual-uplink switchover happens with no operator action
+- ~~**AC-10** Dual-uplink switchover~~ — dropped by the pivot (nice-to-have at most)
 - [ ] **AC-11** A complete journey history exports for a sample student
 
 ### Security and data rules
 - [ ] No personal data in the QR; passwords hashed; roles enforced on the server
-- [ ] The public LED endpoint returns only approved fields
-- [ ] TLS between venues and central; per-venue keys; operator laptops on a closed local network
+- [ ] The public LED endpoint returns only approved fields; the Caller screen only name and programme
+- [ ] TLS to the server; operator laptops on a closed local network or behind the server's login
 - [ ] Disk encryption on all laptops; a data wipe plan after the event
 - [ ] Exports restricted and logged; backups taken at the milestones
 
@@ -639,8 +648,8 @@ Run these against the real hardware, with real scanners and people.
 - [ ] Student master received (all of it)
 - [ ] Station counts and hardware list approved
 - [ ] LED design and fields approved
-- [ ] All seven activity workflows approved
-- [ ] Three-location rehearsal passed
+- [ ] The three scan points, the Stage NEXT flow and the Caller screen approved
+- [ ] Rehearsal passed
 - [ ] Build frozen; backups taken; handover complete
 
 ---
@@ -650,39 +659,7 @@ New reporting or payment workflows · complex mobile apps · facial recognition 
 
 ---
 
-## Appendix A — `AGENTS.md` Template (put in the repo root)
+## Appendix A — `AGENTS.md`
 
-```
-# AGENTS.md — Convocation System
-
-## What this is
-A hybrid offline-first convocation system. One student = one QR = seven activities
-(Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) across
-three locations (College, Stadium, Hall) with a central server. Full behaviour is in
-docs/SYSTEM_SPEC.md. Build order is in docs/TODO.md.
-
-## Stack (do not change)
-Python 3.12, FastAPI + Uvicorn, PostgreSQL, SQLAlchemy + Alembic, Jinja2 + HTMX +
-small vanilla JS, Server-Sent Events, pytest, Docker Compose. No Firebase.
-
-## Golden rules (never break)
-1. ONE QR per student. The QR holds only an opaque random token. No personal data.
-2. The station decides the activity. Operators never choose it.
-3. Duplicate prevention is PER ACTIVITY. Enforce it with a database unique constraint.
-4. Each activity has exactly one owning venue (College: Reporting; Stadium: Robe
-   Allocation, Seating, Queue, Stage; Hall: Robe Return, Lunch). Reject other writes.
-5. Events are append-only. Corrections are new events with a reason. Never delete/update history.
-6. Save the event and its outbox row in ONE transaction. Show success only after commit.
-7. Every station works with the internet unplugged. The internet is only for sync.
-8. Same-venue prerequisites are hard blocks. Cross-venue prerequisites follow the fresh/stale rule.
-9. A queue scan never changes the public LED. Only the Stage operator does.
-10. The LED reads only the display snapshot. Never expose PRN, phone, email or internal fields.
-11. Operator messages are one plain sentence. No technical errors on screen.
-12. Write tests first. Run them. Show the results. Do not move to the next phase yourself.
-
-## Working rules
-- Work on one phase of docs/TODO.md at a time; stop at its Exit Gate.
-- Ask before changing the spec, the schema rules, or anything in this file.
-- Commit once per phase; tag `phase-N-done`.
-- Keep README.md and docs/CHANGELOG.md updated.
-```
+The live file is [`AGENTS.md`](../AGENTS.md) in the repository root. It was updated in one pass after the role/flow
+redesign (R1–R3). No copy is kept here, so the two can never disagree.

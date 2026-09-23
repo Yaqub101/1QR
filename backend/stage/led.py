@@ -55,14 +55,41 @@ def led_payload(conn: Connection) -> dict:
     }
 
 
+def caller_payload(conn: Connection) -> dict:
+    """The internal Caller screen's payload (role/flow redesign Phase R3): the SAME LED payload, cut down to the
+    name and the programme / degree. Built from led_payload() itself, so the two screens read one row of the
+    approved display_snapshot through one function and can never disagree about who is on screen.
+
+        {"mode": "HOME" | "SHOWING", "version": <int>, "student": null | {"name", "programme"}}
+    """
+    shown = led_payload(conn)
+    student = shown["student"]
+    return {
+        "mode": shown["mode"],
+        "version": shown["version"],
+        "student": None if student is None else {"name": student["name"], "programme": student["programme"]},
+    }
+
+
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
 
 
+# What each stream watches. The LED watches ONLY the stage state, so a queue scan can never push anything to
+# the audience screen (golden rule 9). The Stage screen also watches the waiting queue, so its list of waiting
+# students updates the moment the Queue operator adds someone.
+LED_VERSION_SQL = "SELECT version::text FROM stage_state WHERE id = 1"
+STAGE_VERSION_SQL = (
+    "SELECT (SELECT version FROM stage_state WHERE id = 1)::text || ':' || count(*)::text || ':' "
+    "|| coalesce(max(queue_position), 0)::text FROM queue WHERE status = 'QUEUED'"
+)
+
+
 def iter_events(engine, build_payload: Callable[[Connection], dict], *, poll_seconds: float = 0.25,
                 heartbeat_seconds: float = 2.0, sleep: Callable = time.sleep,
-                monotonic: Callable = time.monotonic, stop: Callable = lambda: False) -> Iterator[str]:
-    """Yield an SSE `state` event whenever stage_state.version changes (the first one immediately), and a
+                monotonic: Callable = time.monotonic, stop: Callable = lambda: False,
+                version_sql: str = LED_VERSION_SQL) -> Iterator[str]:
+    """Yield an SSE `state` event whenever the watched version changes (the first one immediately), and a
     `ping` heartbeat when quiet, so a page can tell "connected and idle" from "connection lost".
 
     Only the version is polled (one tiny query); the payload is built when it changes. A database hiccup
@@ -74,7 +101,7 @@ def iter_events(engine, build_payload: Callable[[Connection], dict], *, poll_sec
         out = None
         try:
             with engine.connect() as conn:  # the connection is released BEFORE anything is yielded
-                version = conn.execute(text("SELECT version FROM stage_state WHERE id = 1")).scalar_one()
+                version = conn.execute(text(version_sql)).scalar_one()
                 now = monotonic()
                 if version != last_version:
                     out = _sse("state", build_payload(conn))
@@ -91,4 +118,14 @@ def iter_events(engine, build_payload: Callable[[Connection], dict], *, poll_sec
 
 
 def iter_led_events(engine, settings, **kwargs) -> Iterator[str]:
-    return iter_events(engine, led_payload, **kwargs)
+    return iter_events(engine, led_payload, version_sql=LED_VERSION_SQL, **kwargs)
+
+
+def iter_caller_events(engine, settings, **kwargs) -> Iterator[str]:
+    """The Caller screen's stream: the LED's change signal exactly, so both screens change on the same poll."""
+    return iter_events(engine, caller_payload, version_sql=LED_VERSION_SQL, **kwargs)
+
+
+def iter_stage_events(engine, build_payload: Callable[[Connection], dict], **kwargs) -> Iterator[str]:
+    """The Stage screen's private stream: also pushes when the waiting queue changes."""
+    return iter_events(engine, build_payload, version_sql=STAGE_VERSION_SQL, **kwargs)

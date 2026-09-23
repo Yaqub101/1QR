@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ holding.title }}</title>
-  <link rel="stylesheet" href="/static/led.css">
+  <link rel="stylesheet" href="{{ asset_url('led.css') }}">
 </head>
 <body class="led">
   <main id="holding" class="holding">
@@ -20,6 +20,6 @@
       <p id="school"></p>
     </div>
   </main>
-  <script src="/static/led.js"></script>
+  <script src="{{ asset_url('led.js') }}"></script>
 </body>
 </html>

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}{{ activity_label[activity] }}{% endblock %}
+{% block title %}{{ title or activity_label[activity] }}{% endblock %}
 {% block body %}
 <div id="station-root" data-activity="{{ activity }}">
-  <h1>{{ activity_label[activity] }}</h1>
+  <h1>{{ title or activity_label[activity] }}</h1>
 
   <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Scan a QR to begin.</span></div>
 
@@ -38,8 +38,8 @@
     <p class="muted">Check the photo against the student before you confirm.</p>
   </details>
 </div>
-<script src="/static/jsqr.min.js"></script>
-<script src="/static/station_logic.js"></script>
-<script src="/static/camera_scan.js"></script>
-<script src="/static/station.js"></script>
+<script src="{{ asset_url('jsqr.min.js') }}"></script>
+<script src="{{ asset_url('station_logic.js') }}"></script>
+<script src="{{ asset_url('camera_scan.js') }}"></script>
+<script src="{{ asset_url('station.js') }}"></script>
 {% endblock %}

@@ -1,10 +1,16 @@
-/* The Stage Controller screen (SYSTEM_SPEC 13): CURRENT / NEXT / AFTER NEXT, DISPLAY NEXT, HOME, PREVIOUS,
- * SEARCH, SKIP, COMPLETE, TAKE OVER.
+/* The Stage Controller screen (SYSTEM_SPEC 13, role/flow redesign Phase R2): CURRENT, the next fifteen WAITING,
+ * NEXT, SHOW AGAIN, HOME, PREVIOUS, SEARCH, SKIP, TAKE OVER.
+ *
+ * NEXT is the one advance action: the student on stage received the degree, and the next one goes on stage and
+ * on the LED. SEND on a waiting student does the same with that student. Both name the student this screen
+ * shows on stage (`expect_current`), so the server can refuse a stale or repeated press.
  *
  * createStageScreen(deps) holds all the behaviour and touches the page only through `deps` (tested under
  * node: tests/js/stage.test.js). Rules it keeps:
- *   - one request at a time, so a rapid double press of DISPLAY NEXT or COMPLETE sends ONE request
- *     (the server also refuses to double-advance);
+ *   - one request at a time, so a rapid double press of NEXT sends ONE request (the server also refuses to
+ *     double-advance);
+ *   - a presenter clicker (Page Down / Right arrow) presses NEXT, except while typing in a box; Enter and
+ *     space never do, so a stray key cannot advance the ceremony;
  *   - HOME is the emergency control: Escape sends it immediately, even while another request is in flight;
  *   - SKIP asks for a reason first and sends nothing without one;
  *   - when another laptop has taken over, every action is disabled and TAKE OVER is offered.
@@ -17,44 +23,59 @@
   "use strict";
 
   const TEMPORARY = "One moment, please try again.";
-  const ACTIONS = ["displayNext", "home", "previous", "skip", "complete", "searchBtn"];
+  const ACTIONS = ["next", "showAgain", "home", "previous", "skip", "searchBtn"];
+  const NEXT_KEYS = ["PageDown", "ArrowRight"];
 
   function createStageScreen(deps) {
     const { els, post, connect, doc } = deps;
     let busy = false;
     let youControl = false;
+    let onStage = null; // the student_id this screen shows as CURRENT (null: nobody)
 
     const say = (message) => { els.message.textContent = message || ""; };
 
-    function setSlot(name, photo, card) {
-      name.textContent = card ? card.name : "";
-      photo.setAttribute("src", card ? card.photo_url : "");
+    function studentRow(card, label, onSend) {
+      const row = doc.createElement("li");
+      row.className = "result";
+      const text = doc.createElement("span");
+      text.textContent = label;
+      const button = doc.createElement("button");
+      button.textContent = "SEND";
+      button.disabled = !youControl;
+      button.addEventListener("click", onSend);
+      row.appendChild(text);
+      row.appendChild(button);
+      return row;
+    }
+
+    function send(card) {
+      return () => act("/stage/display", { student_id: card.student_id, expect_current: onStage });
+    }
+
+    function renderWaiting(waiting, depth) {
+      if (!els.waiting || !els.waiting.replaceChildren) return;
+      els.waiting.replaceChildren(
+        ...(waiting || []).map((c) => studentRow(c, `${c.name} — ${c.programme || ""}`, send(c)))
+      );
+      if (els.depth) els.depth.textContent = depth == null ? "" : `(${depth} in the queue)`;
     }
 
     function renderResults(matches) {
       if (!els.results || !doc || !els.results.replaceChildren) return;
       els.results.replaceChildren(
-        ...(matches || []).map((m) => {
-          const row = doc.createElement("div");
-          row.className = "result";
-          const label = doc.createElement("span");
-          label.textContent = `${m.name} — position ${m.queue_position} (${m.status})`;
-          const button = doc.createElement("button");
-          button.textContent = "SHOW";
-          button.addEventListener("click", () => act("/stage/display", { student_id: m.student_id }));
-          row.appendChild(label);
-          row.appendChild(button);
-          return row;
-        })
+        ...(matches || []).map((m) => studentRow(m, `${m.name} — position ${m.queue_position} (${m.status})`, send(m)))
       );
     }
 
     function render(state) {
       if (!state) return;
       youControl = !!state.you_control;
-      setSlot(els.currentName, els.currentPhoto, state.current);
-      setSlot(els.nextName, els.nextPhoto, state.next);
-      setSlot(els.afterNextName, els.afterNextPhoto, state.after_next);
+      const current = state.current;
+      onStage = current ? current.student_id : null;
+      els.currentName.textContent = current ? current.name : "";
+      if (els.currentProgramme) els.currentProgramme.textContent = current ? current.programme || "" : "";
+      els.currentPhoto.setAttribute("src", current ? current.photo_url : "");
+      renderWaiting(state.waiting, state.queue_depth);
       for (const key of ACTIONS) els[key].disabled = !youControl;
       els.takeOver.hidden = youControl;
       if (!youControl) {
@@ -63,7 +84,9 @@
       } else if (els.banner.className.includes("locked")) {
         els.banner.className = "banner blue";
       }
-      const shown = state.led_name || (state.current && state.current.name);
+      // The first live state means the screen is connected: never leave "Connecting…" up once data is showing.
+      if (youControl && els.message.textContent === "Connecting…") say("Ready.");
+      const shown = state.led_name || (current && current.name);
       els.led.textContent = state.led_mode === "SHOWING"
         ? `Audience screen: showing ${shown || "a student"}`
         : "Audience screen: holding screen";
@@ -81,7 +104,7 @@
       }
     }
 
-    async function send(url, body) {
+    async function request(url, body) {
       try {
         return await post(url, body || {});
       } catch (_) {
@@ -93,13 +116,15 @@
     async function act(url, body) {
       if (busy || !youControl) return;
       busy = true;
-      try { handle(await send(url, body)); } finally { busy = false; }
+      try { handle(await request(url, body)); } finally { busy = false; }
     }
+
+    const next = () => act("/stage/next", { expect_current: onStage });
 
     // EMERGENCY: never blocked by an in-flight request and never blocked by a lost-control screen state
     // (the server decides; a laptop that is not in control is simply told so).
     async function emergencyHome() {
-      handle(await send("/stage/home", {}));
+      handle(await request("/stage/home", {}));
     }
 
     async function skip() {
@@ -118,19 +143,25 @@
     async function takeOver() {
       if (busy) return;
       busy = true;
-      try { handle(await send("/stage/takeover", {})); } finally { busy = false; }
+      try { handle(await request("/stage/takeover", {})); } finally { busy = false; }
     }
 
+    const typing = (event) => event && (event.target === els.searchInput || event.target === els.skipReason);
+
     function handleKey(event) {
-      if (event && event.key === "Escape") {
+      if (!event) return;
+      if (event.key === "Escape") {
         if (event.preventDefault) event.preventDefault();
         emergencyHome();
+      } else if (NEXT_KEYS.includes(event.key) && !typing(event)) {
+        if (event.preventDefault) event.preventDefault();
+        next();
       }
     }
 
     function start() {
-      els.displayNext.addEventListener("click", () => act("/stage/display-next"));
-      els.complete.addEventListener("click", () => act("/stage/complete"));
+      els.next.addEventListener("click", next);
+      els.showAgain.addEventListener("click", () => act("/stage/show-again"));
       els.previous.addEventListener("click", () => act("/stage/previous"));
       els.home.addEventListener("click", () => emergencyHome());
       els.skip.addEventListener("click", skip);
@@ -152,11 +183,11 @@
   if (!rootEl) return;
   const byId = (id) => document.getElementById(id);
   const els = {
-    displayNext: byId("display-next"), complete: byId("complete"), home: byId("home"), previous: byId("previous"),
+    next: byId("next"), showAgain: byId("show-again"), home: byId("home"), previous: byId("previous"),
     skip: byId("skip"), skipReason: byId("skip-reason"), searchBtn: byId("search-btn"), searchInput: byId("search-input"),
     takeOver: byId("take-over"), message: byId("message"), banner: byId("banner"), led: byId("led"), results: byId("results"),
-    currentName: byId("current-name"), nextName: byId("next-name"), afterNextName: byId("after-next-name"),
-    currentPhoto: byId("current-photo"), nextPhoto: byId("next-photo"), afterNextPhoto: byId("after-next-photo"),
+    currentName: byId("current-name"), currentProgramme: byId("current-programme"), currentPhoto: byId("current-photo"),
+    waiting: byId("waiting"), depth: byId("depth"),
   };
 
   async function post(url, body) {
@@ -167,7 +198,6 @@
     try { return await response.json(); } catch (_) { return { detail: { message: "One moment, please try again." } }; }
   }
 
-  const screenRef = { current: null };
   function connect(handlers) {
     const source = new EventSource("/stage/events"); // pushes the private state on every change; reconnects itself
     source.addEventListener("state", (event) => { try { handlers.state(JSON.parse(event.data)); } catch (_) { /* ignore */ } });
@@ -175,7 +205,6 @@
   }
 
   const screen = window.createStageScreen({ els, post, connect, doc: document });
-  screenRef.current = screen;
   screen.start();
   document.addEventListener("keydown", screen.handleKey);
   // Take control when the screen opens; if another laptop already has it, the screen offers TAKE OVER.

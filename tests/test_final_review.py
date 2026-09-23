@@ -213,19 +213,20 @@ class TestQueueCounter:
                 problems.append(("confirm", i + 1, status, body))
 
         def stage_loop():
+            # NEXT (redesign R2): records the degree for whoever is on stage and shows the next one.
+            on_stage = None
             while len(completed) < n and not stop.is_set():
-                status, body = post("/stage/display-next", stage_token, station_id="STG-01")
+                status, body = post("/stage/next", stage_token, station_id="STG-01", expect_current=on_stage)
                 if status == 409 and body["detail"]["code"] == "QUEUE_EMPTY":
                     time.sleep(0.01)
                     continue
-                if status != 200:
-                    problems.append(("display-next", status, body))
+                if status != 200 or body.get("changed") is False:
+                    problems.append(("next", status, body))
                     return
-                status, body = post("/stage/complete", stage_token, station_id="STG-01")
-                if status != 200:
-                    problems.append(("complete", status, body))
-                    return
-                completed.append(1)
+                if on_stage is not None:
+                    completed.append(1)
+                current = body["state"]["current"]
+                on_stage = current["student_id"] if current else None
 
         stager = threading.Thread(target=stage_loop)
         stager.start()
@@ -272,8 +273,10 @@ def student_journey(engine, apps, world, student_pool, i=1):
         assert confirm(op, activity, token=s_token(student_pool, i)).json()["result"] == "CONFIRMED", activity
     stage = operator(apps, world, "STAGE")
     assert stage.post("/stage/control", json={"station_id": "STG-01"}).status_code == 200
-    assert stage.post("/stage/display-next", json={"station_id": "STG-01"}).status_code == 200
-    assert stage.post("/stage/complete", json={"station_id": "STG-01"}).status_code == 200
+    shown = stage.post("/stage/next", json={"station_id": "STG-01", "expect_current": None})
+    assert shown.status_code == 200
+    on_stage = shown.json()["state"]["current"]["student_id"]
+    assert stage.post("/stage/next", json={"station_id": "STG-01", "expect_current": on_stage}).status_code == 200
     return {r["activity"]: str(r["event_id"]) for r in q_db(
         engine, "SELECT activity, event_id FROM activity_events WHERE student_id = :s AND kind = 'COMPLETE'",
         s=s_id(student_pool, i))}

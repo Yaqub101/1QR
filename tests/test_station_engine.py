@@ -35,7 +35,7 @@ from backend.engine.activities import ACTIVITY_CONFIGS
 from backend.engine.model import ActivityConfig, Prerequisite, RegistryError, validate_registry
 from backend.main import create_app
 from tests.conftest import TEST_DB_URL
-from tests.test_auth import ACTIVITIES, PASSWORD, api_login, new_client, slug
+from tests.test_auth import ACTIVITIES, OPERATOR_ROLE_FOR, PASSWORD, api_login, new_client, slug
 from tests.test_schema import REPO_ROOT, STATUS_AFTER_STEP, _run_threads, drop_everything, run_alembic
 
 IST = timezone(timedelta(minutes=330))  # the default event clock (Settings.event_utc_offset_minutes)
@@ -45,7 +45,7 @@ PREREQ = {
     "REGISTRATION": [],
     "THOBE_ALLOCATION": ["REGISTRATION"],
     "SEATING": ["THOBE_ALLOCATION"],
-    "QUEUE": ["SEATING"],
+    "QUEUE": ["THOBE_ALLOCATION"],  # redesign: Seating is optional, so the Queue needs the robe, not a seat
     "STAGE": ["QUEUE"],
     "THOBE_RETURN": ["STAGE", "THOBE_ALLOCATION"],  # section 14: "NO ROBE WAS ISSUED" needs the allocation too
     "LUNCH": ["THOBE_RETURN"],
@@ -55,14 +55,14 @@ PREREQ = {
 HARD_BLOCK_MESSAGE = {
     "THOBE_ALLOCATION": "ROBE NOT AVAILABLE — REPORTING PENDING",
     "SEATING": "SEATING NOT AVAILABLE — ROBE NOT RECEIVED",
-    "QUEUE": "QUEUE NOT AVAILABLE — SEATING PENDING",
+    "QUEUE": "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED",
     "STAGE": "STAGE NOT AVAILABLE — QUEUE PENDING",
     "THOBE_RETURN": "ROBE RETURN NOT AVAILABLE — STAGE PENDING",
     "LUNCH": "LUNCH NOT AVAILABLE — ROBE RETURN PENDING",
 }
 CONFIRM_LABEL = {
     "REGISTRATION": "CONFIRM REPORTING", "THOBE_ALLOCATION": "CONFIRM ROBE GIVEN",
-    "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE", "STAGE": "COMPLETE",
+    "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE", "STAGE": "NEXT",
     "THOBE_RETURN": "CONFIRM RETURN", "LUNCH": "CONFIRM LUNCH",
 }
 DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are always shown).
@@ -135,7 +135,7 @@ def world(engine):
         w.admin_id = users_svc.create_user(c, username="eng-admin", password=PASSWORD, role="ADMIN")
         for activity in ACTIVITIES:
             w.op_ids[activity] = users_svc.create_user(
-                c, username=f"eng-{activity.lower()}", password=PASSWORD, role=activity)
+                c, username=f"eng-{activity.lower()}", password=PASSWORD, role=OPERATOR_ROLE_FOR[activity])
     return w
 
 
@@ -390,7 +390,8 @@ class TestPipelineTable:
     def test_missing_prerequisite_is_a_hard_block(self, apps, world, engine, activity):
         idx = ACTIVITIES.index(activity)
         s = make_student(engine)
-        seed_events(engine, s, ACTIVITIES[:idx - 1])  # everything except the direct prerequisite
+        missing = PREREQ[activity][0]  # the direct prerequisite (for Queue it is the robe, not the seat before it)
+        seed_events(engine, s, [a for a in ACTIVITIES[:idx] if a != missing])  # everything earlier except that one
         client = operator(apps, world, activity)
         before = totals(engine)
 
@@ -573,7 +574,7 @@ class TestAtomicity:
             settings = Settings(database_url=os.environ["DATABASE_URL"])
             engine = create_engine(settings.database_url)
             principal = Principal(session_id="x", user_id=uuid.UUID(os.environ["OP_ID"]), username="op", full_name=None,
-                                  role="REGISTRATION")
+                                  role="REGISTRY")
 
             def die(*args, **kwargs):          # the event is inserted; the process dies before COMMIT
                 os._exit(137)

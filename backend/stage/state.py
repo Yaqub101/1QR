@@ -11,6 +11,8 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+WAITING_LIST_SIZE = 15  # how many waiting students the Stage screen lists (redesign Phase R2: "~10-15")
+
 _FIELDS = {
     "current_student_id", "display_student_id", "previous_student_id",
     "controller_session_id", "controller_station_id", "controller_since", "controller_epoch",
@@ -85,9 +87,10 @@ def controller_is_live(conn: Connection, state: dict, idle_minutes: int) -> bool
 
 
 def private_state(conn: Connection, principal, settings) -> dict:
-    """Everything the Stage screen shows: CURRENT / NEXT / AFTER NEXT, who controls, what the LED shows."""
+    """Everything the Stage screen shows: CURRENT, the next WAITING_LIST_SIZE waiting (NEXT / AFTER NEXT are the
+    first two of them), who controls, what the LED shows."""
     st = read_state(conn)
-    ahead = waiting(conn, 2)
+    ahead = waiting(conn, WAITING_LIST_SIZE)
     controller = None
     if st["controller_session_id"] is not None:
         who = conn.execute(
@@ -108,6 +111,7 @@ def private_state(conn: Connection, principal, settings) -> dict:
         "current": card_for(conn, st["current_student_id"]),
         "next": ahead[0] if len(ahead) > 0 else None,
         "after_next": ahead[1] if len(ahead) > 1 else None,
+        "waiting": ahead,
         "previous": card_for(conn, st["previous_student_id"]),
         "queue_depth": conn.execute(text("SELECT count(*) FROM queue WHERE status = 'QUEUED'")).scalar_one(),
     }

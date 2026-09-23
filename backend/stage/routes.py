@@ -35,9 +35,17 @@ class SearchBody(BaseModel):
     q: str = ""
 
 
+class NextBody(BaseModel):
+    """NEXT names the student the screen believes is on stage (null: nobody), so a stale or repeated press can
+    never advance twice. Required, but may be null."""
+    model_config = ConfigDict(extra="ignore")
+    expect_current: Optional[str]
+
+
 class DisplayBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
     student_id: str
+    expect_current: Optional[str]
 
 
 class SkipBody(BaseModel):
@@ -67,9 +75,15 @@ def stage_takeover(body: EmptyBody, request: Request, principal: Principal = Dep
     return _do(request, principal, controller.takeover)
 
 
-@router.post("/stage/display-next")
-def stage_display_next(body: EmptyBody, request: Request, principal: Principal = Depends(require_user)):
-    return _do(request, principal, controller.display_next)
+@router.post("/stage/next")
+def stage_next(body: NextBody, request: Request, principal: Principal = Depends(require_user)):
+    """THE advance: the student on stage received the degree, and the next one goes on stage."""
+    return _do(request, principal, controller.next_student, expect_current=body.expect_current)
+
+
+@router.post("/stage/show-again")
+def stage_show_again(body: EmptyBody, request: Request, principal: Principal = Depends(require_user)):
+    return _do(request, principal, controller.show_again)
 
 
 @router.post("/stage/home")
@@ -89,12 +103,8 @@ def stage_search(body: SearchBody, request: Request, principal: Principal = Depe
 
 @router.post("/stage/display")
 def stage_display(body: DisplayBody, request: Request, principal: Principal = Depends(require_user)):
-    return _do(request, principal, controller.display, student_id=body.student_id)
-
-
-@router.post("/stage/complete")
-def stage_complete(body: EmptyBody, request: Request, principal: Principal = Depends(require_user)):
-    return _do(request, principal, controller.complete)
+    return _do(request, principal, controller.display, student_id=body.student_id,
+               expect_current=body.expect_current)
 
 
 @router.post("/stage/skip")
@@ -120,8 +130,40 @@ def stage_events(request: Request, principal: Principal = Depends(require_user))
     _stage_reader(principal)
     app = request.app
     return StreamingResponse(
-        led.iter_events(app.state.engine, lambda conn: stage_state.private_state(conn, principal, app.state.settings)),
+        led.iter_stage_events(app.state.engine, lambda conn: stage_state.private_state(conn, principal, app.state.settings)),
         media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+# --------------------------------------------------------------------------- the internal Caller screen
+def _caller_viewer(principal: Principal) -> None:
+    if not permissions.has_permission(principal.role, permissions.CALLER_VIEW_PERMISSION):
+        raise http_error(403, "FORBIDDEN", "That screen is not part of your role.")
+
+
+def caller_events_response(app) -> StreamingResponse:
+    return StreamingResponse(led.iter_caller_events(app.state.engine, app.state.settings),
+                             media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@router.get("/caller")
+def caller_page(request: Request, principal: Principal = Depends(require_user)):
+    """Read-only: the student on the LED, name and programme only, pushed by /caller/events. No controls."""
+    _caller_viewer(principal)
+    return render(request, "caller.html", principal=principal)
+
+
+@router.get("/caller/state")
+def caller_state(request: Request, principal: Principal = Depends(require_user)):
+    _caller_viewer(principal)
+    with request.app.state.engine.connect() as conn:
+        payload = led.caller_payload(conn)
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/caller/events")
+def caller_events(request: Request, principal: Principal = Depends(require_user)):
+    _caller_viewer(principal)
+    return caller_events_response(request.app)
 
 
 # --------------------------------------------------------------------------- the public LED

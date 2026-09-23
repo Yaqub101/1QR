@@ -81,6 +81,11 @@ def _enqueue(conn, student, ctx) -> dict:
     # still there therefore belongs to a completion an Admin reversed: drop it so the student is queued
     # again at the BACK (a new position), not blocked by the old row. (Concurrent confirms are still
     # settled by the unique index on the event, which rolls the loser's delete back too.)
+    # Take this student's row lock FIRST, so concurrent confirms for the same student wait their turn here
+    # instead of each grabbing the queue counter and the queue key in a different order and deadlocking
+    # (seen as an occasional 503 when several desks confirmed one student at once). NO KEY UPDATE does not
+    # block the foreign-key checks that other students' writes make.
+    conn.execute(text("SELECT 1 FROM students WHERE id = :s FOR NO KEY UPDATE"), {"s": student["id"]})
     conn.execute(text("DELETE FROM queue WHERE student_id = :s"), {"s": student["id"]})
     position = conn.execute(
         text("INSERT INTO queue (student_id) VALUES (:s) RETURNING queue_position"), {"s": student["id"]}

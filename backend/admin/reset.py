@@ -96,7 +96,7 @@ RESET_ACTIONS = ("DATA_RESET_REQUESTED", "DATA_RESET_REFUSED", "DATA_RESET", "DA
                  "DATA_RESET_PHOTO_CLEANUP")
 # Audit rows a reset keeps: who could sign in and who changed the accounts, and every reset record.
 KEPT_AUDIT_ACTIONS = ("LOGIN", "LOGIN_FAILED", "USER_SEEDED", "USER_CREATED", "USER_ACTIVATED",
-                      "USER_DEACTIVATED", "USER_DELETED", "PASSWORD_RESET") + RESET_ACTIONS
+                      "USER_DEACTIVATED", "USER_DELETED", "PASSWORD_RESET", "ROLE_MERGED") + RESET_ACTIONS
 
 # What the Admin is shown as "will be deleted", in their words.
 COUNT_LABELS = (

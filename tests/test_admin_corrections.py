@@ -205,7 +205,7 @@ class TestReversalNeverMutatesHistory:
         r = reverse(apps, "stadium", ids["SEATING"])
         assert r.status_code == 503 and "One moment" in r.json()["detail"]["message"] and "RuntimeError" not in r.text
         assert counts(engine) == before                                    # no reversal, no outbox row, no audit row
-        assert scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id) == "NOT QUEUED"  # still derived as before
+        assert scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id) == "SEATED / NOT QUEUED"  # still derived as before
         monkeypatch.undo()
         assert reverse(apps, "stadium", ids["SEATING"]).status_code == 200  # and it works once the fault is gone
 

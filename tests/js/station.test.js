@@ -273,3 +273,57 @@ test("focus returns to the scan box after every action", async () => {
   h.advance(3000);
   await step(() => scanValue(h, "b\n"));
 });
+
+// ---------------------------------------------------------------- the Registry desk (redesign Phase R1)
+const REGISTRY_READY = { ...READY, activity: "REGISTRY", step: "ENTRY", confirm_label: "CONFIRM REPORTING + ROBE" };
+
+test("the Registry desk shows the server's confirm label for the step it found", async () => {
+  const h = harness({ activity: "REGISTRY" });
+  h.els.confirmBtn.textContent = "CONFIRM";
+  h.replies.push(REGISTRY_READY);
+  scanValue(h, "tok-9\n");
+  await flush();
+  assert.equal(h.els.confirmBtn.hidden, false);
+  assert.equal(h.els.confirmBtn.textContent, "CONFIRM REPORTING + ROBE");
+  h.replies.push({ ...REGISTRY_READY, step: "RETURN", confirm_label: "CONFIRM ROBE RETURN" });
+  h.advance(2000);
+  scanValue(h, "tok-10\n");
+  await flush();
+  assert.equal(h.els.confirmBtn.textContent, "CONFIRM ROBE RETURN");
+});
+
+test("the Registry confirm sends back the step the operator was shown, with the scanned token", async () => {
+  const h = harness({ activity: "REGISTRY" });
+  h.replies.push(REGISTRY_READY);
+  scanValue(h, "tok-9\n");
+  await flush();
+  h.replies.push(CONFIRMED);
+  h.els.confirmBtn.dispatch("click");
+  await flush();
+  assert.deepEqual(h.calls[1], { url: "/confirm", body: { token: "tok-9", activity: "REGISTRY", step: "ENTRY" } });
+});
+
+test("a manual PRN search at the Registry desk confirms by student id and still sends the step", async () => {
+  const h = harness({ activity: "REGISTRY" });
+  h.replies.push({ ...REGISTRY_READY, manual: true });
+  h.els.searchInput.value = "E1";
+  h.els.searchBtn.dispatch("click");
+  await flush();
+  h.replies.push(CONFIRMED);
+  h.els.confirmBtn.dispatch("click");
+  await flush();
+  assert.deepEqual(h.calls[1], { url: "/confirm", body: { student_id: "s-1", activity: "REGISTRY", step: "ENTRY" } });
+});
+
+test("an ordinary activity screen sends no step and keeps its own button label", async () => {
+  const h = harness();
+  h.els.confirmBtn.textContent = "CONFIRM LUNCH";
+  h.replies.push(READY);
+  scanValue(h, "tok-1\n");
+  await flush();
+  assert.equal(h.els.confirmBtn.textContent, "CONFIRM LUNCH");
+  h.replies.push(CONFIRMED);
+  h.els.confirmBtn.dispatch("click");
+  await flush();
+  assert.deepEqual(h.calls[1].body, { token: "tok-1", activity: "REGISTRATION" });
+});

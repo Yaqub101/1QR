@@ -1,119 +1,85 @@
 # Convocation Event Management System
 
-The system tracks each university student through seven activities (Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) using one QR code, across three physical locations (College, Stadium, Hall). Because there is no single reliable network between them, each location runs its own local server and keeps working with no Internet. Every action is saved locally first, and a background sync process copies actions to a central system and shares them with the other locations whenever a connection is available. Each activity is recorded at exactly one location, events are append-only, and operators only ever see SCAN → VERIFY → CONFIRM.
+The system tracks each graduating student through seven recorded activities (Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) using ONE QR code and ONE server. There are **three QR scan points**:
+
+1. **Registry desk** — on entry, one scan and ONE confirm record Reporting and Robe Allocation together; after the ceremony the same desk records the Robe Return.
+2. **Queue** — when called forward, the student is scanned into the live queue.
+3. **Lunch** — only after the robe is back.
+
+Seating is an optional checkpoint that never blocks anything. On stage, the Stage operator's **NEXT** records the degree for the student on stage and shows the next one on the public **LED**, in one step. An internal, read-only **Caller** screen always shows the same student as the LED, so the name called aloud matches the screen. Events are append-only; operators only ever see SCAN → VERIFY → CONFIRM.
+
+Behaviour: [`docs/SYSTEM_SPEC.md`](docs/SYSTEM_SPEC.md), as amended by [`docs/ARCHITECTURE_PIVOT.md`](docs/ARCHITECTURE_PIVOT.md) (single server; role/flow redesign R1–R3), which wins where they disagree. Build order and status: [`docs/TODO.md`](docs/TODO.md). Rules for whoever changes the code: [`AGENTS.md`](AGENTS.md). History: [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 ## Status
 
-Phases 1, 2, 3, 5, 6 and the Phase 7-12 station bundle are complete (all seven activity screens run on the engine): environment and Docker skeleton, the database schema (duplicate prevention, venue ownership and append-only history enforced by PostgreSQL itself), student import, auth / roles / stations / venue ownership, and the **station engine** (scan → verify → confirm, all seven activities). Phase 4 (QR tokens and passes) has not been built yet. The **Stage Controller and public LED** (Phase 11) are built and tested in software; they still need verifying on the real LED hardware. The **Admin console** (dashboard, student journey, corrections and the Return Waived / Lost action, exceptions, audit viewer, reports and CSV/XLSX exports; Phases 13 + 16) is built and tested but **PENDING REVIEW**: it is not tagged until the correction path has been signed off. **Sync, cross-location reconciliation and high availability** (Phases 14, 15, 17: outbox push/pull with per-venue API keys, freshness tracking, provisional acceptance with auto-closing exceptions, conflict and gap detection, central rebuild, backups, restore, failover procedure) are built and tested on real separate databases; what needs the real hardware is listed in [`docs/HA.md`](docs/HA.md). See `docs/TODO.md`.
+Built and tested in software: import (students and photos), QR tokens and passes, sign-in and roles, the station engine, all seven activities, the Registry desk, the Stage Controller with NEXT and the waiting list, the public LED, the Caller screen, the Admin console (dashboard, corrections, the lost-robe waiver, exceptions, audit, reports and exports, data reset), backups, restore and the single-standby failover procedure. The role/flow redesign (Phases R1–R3) is built and tested and is awaiting the project owner's approval.
 
-Setting up and running the event (checklists for volunteers and the IT lead) is in [`docs/ops/`](docs/ops/): the [hardware, network and power checklist](docs/ops/HARDWARE_CHECKLIST.md), the [master-freeze checklist](docs/ops/MASTER_FREEZE_CHECKLIST.md), the [three-place rehearsal script](docs/ops/REHEARSAL_SCRIPT.md) and the [handover outline](docs/ops/HANDOVER_OUTLINE.md). Paper fallback sheets are printed with `python scripts/fallback_sheets.py` (the student list with sequence and seat, one sheet per activity; read-only; `--help` for options).
+Still to do with real people and equipment (see `docs/TODO.md`, Phases 18–21, and `docs/HA.md`): real scanners and phones (including camera scanning on iOS Safari), the real LED display and its visual template, load testing on the real server, timed failover, and the rehearsal.
 
-Broken server on the day? Use the one-page sheets in [`docs/failover/`](docs/failover/) ([College](docs/failover/COLLEGE.md), [Stadium](docs/failover/STADIUM.md), [Hall](docs/failover/HALL.md)).
+The operations checklists in [`docs/ops/`](docs/ops/) and the failover sheet [`docs/failover/SERVER.md`](docs/failover/SERVER.md) are for event day. Paper fallback sheets are printed with `python scripts/fallback_sheets.py` (read-only; `--help` for options). **Note:** the checklists in `docs/ops/` were written for the earlier three-location design and still need updating for the single server and the three scan points.
 
-New to the engine? Read [`docs/STATION_CONTRACT.md`](docs/STATION_CONTRACT.md): each activity is one configuration entry in `backend/engine/activities.py`, not new code.
+New to the engine? Read [`docs/STATION_CONTRACT.md`](docs/STATION_CONTRACT.md): each activity is one configuration entry in `backend/engine/activities.py`; the Registry desk (`backend/engine/registry.py`) combines three of them.
+
+## Who uses which screen
+
+| Role | Lands on | Does |
+|---|---|---|
+| Registry operator (`REGISTRY`) | `/station/registry` | Entry: Reporting + Robe in one confirm. Later: Robe Return |
+| Queue operator (`QUEUE`) | `/station/queue` | Scans the student into the live queue |
+| Stage operator (`STAGE`) | `/station/stage` | NEXT, SEND from the waiting list, SHOW AGAIN, HOME, PREVIOUS, SKIP |
+| Lunch operator (`LUNCH`) | `/station/lunch` | Confirms lunch (needs the robe back) |
+| Seating operator (`SEATING`, optional) | `/station/seating` | Records "seated" if the event uses it; nothing depends on it |
+| Caller (`CALLER`) | `/caller` | Reads the name on screen aloud; read-only |
+| Admin, Deputy Admin | `/admin` | Everything, including accounts, imports, corrections and reports |
+| Audience | `/led` (public, no sign-in) | The LED display |
 
 ## Setup
 
 ### Prerequisites
-- Docker & Docker Compose (or Python 3.12+ and PostgreSQL 16)
+- Docker and Docker Compose (or Python 3.12+ and PostgreSQL 16)
 - Git
+- Node.js (only to run the JavaScript tests)
 
----
+### 1. Environment
 
-### 1. Environment Configuration
-
-Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
-Edit `.env` to configure your mode and venue.
+Edit `.env`. It holds `DATABASE_URL`, the event settings (`EVENT_NAME`, `LATE_CUTOFF`, `EVENT_UTC_OFFSET_MINUTES`), session and cookie settings, `PHOTO_STORAGE` (a local folder in development; Cloudinary in production, because Render's disk is wiped on every deploy) and the backup settings. Put real secrets in the host's environment settings, never in the file or in Git.
 
-For Venue Mode:
-```env
-MODE=venue
-VENUE_ID=college  # or "stadium" or "hall"
-```
+### 2. Run it with Docker
 
-For Central Mode:
-```env
-MODE=central
-# VENUE_ID is omitted / left unset
-```
-
----
-
-### 2. Docker Setup
-
-#### Build the Unified Container Image
-The exact same image is used across all venues and central mode:
 ```bash
 docker compose build
-```
-
-#### Running Venue Mode
-Start PostgreSQL and the venue FastAPI application:
-```bash
-# Start services in background
 docker compose up -d
-
-# Run database migrations
 docker compose exec app alembic upgrade head
-
-# Verify health check
 curl http://localhost:8000/health
 ```
+One app, one database. The hot standby for hardware failure is `docker-compose.standby.yml`; the procedure is [`docs/failover/SERVER.md`](docs/failover/SERVER.md).
 
-To run for other venues, simply update `VENUE_ID` in `.env` (or pass it directly) and restart:
-```bash
-# Example: Stadium venue
-VENUE_ID=stadium docker compose up -d
-```
+### 3. First-time event setup
 
-#### Running Central Mode
-Start central PostgreSQL and application:
-```bash
-# Start using central compose file
-docker compose -f docker-compose.central.yml up -d
+1. Create the Admin and Deputy accounts (credentials come from the environment or a prompt, never from a file): `python -m backend.seed`
+2. Sign in as Admin and import the students and photos (**Admin → Import Students**), then generate QR tokens and passes (**Admin → Passes and QR**).
+3. Create one account per operator under **Admin → Users**, choosing their role. There is no station set-up: an operator signs in on any browser and lands on their own screen.
+4. Open `/led` on the audience display (no sign-in) and `/caller` for the caller.
 
-# Run database migrations
-docker compose -f docker-compose.central.yml exec app alembic upgrade head
+### 4. Tests
 
-# Verify health check
-curl http://localhost:8000/health
-```
-
----
-
-### 3. Running the Test Suite
-
-The test suite runs against an isolated test database (never touching the dev/venue database):
-
-#### Inside Docker:
+The test suite runs against an isolated test database (never the event database):
 ```bash
 docker compose exec app pytest -v
 ```
-
-#### Local Environment (using uv / virtualenv):
+or locally:
 ```bash
-# Create venv and install dependencies
 uv pip install -e ".[dev]"
-
-# Run full test suite with one single command:
 pytest -v
 ```
+The screen logic (scan box, Stage screen, LED, Caller, camera scanning, loading states) is also tested in JavaScript with Node's built-in runner; `pytest` runs it automatically when `node` is installed. On its own: `node --test tests/js/*.test.js`.
 
-The operator-screen logic (scanner-suffix stripping, debounce, focus, colour and sound) is also unit-tested in JavaScript with Node's built-in runner; `pytest` runs it automatically when `node` is installed and skips it otherwise. To run it on its own: `node --test tests/js/station.test.js`.
+`scripts/verify_e2e_scans.py` checks a **running** server end to end (the three scan points, Stage NEXT, the LED and the Caller screen). It records real events, so it refuses to run unless `VERIFY_ALLOW_WRITES=1`, and it reads every account from `VERIFY_<ROLE>_USER` / `VERIFY_<ROLE>_PASSWORD`. Never point it at an event database that is in use.
 
----
-
-### 3b. First-time event setup
-
-1. Create the Admin and Deputy accounts (credentials come from the environment or a prompt, never from a file): `python -m backend.seed`
-2. Sign in as Admin, open **Stations**, and create the stations for this venue (an activity is fixed to its venue: College = Reporting; Stadium = Robe Allocation, Seating, Queue, Stage; Hall = Robe Return, Lunch).
-3. On each operator laptop, sign in as Admin, open **Set up this laptop**, tap its station, then sign out. The laptop now *is* that station; the operator signs in with their own login and never chooses an activity.
-4. Operators open the site; the scan box is ready. A spare laptop is rebound the same way in three steps.
-
-### 3c. Starting over: Admin → System → Reset all data
+### 5. Starting over: Admin → System → Reset all data
 
 Clears the software for a new event: students, QR codes, every activity record, the queue and Stage/LED state, exceptions, scan attempts, staged imports, the event/import part of the audit log, and every student photo in the configured photo store (only this app's `CLOUDINARY_FOLDER/<32 hex>` assets on Cloudinary; nothing else in the account). Accounts, sessions, settings, configuration and the schema stay, and so do the audit rows for sign-ins, account changes and **every reset**. **Take a backup first** (`python -m backend.ha.backup once`): a reset cannot be undone.
 
@@ -121,33 +87,30 @@ It takes three deliberate steps: type `DELETE ALL DATA` and your own password (w
 
 Slow Admin actions (imports, downloads, exports, pass generation, corrections, the reset) show a spinner and a "…ing" label, and cannot be submitted twice; see `static/busy.js`.
 
----
-mmuyru6rtdfvgggghello my naeasdasdjhakjdhjhsdkjha
-### 4. Database Migrations (Alembic)
+### 6. Database migrations (Alembic)
 
-Build the full schema (all tables, constraints, triggers and the `student_status` view) on an empty database with a single command:
+Build the full schema (all tables, constraints, triggers and the `student_status` view) on an empty database:
 ```bash
 alembic upgrade head
 ```
-
-The schema tests (`tests/test_schema.py`) need a real PostgreSQL reachable at `TEST_DATABASE_URL` (default `postgresql://convocation_user:convocation_password@localhost:5432/convocation_test`; the `convocation_test` database is created automatically). They rebuild that database's schema with the command above, so never point `TEST_DATABASE_URL` at a real venue database.
+The schema tests need a real PostgreSQL at `TEST_DATABASE_URL` (default `postgresql://convocation_user:convocation_password@localhost:5432/convocation_test`; the `convocation_test` database is created automatically). They rebuild that database's schema, so never point `TEST_DATABASE_URL` at a real event database.
 
 Roll back all migrations:
 ```bash
 alembic downgrade base
 ```
 
----
+### 7. Scripts and stylesheets after a deploy
 
-### 5. Health Check Endpoint
+Templates link every script and stylesheet with `asset_url()`, which adds the file's content hash (`/static/stage.js?v=1a2b3c4d5e`). A deploy that changes a file gives it a new address, so no operator screen keeps running an old copy; there is no "reload every screen" step. Never link a `/static/...` file directly (a test fails if a template does).
+
+### 8. Health check
 
 `GET /health` returns HTTP 200 with JSON:
 ```json
 {
-  "mode": "venue",
-  "venue": "college",
   "db": "up",
   "timestamp": "2026-09-21T09:57:26.511047+00:00"
 }
 ```
-If the database is unreachable, `/health` returns HTTP 200 with `"db": "down"` and does not crash.
+`"db"` is `"up"` only when the database is reachable AND the schema is there; an empty database reports `"not_ready"` with the missing tables, and an unreachable one `"down"`. It never crashes.

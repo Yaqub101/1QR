@@ -1,3 +1,139 @@
+## [0.22.0] - Docs pass for the redesign, optional-seating status labels, versioned scripts and stylesheets
+
+### Changed
+- **Status labels** (migration `0016_optional_seating_labels`, the `student_status` view only; no data touched):
+  step 2 `NOT SEATED` -> `ROBE RECEIVED / NOT QUEUED`; step 3 `NOT QUEUED` -> `SEATED / NOT QUEUED`. Seating is
+  optional, so no label reads as a seat still owed.
+- **Scripts and stylesheets are versioned by content**: every template links them with `asset_url()`, giving
+  `/static/<file>?v=<first 10 hex of its SHA-256>` (`backend/web.py`). A deploy that changes a file changes its
+  address, so a browser never keeps running an old copy. A missing file fails the page instead of linking nothing.
+- **Docs**, in one pass for the whole redesign (R1-R3): `AGENTS.md` (golden rules: roles instead of venues, three
+  scan points, one transaction without an outbox, one server, Seating never a prerequisite, the Caller screen,
+  `asset_url()`), `docs/ARCHITECTURE_PIVOT.md` (new "Role/flow redesign" section), `docs/SYSTEM_SPEC.md` (sections
+  2-5 and 13), `docs/TODO.md` (decisions, status R1-R3, acceptance lists, Appendix A now points at `AGENTS.md`),
+  `README.md` (rewritten for the single server and the three scan points; a stray line of typed characters in the
+  migrations section removed).
+
+### Not changed
+- `docs/ops/*` (hardware checklist, rehearsal script, freeze checklist, handover outline) and
+  `docs/STATION_CONTRACT.md` still describe the three-location design and the old labels; they need their own pass.
+
+### Tests
+- `tests/test_static_assets.py` (5); `tests/test_schema.py` label expectations plus one test that the view has no
+  `NOT SEATED`; `tests/test_loading_ui.py` and `tests/test_admin_corrections.py` updated for the versioned link and
+  the new label.
+
+## [0.21.0] - Role/flow redesign, Phase R3: the Caller screen and the CALLER role
+
+### Added
+- **Caller screen** (`/caller`, `templates/caller.html`, `static/caller.js`, `static/caller.css`): internal and
+  read-only. It shows the name and the programme / degree of the student on the public LED, very large, and
+  nothing else: no PRN, phone, email, photo or id, and no controls (no buttons or forms at all).
+  - Its data is `backend/stage/led.caller_payload()`, which is built FROM `led_payload()`: the same approved
+    `display_snapshot` row, through the same function, cut down to `{mode, version, student: {name, programme}}`.
+  - Its stream `/caller/events` watches exactly the LED's change signal (`LED_VERSION_SQL`), so both screens
+    change on the same poll; only the Stage operator's NEXT / SEND / HOME / SHOW AGAIN moves them, and a queue
+    scan moves neither. `/caller/state` gives the same payload once (`Cache-Control: no-store`).
+  - No contact for 5 seconds: the name is removed and "Connection lost. Do not call a name until it comes
+    back." is shown; only a fresh state message brings a name back.
+- **CALLER role** (read-only; no activity), **migration `0015_caller_role`** adds it to `users_role_valid`.
+  Downgrade refuses while any CALLER account exists. Permission `view:caller`: CALLER, STAGE, ADMIN,
+  DEPUTY_ADMIN. A Caller lands on `/caller`; the Admin can create Caller accounts.
+
+### Changed
+- `scripts/verify_e2e_scans.py` rewritten for the redesigned flow (three scan points, Stage NEXT, the Caller
+  screen, roles REGISTRY / QUEUE / STAGE / LUNCH / CALLER / ADMIN). Accounts now come from environment
+  variables (`VERIFY_<ROLE>_USER` / `_PASSWORD`) instead of passwords written in the file, and it refuses to
+  run unless `VERIFY_ALLOW_WRITES=1`, because it records real events.
+- Stage screen: the banner said "Connecting…" until the first button press even when live data was showing
+  (found in the real-browser check); the first live state now shows "Ready.".
+
+### Tests
+- `tests/test_caller.py` (18), `tests/js/caller.test.js` (10), one new test in `tests/js/stage.test.js`;
+  role tables in `tests/test_auth.py` and `tests/test_schema.py` include CALLER.
+
+## [0.20.0] - Role/flow redesign, Phase R2: Stage fast-advance (NEXT records the degree) and the waiting list
+
+### Changed
+- **NEXT is the one advance action** (`POST /stage/next`, `backend/stage/controller.py`). In ONE transaction it
+  records the degree (the Stage COMPLETE event, through the engine's own `confirm_in_transaction`) for the
+  student on stage, if any, and puts the next queued student on stage and on the LED. There is no separate
+  "mark received" step. On the last student it records the degree and returns the LED to the holding screen
+  (`Degree recorded. Nobody else is waiting.`).
+- **Double-press safety**: NEXT and sending a listed student must name the student the screen believes is on
+  stage (`expect_current`, required, may be null). A stale or repeated press changes nothing and answers
+  `The screen has already moved on.` with the current state.
+- **Sending a listed student** (`POST /stage/display` from the waiting list or SEARCH) now also records the
+  degree for the student already on stage (it used to be refused until COMPLETE was pressed).
+- **SHOW AGAIN** (`POST /stage/show-again`) re-shows the student still on stage after HOME; records nothing.
+- **Removed**: `POST /stage/complete` and `POST /stage/display-next` (404) and their buttons. The STAGE
+  activity's configured label is now `NEXT`.
+- **The waiting list**: the Stage state carries `waiting`, the next 15 queued students in queue order
+  (`WAITING_LIST_SIZE`); NEXT / AFTER NEXT are its first two. The Stage screen shows CURRENT, a big NEXT
+  button (a presenter clicker's Page Down / Right arrow also presses it; Enter and space never do), SHOW AGAIN,
+  HOME (Esc), PREVIOUS, the WAITING list with SEND per student, SKIP and SEARCH.
+- **The Stage screen's live stream** (`/stage/events`) now also pushes when the waiting queue changes
+  (`STAGE_VERSION_SQL`). The LED stream still watches only the stage state, so a queue scan never reaches the
+  audience screen (golden rule 9).
+
+### Measured (local, scratch database)
+- `POST /stage/next`: 13.7-22.2 ms server time, 14.6-23.5 ms round trip, over 5 presses. The LED and Stage
+  streams showed each new student within one 250 ms poll.
+
+### Not changed
+- The LED payload, HOME, PREVIOUS, SKIP (reason required), take-over and the single-controller rule.
+
+### Known gap
+- `scripts/verify_e2e_scans.py` (ad-hoc script) still uses the seven old operator accounts and the removed
+  Stage endpoints; it no longer matches the system and needs rewriting before it is used again.
+
+### Tests
+- `tests/test_stage.py` rewritten for NEXT (48 tests, including one transaction, failure rollback, stale and
+  double press, the 15-student list, the stage stream vs the LED stream); `tests/js/stage.test.js` rewritten
+  (15); `tests/test_final_review.py` concurrency loop and journey helper use NEXT.
+
+## [0.19.0] - Role/flow redesign, Phase R1: the Registry desk (one scan at entry, one for the robe return)
+
+Part of the approved redesign that cuts QR scan points from 7 to 3 (Registry, Queue, Lunch). This entry
+covers Phase R1 only; the Stage fast-advance, the Caller screen and the LED plumbing follow in later phases.
+
+### Changed
+- **One merged operator role, `REGISTRY`**, replaces the Reporting, Robe Allocation and Robe Return
+  operators (`backend/security/permissions.py`, now an explicit role -> activities table).
+  **Migration `0014_registry_role`** moves every existing account with one of the three old roles to
+  `REGISTRY`, writes one `ROLE_MERGED` audit row per account moved, and narrows `users_role_valid` to
+  `ADMIN, DEPUTY_ADMIN, REGISTRY, SEATING, QUEUE, STAGE, LUNCH`. Downgrade is lossy (every REGISTRY account
+  becomes REGISTRATION). A data reset keeps `ROLE_MERGED` rows, like the other account audit rows.
+- **The Registry desk** (`/station/registry`, `backend/engine/registry.py`). One scan; the desk works out
+  from the student's own record which visit this is, so the operator never chooses:
+  `ENTRY` (not yet reported) -> ONE confirm (`CONFIRM REPORTING + ROBE`) records REGISTRATION **and**
+  THOBE_ALLOCATION in ONE transaction; `ROBE` (reported earlier, no robe) -> the robe only; `RETURN`
+  (robe given and Stage completed) -> THOBE_RETURN (`CONFIRM ROBE RETURN`). Otherwise an amber
+  `ALREADY REPORTED AND ROBE GIVEN — {time}` or `ALREADY RETURNED — {time}`. Each write is the engine's own
+  `confirm_in_transaction`, so every event keeps its audit and scan_log rows, MANUAL / LATE flags and the
+  per-activity unique constraint. The client sends back the step it was shown; if the student has moved on,
+  nothing is written. Camera scan and PRN-only fallback are on the desk.
+- **Seating is optional**: the Queue now requires Robe Allocation (`QUEUE NOT AVAILABLE — ROBE NOT
+  RECEIVED`), not Seating. The Seating screen itself is unchanged (project owner: "keep it as is").
+- Login lands a Registry operator on `/station/registry`. The station screen shows the confirm label the
+  server sends for the step and echoes the step back (`static/station.js`).
+
+### Fixed
+- **Queue deadlock under concurrent confirms of one student** (pre-existing; reproduced on `b734d1b`, 2 of 8
+  runs of `TestConcurrency` failed with `DeadlockDetected` on `queue_pkey`, surfacing as a 503). The enqueue
+  effect now takes the student's row lock (`FOR NO KEY UPDATE`) first. 20 of 20 runs pass after the fix.
+
+### Not changed (on purpose)
+- The activity codes REGISTRATION / THOBE_ALLOCATION / THOBE_RETURN and their events, constraints and
+  reports: only who performs them changed. The per-activity station pages still exist (Admin, and the
+  Registry operator for its three activities).
+
+### Tests
+- `tests/test_registry.py` (28), 4 new in `tests/js/station.test.js`; role tables in `tests/test_auth.py`,
+  `tests/test_schema.py`, `tests/test_station_engine.py` and the Queue tests in `tests/test_activities.py`
+  rewritten for the new roles and prerequisite (the old "Queue blocked without seating" test is replaced by
+  "blocked without a robe" + "not blocked without seating").
+
 ## [0.18.0] - "Registration" (the activity) is now called "Reporting"
 
 ### Changed

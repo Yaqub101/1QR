@@ -1,13 +1,18 @@
-"""The Stage Controller: DISPLAY NEXT, HOME, PREVIOUS, SEARCH, SKIP, COMPLETE, plus take-over.
+"""The Stage Controller: NEXT, SHOW AGAIN, HOME, PREVIOUS, SEARCH / send a listed student, SKIP, plus take-over.
 
-Rules (SYSTEM_SPEC 13, 18; TODO Phase 11):
+Rules (SYSTEM_SPEC 13, 18; TODO Phase 11; role/flow redesign Phase R2):
+  * NEXT is THE advance action. In ONE transaction it records the degree (the Stage COMPLETE event) for the
+    student on stage, if there is one, and puts the next queued student on stage and on the LED. There is no
+    separate "mark received" step: advancing IS the record. Sending a chosen student from the waiting list
+    does the same with that student instead of the head of the queue.
   * Exactly ONE laptop controls the stage. Every action takes the row lock on stage_state, then checks the
     caller's session is the recorded controller. "Take over" hands control to the caller and locks the old
     laptop out immediately (its next press is refused).
-  * A rapid double press can never advance twice: the second press waits for the first's lock, then finds
-    the state already changed (DISPLAY NEXT: "already on screen"; COMPLETE / SKIP: "nobody is on stage").
-  * COMPLETE is recorded by the station engine (one code path for every activity) inside the SAME transaction
-    as the state change, so the event and "who is on stage" can never disagree. SKIP needs a reason.
+  * A rapid double press can never advance twice: NEXT (and sending a listed student) names the student the
+    screen believes is on stage (`expect_current`). The second press waits for the first's lock, finds a
+    different student on stage, and changes nothing ("The screen has already moved on.").
+  * The degree is recorded by the station engine (one code path for every activity) inside the SAME
+    transaction as the state change, so the event and "who is on stage" can never disagree. SKIP needs a reason.
   * The LED shows only students who have an approved display_snapshot; without one it stays on the holding
     screen, and the operator is told.
   * A queue scan or confirmation never reaches this module, and the database refuses stage_state changes made
@@ -112,26 +117,66 @@ def _show(conn: Connection, student_id) -> bool:
 
 
 NO_DISPLAY_DATA = "This student has no approved display data, so the screen stays on the holding screen."
+STALE = "The screen has already moved on."
 
 
-def display_next(engine, **kw) -> dict:
+def _same(expect_current, current_student_id) -> bool:
+    """Does the screen's idea of who is on stage match the database's? (None means nobody.)"""
+    if current_student_id is None:
+        return expect_current is None
+    return expect_current is not None and str(expect_current) == str(current_student_id)
+
+
+def _record_degree(conn: Connection, settings, principal, student_id) -> None:
+    """The student on stage received the degree: the engine records the Stage event (event + audit + scan_log)
+    in THIS transaction, then they leave the stage. The student came from the queue, not from a typed PRN, so
+    it is not flagged MANUAL."""
+    result = service.confirm_in_transaction(
+        conn, settings=settings, principal=principal, activity="STAGE", student_id=str(student_id), manual=False)
+    if result.result not in ("CONFIRMED", "DUPLICATE"):  # DUPLICATE: already recorded; just finish the hand-over
+        _refuse(409, "CANNOT_COMPLETE", result.message)
+    _leave_stage(conn, student_id, "DONE")
+
+
+def _put_on_stage(conn: Connection, ctx, student_id, **audit) -> bool:
+    conn.execute(text("UPDATE queue SET status = 'DISPLAYED' WHERE student_id = :s"), {"s": student_id})
+    stage_state.update_state(conn, current_student_id=student_id)
+    shown = _show(conn, student_id)
+    _audit(conn, ctx, "STAGE_DISPLAY", student_id, **audit)
+    return shown
+
+
+def next_student(engine, *, expect_current: Optional[str], settings, principal) -> dict:
+    """NEXT: the student on stage (if any) received the degree; the next one in the queue goes on stage."""
     def act(conn, ctx, st):
-        if st["current_student_id"] is not None:  # somebody is already on stage: never skip ahead
-            if st["display_student_id"] == st["current_student_id"]:
-                return {"changed": False, "message": "Already on screen."}
-            shown = _show(conn, st["current_student_id"])
-            _audit(conn, ctx, "STAGE_DISPLAY", st["current_student_id"], via="resume")
-            return {"message": "Showing again." if shown else NO_DISPLAY_DATA}
+        on_stage = st["current_student_id"]
+        if not _same(expect_current, on_stage):
+            return {"changed": False, "message": STALE}
+        if on_stage is not None:
+            _record_degree(conn, settings, principal, on_stage)
         row = conn.execute(
             text("SELECT student_id FROM queue WHERE status = 'QUEUED' ORDER BY queue_position LIMIT 1 FOR UPDATE")
         ).scalar()
         if row is None:
+            if on_stage is not None:
+                return {"message": "Degree recorded. Nobody else is waiting."}
             _refuse(409, "QUEUE_EMPTY", "Nobody is waiting in the queue.")
-        conn.execute(text("UPDATE queue SET status = 'DISPLAYED' WHERE student_id = :s"), {"s": row})
-        stage_state.update_state(conn, current_student_id=row)
-        shown = _show(conn, row)
-        _audit(conn, ctx, "STAGE_DISPLAY", row, via="next")
-        return {"message": "Showing the next student." if shown else NO_DISPLAY_DATA}
+        shown = _put_on_stage(conn, ctx, row, via="next")
+        done = "Degree recorded. " if on_stage is not None else ""
+        return {"message": done + ("Showing the next student." if shown else NO_DISPLAY_DATA)}
+    return _run(engine, settings=settings, principal=principal, fn=act)
+
+
+def show_again(engine, **kw) -> dict:
+    """After HOME: put the student who is still on stage back on the LED. Records nothing."""
+    def act(conn, ctx, st):
+        if st["current_student_id"] is None:
+            _refuse(409, "NOTHING_ON_STAGE", "Nobody is on stage.")
+        if st["display_student_id"] == st["current_student_id"]:
+            return {"changed": False, "message": "Already on screen."}
+        shown = _show(conn, st["current_student_id"])
+        _audit(conn, ctx, "STAGE_DISPLAY", st["current_student_id"], via="show_again")
+        return {"message": "Showing again." if shown else NO_DISPLAY_DATA}
     return _run(engine, fn=act, **kw)
 
 
@@ -178,11 +223,13 @@ def search(engine, *, query: str, **kw) -> dict:
     return _run(engine, fn=act, **kw)
 
 
-def display(engine, *, student_id: str, **kw) -> dict:
-    """Show a specific waiting student (a SEARCH result), out of order if need be."""
+def display(engine, *, student_id: str, expect_current: Optional[str], settings, principal) -> dict:
+    """Send a specific waiting student (from the waiting list or a SEARCH result) to the stage, out of order if
+    need be. Like NEXT, the student already on stage (if any) received the degree."""
     def act(conn, ctx, st):
-        if st["current_student_id"] is not None:
-            _refuse(409, "STAGE_BUSY", "Complete or skip the student on stage first.")
+        on_stage = st["current_student_id"]
+        if not _same(expect_current, on_stage):
+            return {"changed": False, "message": STALE}
         row = None
         try:
             wanted = uuid.UUID(str(student_id))
@@ -194,37 +241,20 @@ def display(engine, *, student_id: str, **kw) -> dict:
                      "AND status IN ('QUEUED','HELD','SKIPPED') FOR UPDATE"), {"s": wanted}).mappings().one_or_none()
         if row is None:
             _refuse(409, "NOT_WAITING", "That student is not waiting in the queue.")
+        if on_stage is not None:
+            _record_degree(conn, settings, principal, on_stage)
         head = conn.execute(text("SELECT min(queue_position) FROM queue WHERE status = 'QUEUED'")).scalar()
-        conn.execute(text("UPDATE queue SET status = 'DISPLAYED' WHERE student_id = :s"), {"s": row["student_id"]})
-        stage_state.update_state(conn, current_student_id=row["student_id"])
-        shown = _show(conn, row["student_id"])
-        _audit(conn, ctx, "STAGE_DISPLAY", row["student_id"], via="search",
-               out_of_order=(head is not None and row["queue_position"] != head))
-        return {"message": "Showing the selected student." if shown else NO_DISPLAY_DATA}
-    return _run(engine, fn=act, **kw)
+        shown = _put_on_stage(conn, ctx, row["student_id"], via="list",
+                              out_of_order=(head is not None and row["queue_position"] != head))
+        done = "Degree recorded. " if on_stage is not None else ""
+        return {"message": done + ("Showing the selected student." if shown else NO_DISPLAY_DATA)}
+    return _run(engine, settings=settings, principal=principal, fn=act)
 
 
-# --------------------------------------------------------------------------- COMPLETE / SKIP
+# --------------------------------------------------------------------------- SKIP
 def _leave_stage(conn: Connection, student_id, queue_status: str) -> None:
     conn.execute(text("UPDATE queue SET status = :st WHERE student_id = :s"), {"st": queue_status, "s": student_id})
     stage_state.update_state(conn, current_student_id=None, display_student_id=None, previous_student_id=student_id)
-
-
-def complete(engine, *, settings, principal) -> dict:
-    def act(conn, ctx, st):
-        student_id = st["current_student_id"]
-        if student_id is None:
-            _refuse(409, "NOTHING_ON_STAGE", "Nobody is on stage.")
-        # The engine records the Stage event (event + audit + scan_log) in THIS transaction. The
-        # student came from the queue, not from a typed PRN, so it is not flagged MANUAL.
-        result = service.confirm_in_transaction(
-            conn, settings=settings, principal=principal, activity="STAGE",
-            student_id=str(student_id), manual=False)
-        if result.result not in ("CONFIRMED", "DUPLICATE"):  # DUPLICATE: already recorded; just finish the hand-over
-            _refuse(409, "CANNOT_COMPLETE", result.message)
-        _leave_stage(conn, student_id, "DONE")
-        return {"message": "Degree recorded."}
-    return _run(engine, settings=settings, principal=principal, fn=act)
 
 
 def skip(engine, *, reason: Optional[str], settings, principal) -> dict:

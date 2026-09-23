@@ -173,15 +173,23 @@ class TestQueue:
                          "JOIN activity_events e ON e.student_id = qu.student_id AND e.activity = 'QUEUE' AND e.kind = 'COMPLETE' "
                          "WHERE qu.student_id = ANY(:ids) ORDER BY qu.queue_position", ids=ids)
 
-    def test_blocked_without_seating(self, apps, world, engine):
+    def test_blocked_without_a_robe(self, apps, world, engine):
+        # Redesign: Seating is optional, so the Queue's hard block is the robe, not the seat.
         s = make_student(engine)
-        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION"])  # robe given, not yet seated
+        seed_events(engine, s, ["REGISTRATION"])  # reported, no robe
         client = operator(apps, world, "QUEUE")
         before = totals(engine)
         for body in (scan(client, "QUEUE", s.token).json(), confirm(client, "QUEUE", token=s.token).json()):
-            assert body["result"] == "REJECTED" and body["message"] == "QUEUE NOT AVAILABLE — SEATING PENDING"
+            assert body["result"] == "REJECTED" and body["message"] == "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"
         assert totals(engine) == before
         assert q(engine, "SELECT count(*) AS n FROM queue WHERE student_id = :s", s=s.id)[0]["n"] == 0
+
+    def test_not_blocked_without_seating(self, apps, world, engine):
+        s = make_student(engine)
+        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION"])  # robe given, never seated
+        client = operator(apps, world, "QUEUE")
+        assert confirm(client, "QUEUE", token=s.token).json()["result"] == "CONFIRMED"
+        assert q(engine, "SELECT count(*) AS n FROM queue WHERE student_id = :s", s=s.id)[0]["n"] == 1
 
     def test_positions_follow_confirmation_order_and_nothing_else(self, apps, world, engine):
         students = [ready_student(engine, "QUEUE") for _ in range(4)]  # created in one order...

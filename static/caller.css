@@ -1,0 +1,12 @@
+/* The internal Caller screen: the name to call, as large as the screen allows. */
+:root { --ink:#111; --muted:#555; --bg:#f7f7f4; --brand:#1d4e89; --red:#b3261e; }
+* { box-sizing:border-box; }
+body.caller { margin:0; font-family:system-ui, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; }
+.caller-bar { display:flex; justify-content:space-between; padding:.6rem 1rem; background:var(--brand); color:#fff; font-weight:700; }
+.caller-bar .who { font-weight:400; }
+.caller-status { margin:1rem; padding:.8rem 1rem; border-radius:10px; font-size:1.3rem; font-weight:700; text-align:center; }
+.caller-status.blue { background:#e3ecf7; color:var(--brand); }
+.caller-status.red { background:#fbe3e1; color:var(--red); }
+.caller-card { margin:1rem; padding:2rem 1rem; text-align:center; }
+.caller-card h1 { font-size:clamp(2.5rem, 8vw, 6rem); line-height:1.1; margin:0 0 1rem; overflow-wrap:anywhere; }
+.caller-card p { font-size:clamp(1.3rem, 3.5vw, 2.6rem); color:var(--muted); margin:0; overflow-wrap:anywhere; }

@@ -25,7 +25,7 @@
     const resetMs = deps.resetMs != null ? deps.resetMs : 2500;
     const debouncer = Logic.createDebouncer({ windowMs: deps.debounceMs != null ? deps.debounceMs : 1500, now });
 
-    let pending = null; // what /confirm will send: { kind: "token" | "student", value }
+    let pending = null; // what /confirm will send: { kind: "token" | "student", value, step }
     let resetTimer = null;
     let readyAt = -Infinity;
 
@@ -88,6 +88,9 @@
         pending = reply.manual
           ? { kind: "student", value: reply.student.student_id }
           : { kind: "token", value: tokenForPending };
+        // The Registry desk works out the step (entry / robe return) and names it; other screens send none.
+        if (reply.step) pending.step = reply.step;
+        if (reply.confirm_label) els.confirmBtn.textContent = reply.confirm_label;
         els.confirmBtn.hidden = false;
         readyAt = now();
       } else {
@@ -126,6 +129,7 @@
       const body = pending.kind === "token"
         ? { token: pending.value, activity: deps.activity }
         : { student_id: pending.value, activity: deps.activity };
+      if (pending.step) body.step = pending.step;
       els.confirmBtn.disabled = true;
       try {
         await run(() => post("/confirm", body), null);

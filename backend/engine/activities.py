@@ -9,6 +9,9 @@ Sources: SYSTEM_SPEC section 2 (journey order), 3 (what each activity shows), 5 
 
 Journey order (a prerequisite must come EARLIER in this list):
     REGISTRATION -> THOBE_ALLOCATION -> SEATING -> QUEUE -> STAGE -> THOBE_RETURN -> LUNCH
+
+Since the role/flow redesign, REGISTRATION + THOBE_ALLOCATION (entry) and THOBE_RETURN are performed at
+the ONE Registry desk (backend/engine/registry.py), and SEATING is optional: nothing requires it.
 """
 from __future__ import annotations
 
@@ -41,7 +44,9 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
     ),
     "QUEUE": ActivityConfig(
         activity="QUEUE",
-        prerequisites=(Prerequisite("SEATING", "QUEUE NOT AVAILABLE — SEATING PENDING"),),
+        # Seating is optional since the role/flow redesign (a checkpoint that never blocks anything), so
+        # the Queue needs the robe, not a seat.
+        prerequisites=(Prerequisite("THOBE_ALLOCATION", "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"),),
         # Order on stage is the order these confirmations happen in — first come, first shown.
         display_fields=("prn", "queue_position"),
         confirm_label="CONFIRM QUEUE",
@@ -52,7 +57,8 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         activity="STAGE",
         prerequisites=(Prerequisite("QUEUE", "STAGE NOT AVAILABLE — QUEUE PENDING"),),
         display_fields=("programme", "school"),
-        confirm_label="COMPLETE",
+        # The Stage operator's NEXT records this (redesign R2: advancing IS the "degree received" record).
+        confirm_label="NEXT",
         duplicate_message="DEGREE ALREADY RECEIVED — {time}",
     ),
     "THOBE_RETURN": ActivityConfig(

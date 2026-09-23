@@ -1,12 +1,14 @@
 """Sign-in, sign-out, "who am I", and the station screen shell."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from backend.engine import registry
 from backend.engine.activities import ACTIVITY_CONFIGS
 from backend.security import permissions, sessions
 from backend.security.deps import (
@@ -107,6 +109,16 @@ def me(principal: Principal = Depends(require_user)):
         "is_admin": principal.is_admin,
         "permissions": sorted(principal.permissions),
     }
+
+
+@router.get("/station/registry")
+def registry_screen(request: Request, principal: Principal = Depends(require_user)):
+    """The Registry desk: one scan point for entry (Reporting + Robe) and the robe return. The button's
+    label comes from the server with each scan, because the desk works out which step the student is at."""
+    if not registry.can_use(principal.role):
+        raise http_error(403, "FORBIDDEN", "That screen is not part of your role.")
+    return render(request, "station.html", principal=principal, activity=registry.STATION, title="Registry",
+                  config=SimpleNamespace(confirm_label="CONFIRM"))
 
 
 @router.get("/station/{activity}")

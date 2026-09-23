@@ -49,34 +49,50 @@ ACTIVITIES = [
     "REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH",
 ]
 
-# key -> role. Section 4: seven operator roles + Central Event Admin + the named deputy.
-# (That is 9 identities; the request said "8 roles" - see report.)
+# key -> role. The approved role/flow redesign: ONE merged Registry operator role covers Reporting,
+# Robe Allocation and Robe Return; the other operator roles stay one per activity; a read-only CALLER
+# (Phase R3) who performs no activity at all; plus the Central Event Admin and the named deputy. 8 identities.
 IDENTITIES = {
     "admin": "ADMIN",
     "deputy": "DEPUTY_ADMIN",
-    "registration": "REGISTRATION",
-    "thobe_allocation": "THOBE_ALLOCATION",
+    "registry": "REGISTRY",
     "seating": "SEATING",
     "queue": "QUEUE",
     "stage": "STAGE",
-    "thobe_return": "THOBE_RETURN",
     "lunch": "LUNCH",
+    "caller": "CALLER",
 }
 ADMIN_ROLES = {"ADMIN", "DEPUTY_ADMIN"}
-OPERATOR_ROLES = set(ACTIVITIES)
+OPERATOR_ROLES = {"REGISTRY", "SEATING", "QUEUE", "STAGE", "LUNCH", "CALLER"}
+CALLER_VIEW = "view:caller"
+# Who may open the read-only Caller screen (/caller): the Caller, the Stage operator and the Admins.
+SPEC_CALLER_SCREEN = {"CALLER", "STAGE", "ADMIN", "DEPUTY_ADMIN"}
+RETIRED_ROLES = ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN")  # merged into REGISTRY
 
-# SYSTEM_SPEC section 4, "Can do" column, written out by hand.
+# Which operator role performs each activity, written out by hand (not imported from the code).
+OPERATOR_ROLE_FOR = {
+    "REGISTRATION": "REGISTRY",
+    "THOBE_ALLOCATION": "REGISTRY",
+    "SEATING": "SEATING",
+    "QUEUE": "QUEUE",
+    "STAGE": "STAGE",
+    "THOBE_RETURN": "REGISTRY",
+    "LUNCH": "LUNCH",
+}
+
+# "Can do" per role, written out by hand from the redesign.
 SPEC_ACTIVITY_PAGES = {
-    "REGISTRATION": {"REGISTRATION"},
-    "THOBE_ALLOCATION": {"THOBE_ALLOCATION"},
+    "REGISTRY": {"REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"},
     "SEATING": {"SEATING"},
     "QUEUE": {"QUEUE"},
     "STAGE": {"STAGE"},
-    "THOBE_RETURN": {"THOBE_RETURN"},
     "LUNCH": {"LUNCH"},
+    "CALLER": set(),                 # read-only: no activity at all
     "ADMIN": set(ACTIVITIES),        # "All seven pages"
     "DEPUTY_ADMIN": set(ACTIVITIES),  # "identical powers"
 }
+# The Registry desk screen (/station/registry): the Registry operator and the Admins.
+SPEC_REGISTRY_DESK = {"REGISTRY", "ADMIN", "DEPUTY_ADMIN"}
 SPEC_ADMIN_CONSOLE = {"ADMIN", "DEPUTY_ADMIN"}  # dashboard, corrections, users ... Admin only
 
 
@@ -232,16 +248,30 @@ class TestPasswordHashing:
 class TestRoleModel:
     def test_there_is_one_role_per_spec_row_plus_the_deputy(self):
         assert set(permissions.ALL_ROLES) == set(IDENTITIES.values())
-        assert len(permissions.ALL_ROLES) == 9
+        assert len(permissions.ALL_ROLES) == 8
+
+    @pytest.mark.parametrize("role", RETIRED_ROLES)
+    def test_the_three_merged_roles_no_longer_exist(self, role):
+        assert role not in permissions.ALL_ROLES
+        assert permissions.permissions_for(role) == frozenset()
 
     def test_admin_and_deputy_have_exactly_the_same_permissions(self):
         assert permissions.permissions_for("ADMIN") == permissions.permissions_for("DEPUTY_ADMIN")
 
     @pytest.mark.parametrize("role", sorted(OPERATOR_ROLES))
-    def test_an_operator_has_only_their_own_activity_and_no_admin_power(self, role):
+    def test_an_operator_has_only_their_own_activities_and_no_admin_power(self, role):
         perms = permissions.permissions_for(role)
-        assert perms == {permissions.activity_permission(role)}
+        extra = {CALLER_VIEW} if role in SPEC_CALLER_SCREEN else set()
+        assert perms == {permissions.activity_permission(a) for a in SPEC_ACTIVITY_PAGES[role]} | extra
         assert not permissions.has_permission(role, permissions.ADMIN_PERMISSION)
+
+    @pytest.mark.parametrize("role", sorted(IDENTITIES.values()))
+    def test_only_the_caller_stage_and_admins_may_view_the_caller_screen(self, role):
+        assert permissions.has_permission(role, CALLER_VIEW) == (role in SPEC_CALLER_SCREEN)
+
+    @pytest.mark.parametrize("activity", ACTIVITIES)
+    def test_every_activity_has_exactly_the_operator_role_the_redesign_names(self, activity):
+        assert permissions.operator_role_for(activity) == OPERATOR_ROLE_FOR[activity]
 
     @pytest.mark.parametrize("role", sorted(IDENTITIES.values()))
     def test_permissions_match_the_hand_written_spec_table(self, role):
@@ -308,16 +338,16 @@ class TestLogin:
         assert client.get("/api/me").status_code == 401
 
     def test_login_reports_who_but_never_the_password_hash(self, apps, world):
-        response = api_login(new_client(apps), "registration-user")
+        response = api_login(new_client(apps), "registry-user")
         body = response.json()
-        assert body["user"]["role"] == "REGISTRATION"
+        assert body["user"]["role"] == "REGISTRY"
         assert "password" not in response.text.lower() and "argon2" not in response.text
 
     def test_the_browser_form_login_sets_a_cookie_and_redirects(self, apps, world):
         client = new_client(apps)
-        response = client.post("/login", data={"username": "registration-user", "password": PASSWORD},
+        response = client.post("/login", data={"username": "registry-user", "password": PASSWORD},
                                follow_redirects=False)
-        assert response.status_code == 303 and response.headers["location"] == "/station/registration"
+        assert response.status_code == 303 and response.headers["location"] == "/station/registry"
         assert SESSION_COOKIE in client.cookies
         set_cookie = response.headers["set-cookie"].lower()
         assert "httponly" in set_cookie and "samesite=strict" in set_cookie
@@ -415,20 +445,25 @@ class TestSessions:
 # --------------------------------------------------------------------------- #
 # The role matrix: 9 identities x every protected endpoint
 # --------------------------------------------------------------------------- #
-STATION_PAGES = [("GET", f"/station/{slug(a)}") for a in ACTIVITIES]
+STATION_PAGES = [("GET", f"/station/{slug(a)}") for a in ACTIVITIES] + [("GET", "/station/registry")]
+CALLER_PAGES = [("GET", "/caller"), ("GET", "/caller/state")]
 ADMIN_ENDPOINTS = [
     ("GET", "/admin"), ("GET", "/admin/users"),
     ("POST", "/admin/users"),
     ("POST", "/admin/import/preview"), ("POST", "/admin/import/commit"),
     ("POST", "/admin/photos/link"), ("POST", "/admin/master-pack/import"),
 ]
-ENDPOINTS = [("GET", "/api/me")] + STATION_PAGES + ADMIN_ENDPOINTS
+ENDPOINTS = [("GET", "/api/me")] + STATION_PAGES + CALLER_PAGES + ADMIN_ENDPOINTS
 
 
 def expected_allowed(role, path):
     """Spec section 4, independent of the implementation."""
     if path == "/api/me":
         return True
+    if path == "/station/registry":
+        return role in SPEC_REGISTRY_DESK
+    if path.startswith("/caller"):
+        return role in SPEC_CALLER_SCREEN
     if path.startswith("/station/"):
         activity = next(a for a in ACTIVITIES if slug(a) == path.rsplit("/", 1)[1])
         return activity in SPEC_ACTIVITY_PAGES[role]
@@ -464,13 +499,24 @@ class TestRoleMatrix:
         assert statuses["admin"] == statuses["deputy"]
         assert all(s not in (401, 403) for s in statuses["admin"])  # admin/deputy reach everything
 
-    def test_a_registration_operator_reaches_only_registration(self, apps, world):
-        client = signed_in(apps, world, "registration")
-        assert client.get("/station/registration").status_code == 200
-        for other in ACTIVITIES[1:]:
-            assert client.get(f"/station/{slug(other)}").status_code == 403
+    def test_a_registry_operator_reaches_only_the_registry_desk_and_its_three_activities(self, apps, world):
+        client = signed_in(apps, world, "registry")
+        assert client.get("/station/registry").status_code == 200
+        for activity in ACTIVITIES:
+            expected = 200 if activity in {"REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"} else 403
+            assert client.get(f"/station/{slug(activity)}").status_code == expected, activity
         for _, path in ADMIN_ENDPOINTS:
             assert client.get(path).status_code in (403, 405)
+
+    def test_a_caller_lands_on_the_caller_screen(self, apps, world):
+        client = new_client(apps)
+        response = client.post("/login", data={"username": "caller-user", "password": PASSWORD}, follow_redirects=False)
+        assert response.status_code == 303 and response.headers["location"] == "/caller"
+
+    def test_a_registry_operator_lands_on_the_registry_desk(self, apps, world):
+        client = new_client(apps)
+        response = client.post("/login", data={"username": "registry-user", "password": PASSWORD}, follow_redirects=False)
+        assert response.status_code == 303 and response.headers["location"] == "/station/registry"
 
     @pytest.mark.parametrize("key", [k for k, r in IDENTITIES.items() if r in OPERATOR_ROLES])
     def test_operators_are_locked_out_of_the_phase_3_admin_endpoints(self, apps, world, key):
@@ -796,6 +842,11 @@ class TestAuthSchema:
         with db_error(conn, CHECK_VIOLATION):
             conn.execute(text("INSERT INTO users (username, password_hash, role) VALUES ('bad-x', 'h', 'SUPERUSER')"))
 
+    @pytest.mark.parametrize("role", RETIRED_ROLES)
+    def test_the_database_refuses_the_three_merged_roles(self, conn, role):
+        with db_error(conn, CHECK_VIOLATION):
+            conn.execute(text("INSERT INTO users (username, password_hash, role) VALUES ('old-x', 'h', :r)"), {"r": role})
+
     def test_session_tokens_are_unique_and_tied_to_a_real_user(self, conn, world):
         conn.execute(text("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('h1', :u, now() + interval '1 hour')"),
                      {"u": world.user_ids["admin"]})
@@ -810,7 +861,7 @@ class TestUserDeactivation:
     def test_deactivated_user_cannot_log_in(self, engine, apps, world):
         from backend import users
         with engine.begin() as conn:
-            op_id = users.create_user(conn, username="reg-op", password=PASSWORD, role="REGISTRATION", actor_id=world.user_ids["admin"])
+            op_id = users.create_user(conn, username="reg-op", password=PASSWORD, role="REGISTRY", actor_id=world.user_ids["admin"])
             users.set_user_active(conn, op_id, False, actor_id=world.user_ids["admin"])
         client = new_client(apps)
         response = api_login(client, "reg-op")
