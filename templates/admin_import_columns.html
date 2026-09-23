@@ -4,7 +4,7 @@
 <p><a href="/admin/import">&larr; Import Students</a></p>
 <h1>Match the columns</h1>
 <p class="muted"><b>{{ batch.filename }}</b> &middot; {{ row_count }} row{{ "s" if row_count != 1 }}
-  {%- if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}</p>
+  {%- if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}{%- if batch.photos_zip %} &middot; photo ZIP {{ batch.photos_zip.filename }} ({{ batch.photos_zip.photos }} photo file{{ "s" if batch.photos_zip.photos != 1 }}{%- if batch.photos_zip.malformed %}, {{ batch.photos_zip.malformed }} with an unrecognised name{% endif %}){% endif %}</p>
 <p class="muted">Say what each column of the file is. Anything left on “Do not import” is ignored.
   PRN, name, programme and school are needed; everything else is optional — the university's list has no
   convocation sequence number and no seat number, and neither is required.</p>

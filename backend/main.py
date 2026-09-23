@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import pathlib
 import tempfile
 import time
@@ -17,7 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from backend.audit import write_audit
 from backend.config import Settings, get_settings
 from backend.logging_config import setup_logging
-from backend import database
+from backend import database, photo_storage
 from backend.importer import commit_import, read_and_validate
 from backend.photos import link_photos_by_prn
 from backend.snapshot import freeze_display_data
@@ -46,6 +47,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     app.state.settings = settings
     app.state.engine = engine
+    # Where student photos live (local folder or Cloudinary). A misconfiguration stops the server
+    # here, with one plain sentence naming the setting, instead of losing photos later.
+    try:
+        app.state.photo_store = photo_storage.configure(settings)
+    except photo_storage.PhotoStorageConfigError as exc:
+        logging.getLogger("backend").critical("PHOTO STORAGE IS MISCONFIGURED: %s", exc)
+        raise
 
     @app.middleware("http")
     async def _process_time(request: Request, call_next):
@@ -246,5 +254,7 @@ def get_app() -> FastAPI:
 
 try:
     app = get_app()
+except photo_storage.PhotoStorageConfigError:
+    raise  # never start a server that would lose photos: the reason is in the log line above
 except Exception:
     app = None

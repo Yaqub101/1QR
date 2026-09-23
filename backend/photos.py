@@ -31,6 +31,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
 from backend.importer import excel_engine_for
+from backend.photo_storage import LocalPhotoStore, PhotoStore, PhotoStoreError
 
 _PLACEHOLDER = "static/placeholder.svg"
 _SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
@@ -74,6 +75,9 @@ class PhotoImportReport:
     duplicate_student_prns: list[dict]
     malformed_filenames: list[str]
     frozen_skipped: list[dict] = dataclasses.field(default_factory=list)
+    # Matched photos whose bytes could not be written to the photo store (or read out of the ZIP):
+    # [{"filename", "prn", "reason"}]. The student's photo_path is left exactly as it was.
+    storage_failed: list[dict] = dataclasses.field(default_factory=list)
 
 
 def parse_photo_filename(filename: str) -> Optional[ParsedPhotoFilename]:
@@ -183,6 +187,19 @@ def extract_student_id_mappings(
     return mapping, duplicate_student_prns
 
 
+def inspect_photo_zip(zip_path: Union[pathlib.Path, str]) -> dict:
+    """Read only the ZIP's table of contents (no photo is decompressed): how many entries look like
+    university photo files and which names are malformed. Raises ValueError if it is not a readable ZIP."""
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = [os.path.basename(n) for n in zf.namelist() if not n.endswith("/")]
+    except (zipfile.BadZipFile, OSError, EOFError) as exc:
+        raise ValueError(f"not a readable ZIP file ({type(exc).__name__})") from None
+    names = [n for n in names if n and not n.startswith(".")]
+    malformed = [n for n in names if parse_photo_filename(n) is None]
+    return {"entries": len(names), "photos": len(names) - len(malformed), "malformed": len(malformed)}
+
+
 def import_photos_from_zip(
     zip_source: Union[bytes, io.IOBase, pathlib.Path, str],
     engine_or_conn: Union[Engine, Connection],
@@ -190,15 +207,23 @@ def import_photos_from_zip(
     excel_filename: str = "Untitled spreadsheet.xlsx",
     dest_dir: Union[pathlib.Path, str] = "photos",
     prn_filter: Optional[Iterable[str]] = None,
+    store: Optional[PhotoStore] = None,
 ) -> PhotoImportReport:
     """Import and match photos from a ZIP archive to existing student records.
 
     Option B: If `excel_source` is provided, maps Enrollment No / Roll No to PRN No.
-    Stores photos in `dest_dir` and updates `students.photo_path`.
+    Writes each matched photo through `store` (backend/photo_storage.py: a local folder or
+    Cloudinary) and updates `students.photo_path`. Without `store`, photos go to the folder
+    `dest_dir` with `<dest_dir>/<name>` keys, exactly as before the store existed.
     If `prn_filter` is specified, scopes the operation to only those PRNs.
+
+    The ZIP is read one entry at a time (a path is never loaded whole), and a photo that cannot be
+    stored is reported in `storage_failed` rather than aborting the run or being counted as linked.
     """
-    dest_path = pathlib.Path(dest_dir)
-    dest_path.mkdir(parents=True, exist_ok=True)
+    if store is None:
+        dest_path = pathlib.Path(dest_dir)
+        dest_path.mkdir(parents=True, exist_ok=True)
+        store = LocalPhotoStore(dest_path, key_prefix=dest_path.as_posix())
 
     filter_prns: Optional[set[str]] = (
         {p.strip().upper() for p in prn_filter} if prn_filter is not None else None
@@ -288,6 +313,7 @@ def import_photos_from_zip(
         matched_students: list[dict] = []
         orphaned_photos: list[dict] = []
         frozen_skipped: list[dict] = []
+        storage_failed: list[dict] = []
         matched_student_ids: set[Any] = set()
         seen_matched_prns: set[str] = set()
 
@@ -326,14 +352,10 @@ def import_photos_from_zip(
                 matched_student_ids.add(student_id)
                 seen_matched_prns.add(canonical_prn)
 
-                # Extract file to dest_path
-                target_file = dest_path / (parsed.clean_filename or parsed.original_filename)
-                if not target_file.exists():
-                    target_file.write_bytes(read_zf.read(zip_entry))
-
-                # Store a bare POSIX-relative path ("photos/filename.jpg") so it works
-                # on any OS and inside the Linux container without backslashes.
-                photo_path_str = dest_path.as_posix().rstrip("/") + "/" + (parsed.clean_filename or parsed.original_filename)
+                # The key is a bare POSIX path ("photos/filename.jpg") whatever the store, so it
+                # works on any OS and inside the Linux container without backslashes.
+                stored_name = parsed.clean_filename or parsed.original_filename
+                photo_path_str = store.key_for(stored_name)
 
                 # Check frozen safety
                 if student["frozen"] and student["photo_path"] != photo_path_str:
@@ -342,6 +364,17 @@ def import_photos_from_zip(
                         "id": str(student["id"]),
                         "photo": photo_path_str,
                     })
+                    continue
+
+                # Store the bytes (one entry in memory at a time). Only a confirmed write links the photo.
+                try:
+                    store.save(stored_name, read_zf.read(zip_entry))
+                except PhotoStoreError as exc:
+                    storage_failed.append({"filename": parsed.original_filename, "prn": student["prn"], "reason": str(exc)})
+                    continue
+                except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
+                    storage_failed.append({"filename": parsed.original_filename, "prn": student["prn"],
+                                           "reason": "This file inside the ZIP is damaged and could not be read."})
                     continue
 
                 if student["photo_path"] != photo_path_str:
@@ -373,6 +406,7 @@ def import_photos_from_zip(
             duplicate_student_prns=duplicate_student_prns,
             malformed_filenames=malformed_filenames,
             frozen_skipped=frozen_skipped,
+            storage_failed=storage_failed,
         )
 
     except Exception:
@@ -461,26 +495,47 @@ def resolve_student_photo(photo_path: str | None) -> str:
     return _PLACEHOLDER
 
 
-if __name__ == "__main__":
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """`python -m backend.photos <zip> [spreadsheet]`: the same import the Admin screen runs, into the
+    same configured photo store (PHOTO_STORAGE), unless --dest names a local folder explicitly."""
     import argparse
     import sys
+
+    from backend import photo_storage
+    from backend.config import get_settings
 
     parser = argparse.ArgumentParser(description="Import student profile photos by PRN from zip archive.")
     parser.add_argument("zip_path", nargs="?", default="Student Profile Image.zip", help="Path to zip file containing student photos.")
     parser.add_argument("excel_path", nargs="?", default="Untitled spreadsheet.xlsx", help="Path to master spreadsheet (.xlsx / .xls).")
-    parser.add_argument("--dest", default="photos", help="Destination directory for photos.")
+    parser.add_argument("--dest", default=None,
+                        help="Write photos to this local folder instead of the configured photo store (PHOTO_STORAGE).")
     parser.add_argument("--db-url", default=None, help="PostgreSQL connection URL.")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     zip_file = pathlib.Path(args.zip_path)
     if not zip_file.exists():
         print(f"Error: ZIP file not found at {zip_file}", file=sys.stderr)
-        sys.exit(1)
+        return 1
+    if not zipfile.is_zipfile(zip_file):
+        print(f"Error: {zip_file} is not a readable ZIP file. Nothing was imported.", file=sys.stderr)
+        return 1
 
     excel_file = pathlib.Path(args.excel_path) if args.excel_path else None
     if excel_file and not excel_file.exists():
         excel_file = None
+
+    if args.dest:
+        store: PhotoStore = LocalPhotoStore(args.dest, key_prefix=pathlib.PurePath(args.dest).as_posix())
+    else:
+        try:
+            store = photo_storage.build_store(get_settings())
+        except photo_storage.PhotoStorageConfigError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+    if store.write_refusal:
+        print(f"Error: {store.write_refusal}", file=sys.stderr)
+        return 2
 
     db_url = args.db_url or os.getenv("DATABASE_URL", "postgresql://convocation_user:convocation_password@localhost:5432/convocation_db")
     if "@db:5432" in db_url:
@@ -489,6 +544,7 @@ if __name__ == "__main__":
     engine = create_engine(db_url)
 
     print(f"Importing photos from {zip_file}...")
+    print(f"Photo storage: {store.describe()}")
     if excel_file:
         print(f"Using spreadsheet mapping from {excel_file}...")
 
@@ -497,7 +553,7 @@ if __name__ == "__main__":
         engine_or_conn=engine,
         excel_source=excel_file,
         excel_filename=excel_file.name if excel_file else "Untitled spreadsheet.xlsx",
-        dest_dir=args.dest,
+        store=store,
     )
 
     print("\n--- PHOTO IMPORT SUMMARY ---")
@@ -508,4 +564,11 @@ if __name__ == "__main__":
     print(f"Duplicate Student PRNs:   {len(report.duplicate_student_prns)}")
     print(f"Malformed Filenames:      {len(report.malformed_filenames)}")
     print(f"Frozen Students Skipped:  {len(report.frozen_skipped)}")
+    print(f"Storage Write Failures:   {len(report.storage_failed)}")
+    for failure in report.storage_failed:
+        print(f"  - {failure['prn']}: {failure['filename']} -- {failure['reason']}")
+    return 1 if report.storage_failed else 0
 
+
+if __name__ == "__main__":
+    raise SystemExit(main())

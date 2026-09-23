@@ -14,6 +14,15 @@ all, and a commit posted anyway is refused.
 Re-running the same file is the normal case, not an edge case: the university sends the list in
 halves. A row whose PRN is already on the list is SKIPPED — never updated, never duplicated, and
 its QR token is never touched.
+
+PHOTOS COME IN THE SAME FORM. The university's photo ZIP (`N_PROFILE_IMAGE_PRN_No_<id>_Name_...`)
+is uploaded next to the student list, streamed to the batch folder in chunks, and checked at once:
+a file that is not a readable ZIP is refused before anything is written. On commit the students
+go in first, in their own transaction; only after that commit do the photos run, through
+`photos.import_photos_from_zip` — the same matcher the CLI uses, with the same spreadsheet used
+to turn Enrollment / Roll numbers into PRNs — into the configured photo store (a local folder, or
+Cloudinary on Render). If the photo step fails, the students stay imported and the summary says
+so. The staged ZIP is deleted as soon as the commit has used it, whichever way that went.
 """
 from __future__ import annotations
 
@@ -22,10 +31,12 @@ import pathlib
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 
-from backend import import_staging
-from backend.importer import FIELD_LABELS, REQUIRED_FIELDS, commit_import, detect_column_mapping, read_and_validate
-from backend.photos import link_photos_by_prn
+from backend import import_staging, photo_storage
+from backend.importer import (FIELD_LABELS, REQUIRED_FIELDS, commit_import, detect_column_mapping, excel_engine_for,
+                              read_and_validate)
+from backend.photos import import_photos_from_zip, inspect_photo_zip, link_photos_by_prn
 from backend.security.deps import http_error, require_admin
 from backend.security.sessions import Principal
 from backend.web import redirect, render
@@ -45,6 +56,27 @@ def _batch(request: Request, batch_id: str):
                          "That import has finished or expired. Please upload the file again.")
 
 
+def _photo_store(request: Request):
+    return getattr(request.app.state, "photo_store", None) or photo_storage.current_store()
+
+
+def _zip_report(report, zip_meta: dict, store) -> dict:
+    """The photo half of the summary: the CLI report's categories, in plain lists."""
+    return {
+        "source": "zip",
+        "filename": zip_meta.get("filename"),
+        "storage": store.describe(),
+        "matched": report.matched_count,
+        "unmatched_students": [s["prn"] for s in report.unmatched_students],
+        "orphaned": [o["filename"] for o in report.orphaned_photos],
+        "duplicate_photo_prns": [{"prn": d["prn"], "filenames": d["filenames"]} for d in report.duplicate_photo_prns],
+        "duplicate_student_prns": [d["prn"] for d in report.duplicate_student_prns],
+        "malformed": list(report.malformed_filenames),
+        "frozen_skipped": [s["prn"] for s in report.frozen_skipped],
+        "storage_failed": list(report.storage_failed),
+    }
+
+
 def _preview_for(request: Request, batch):
     """Parse and validate the staged file with the mapping the Admin chose. Writes nothing."""
     return read_and_validate(
@@ -60,8 +92,9 @@ def import_home(request: Request, principal: Principal = Depends(require_admin))
 
 @router.post("/import/upload")
 async def upload(request: Request, file: UploadFile = File(...), photo_dir: str = Form(""),
+                 photos_zip: Optional[UploadFile] = File(None),
                  principal: Principal = Depends(require_admin)):
-    content = await file.read()
+    content = await file.read()   # the student list: a few MB. The photo ZIP is never read whole.
     if not content:
         return redirect("/admin/import", error="That file is empty. Please choose the student list and try again.")
 
@@ -69,16 +102,37 @@ async def upload(request: Request, file: UploadFile = File(...), photo_dir: str 
     if folder and not pathlib.Path(folder).is_dir():
         return redirect("/admin/import", error=f"There is no folder at {folder} on this server.")
 
+    has_zip = photos_zip is not None and bool(photos_zip.filename)
+    if has_zip and folder:
+        return redirect("/admin/import", error="Please give either a photo ZIP or a photo folder, not both.")
+    if has_zip and _photo_store(request).write_refusal:
+        return redirect("/admin/import", error=_photo_store(request).write_refusal)
+
     batch = import_staging.create(request.app.state.settings, content=content, filename=file.filename or "upload.csv",
                                   uploaded_by=principal.user_id, photo_dir=folder)
     try:
         columns, _, _, _ = _preview_for(request, batch)
     except ValueError as exc:
         logger.info("import upload could not be read: %s", exc)
+        import_staging.discard(batch)
         return redirect("/admin/import",
                         error="That file could not be read. Please save it as CSV or XLSX and try again.")
     if not columns:
+        import_staging.discard(batch)
         return redirect("/admin/import", error="That file has no columns. Please check it and try again.")
+
+    if has_zip:
+        try:
+            size = await run_in_threadpool(import_staging.attach_photos_zip, batch, photos_zip.file, photos_zip.filename)
+            contents = await run_in_threadpool(inspect_photo_zip, batch.photos_zip_path) if size else None
+        except (OSError, ValueError) as exc:
+            logger.info("photo ZIP upload refused: %s", exc)
+            contents = None
+        if not contents:
+            import_staging.discard(batch)
+            return redirect("/admin/import",
+                            error="The photo file is not a readable ZIP, so nothing was imported. Please check it and try again.")
+        import_staging.update(batch, photos_zip={**batch.photos_zip, **contents})
     return redirect(f"/admin/import/{batch.batch_id}/columns")
 
 
@@ -153,12 +207,44 @@ def commit_batch(request: Request, batch_id: str, principal: Principal = Depends
         return redirect(f"/admin/import/{batch_id}/columns", error="Please match the columns first.")
 
     engine = request.app.state.engine
-    settings = request.app.state.settings
     _, _, _, preview = _preview_for(request, batch)
     if not preview.is_valid:
         return redirect(f"/admin/import/{batch_id}/preview",
                         error=f"{len(preview.errors)} row(s) still have to be fixed, so nothing was written.")
 
+    zip_meta = batch.photos_zip
+    if zip_meta is None:
+        return _commit_students(request, batch, preview, principal)
+
+    # The photo ZIP is used once, by this commit, and deleted afterwards whatever happens.
+    try:
+        store = _photo_store(request)
+        if store.write_refusal:
+            return redirect("/admin/import", error=store.write_refusal)
+        try:
+            inspect_photo_zip(batch.photos_zip_path)
+        except ValueError:
+            return redirect("/admin/import", error="The photo ZIP could no longer be read, so nothing was imported. "
+                                                   "Please upload both files again.")
+        with engine.connect() as conn:
+            summary = commit_import(preview, conn, operator_id=principal.user_id, filename=batch.filename)
+        try:
+            report = import_photos_from_zip(
+                batch.photos_zip_path, engine,
+                excel_source=batch.upload_path if excel_engine_for(batch.filename) else None,
+                excel_filename=batch.filename, store=store)
+            photos = _zip_report(report, zip_meta, store)
+        except Exception:
+            logger.exception("photo import failed after the students were committed (batch %s)", batch_id)
+            photos = {"source": "zip", "filename": zip_meta.get("filename"), "failed": True}
+        return _save_summary(batch, summary, preview, photos)
+    finally:
+        import_staging.drop_photos_zip(batch)
+
+
+def _commit_students(request: Request, batch, preview, principal: Principal):
+    """The commit without a photo ZIP: students, then (optionally) the older photo-folder linker."""
+    engine = request.app.state.engine
     with engine.connect() as conn:
         summary = commit_import(preview, conn, operator_id=principal.user_id, filename=batch.filename)
 
@@ -174,11 +260,21 @@ def commit_batch(request: Request, batch_id: str, principal: Principal = Depends
             "frozen_skipped": [s["prn"] for s in report.frozen_skipped],
         }
 
+    return _save_summary(batch, summary, preview, photos)
+
+
+def _save_summary(batch, summary, preview, photos):
     import_staging.update(batch, summary={
         "read": summary.read, "created": summary.created, "updated": summary.updated,
         "skipped": summary.skipped, "errors": summary.errors, "warnings": len(preview.warnings),
     }, photos=photos)
-    return redirect(f"/admin/import/{batch_id}/summary", msg=f"{summary.created} student(s) added.")
+    if photos and photos.get("failed"):
+        msg = f"{summary.created} student(s) added, but the photos could not be processed."
+    elif photos and photos.get("source") == "zip":
+        msg = f"{summary.created} student(s) added and {photos['matched']} photo(s) linked."
+    else:
+        msg = f"{summary.created} student(s) added."
+    return redirect(f"/admin/import/{batch.batch_id}/summary", msg=msg)
 
 
 # ══════════════════════════════════════════════════════════════════ step 5: the summary
@@ -188,4 +284,4 @@ def summary_page(request: Request, batch_id: str, principal: Principal = Depends
     if not batch.committed:
         return redirect(f"/admin/import/{batch_id}/preview", error="This file has not been imported yet.")
     return render(request, "admin_import_summary.html", principal=principal, batch=batch,
-                  summary=batch.summary, photos=batch.meta.get("photos"))
+                  summary=batch.summary, photos=batch.meta.get("photos"), max_listed=MAX_LISTED)

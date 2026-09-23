@@ -16,7 +16,57 @@
 </div>
 
 <h2>Photos</h2>
-{% if photos %}
+{% macro listed(items) -%}
+  <ul>{% for item in items[:max_listed] %}<li>{{ item }}</li>{% endfor %}</ul>
+  {%- if items|length > max_listed %}<p class="muted">and {{ items|length - max_listed }} more.</p>{% endif %}
+{%- endmacro %}
+{% if photos and photos.source == "zip" and photos.failed %}
+<div class="card flash bad" data-photos="failed">
+  <p><b>The students were imported, but the photos could not be processed.</b> No photo was changed. Please upload
+    the same student list and photo ZIP again: students already on the list are skipped and only the photos run.</p>
+</div>
+{% elif photos and photos.source == "zip" %}
+<p class="muted">From <b>{{ photos.filename }}</b>, stored in {{ photos.storage }}.</p>
+<div class="grid counts">
+  <div class="card"><h2>Clean matches</h2><p class="big-number" data-count="photos-matched">{{ photos.matched }}</p></div>
+  <div class="card"><h2>Students with no photo</h2><p class="big-number" data-count="photos-unmatched-students">{{ photos.unmatched_students|length }}</p></div>
+  <div class="card"><h2>Orphaned photos</h2><p class="big-number" data-count="photos-orphaned">{{ photos.orphaned|length }}</p>
+    <p class="muted">No student on the list for them.</p></div>
+  <div class="card"><h2>Duplicate photo PRNs</h2><p class="big-number" data-count="photos-duplicate-photo-prns">{{ photos.duplicate_photo_prns|length }}</p>
+    <p class="muted">The first photo was used.</p></div>
+  <div class="card"><h2>Duplicate student PRNs</h2><p class="big-number" data-count="photos-duplicate-student-prns">{{ photos.duplicate_student_prns|length }}</p></div>
+  <div class="card"><h2>Malformed file names</h2><p class="big-number" data-count="photos-malformed">{{ photos.malformed|length }}</p></div>
+  <div class="card"><h2>Could not be saved</h2><p class="big-number" data-count="photos-storage-failed">{{ photos.storage_failed|length }}</p></div>
+  <div class="card"><h2>Frozen, left alone</h2><p class="big-number" data-count="photos-frozen-skipped">{{ photos.frozen_skipped|length }}</p></div>
+</div>
+<div class="card">
+  {% if photos.storage_failed %}
+  <h3>Photos that could not be saved ({{ photos.storage_failed|length }})</h3>
+  <ul>{% for f in photos.storage_failed[:max_listed] %}<li>{{ f.prn }}: {{ f.filename }} &mdash; {{ f.reason }}</li>{% endfor %}</ul>
+  <p class="muted">These students keep the photo they had. Run the same import again to retry them.</p>
+  {% endif %}
+  <h3>Students with no photo ({{ photos.unmatched_students|length }})</h3>
+  {% if photos.unmatched_students %}{{ listed(photos.unmatched_students) }}
+  <p class="muted">Their pass prints a clearly marked placeholder. A photo they already had is kept.</p>
+  {% else %}<p class="muted">None: every student has a photo.</p>{% endif %}
+  <h3>Orphaned photos ({{ photos.orphaned|length }})</h3>
+  {% if photos.orphaned %}{{ listed(photos.orphaned) }}{% else %}<p class="muted">None.</p>{% endif %}
+  {% if photos.duplicate_photo_prns %}
+  <h3>Duplicate photo PRNs ({{ photos.duplicate_photo_prns|length }})</h3>
+  <ul>{% for d in photos.duplicate_photo_prns[:max_listed] %}<li>{{ d.prn }}: {{ d.filenames|join(", ") }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if photos.duplicate_student_prns %}
+  <h3>Duplicate student PRNs ({{ photos.duplicate_student_prns|length }})</h3>{{ listed(photos.duplicate_student_prns) }}
+  {% endif %}
+  {% if photos.malformed %}
+  <h3>Malformed file names ({{ photos.malformed|length }})</h3>{{ listed(photos.malformed) }}
+  {% endif %}
+  {% if photos.frozen_skipped %}
+  <h3>Left alone because the display data is frozen ({{ photos.frozen_skipped|length }})</h3>{{ listed(photos.frozen_skipped) }}
+  <p class="muted">Change a frozen student's photo from their own page, with a reason. It is logged.</p>
+  {% endif %}
+</div>
+{% elif photos %}
 <div class="card">
   <p>{{ photos.matched }} photo{{ "s" if photos.matched != 1 }} attached from {{ photos.folder }}.</p>
 
@@ -39,8 +89,8 @@
   {% endif %}
 </div>
 {% else %}
-<p class="muted">No photo folder was given, so no photos were attached. Upload again with a folder when the
-  photos arrive, or use <a href="/admin/import">Import Students</a>.</p>
+<p class="muted">No photo ZIP or folder was given, so no photos were attached. Upload again with the photos when they
+  arrive, or use <a href="/admin/import">Import Students</a>.</p>
 {% endif %}
 
 <p class="spaced"><a href="/admin/import">Import another file</a> &middot;

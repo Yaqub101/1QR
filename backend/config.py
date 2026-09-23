@@ -13,6 +13,16 @@ class Settings(BaseSettings):
     # encrypted volume as the rest of the student data.
     import_staging_dir: Optional[str] = None
 
+    # Where student photo files live (backend/photo_storage.py). "local" = a folder (photos/ at the
+    # project root unless PHOTO_STORAGE_DIR says otherwise); "cloudinary" = private Cloudinary images,
+    # for Render, whose own disk is wiped on every deploy. A misconfiguration stops the server at start.
+    photo_storage: str = "local"
+    photo_storage_dir: Optional[str] = None
+    cloudinary_cloud_name: Optional[str] = None
+    cloudinary_api_key: Optional[str] = None
+    cloudinary_api_secret: Optional[str] = None
+    cloudinary_folder: str = "convocation/student-photos"
+
     # Backups (Phase 17). The directory should be on a SECOND device.
     backup_dir: Optional[str] = None
     backup_interval_seconds: int = 300        # SYSTEM_SPEC 21: a full dump every 5 minutes

@@ -44,6 +44,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from sqlalchemy import text
 
+from backend import photo_storage
 from backend.qr_tokens import TokenError
 
 logger = logging.getLogger("backend.admin")
@@ -201,26 +202,22 @@ def _clean(value, font: str) -> tuple:
 
 # ------------------------------------------------------------------ the photo
 # Root of the project (two levels above this file: /app inside the container, repo root on host).
-_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+_PROJECT_ROOT = photo_storage.PROJECT_ROOT
 
 def _prepare_photo(path: Optional[str]) -> tuple:
     """-> (jpeg bytes | None, warning code | None). Cropped to the photo box (a little above centre keeps faces in
     frame), shrunk to 300 dpi at print size and re-encoded, so a 12 MB camera original never reaches the PDF."""
     if not path:
         return None, "NO_PHOTO"
-    # Stored paths are POSIX-relative ("photos/foo.jpg"). Windows-imported paths may have
-    # backslashes; normalise them so pathlib.Path on Linux does not treat the whole string as
-    # a single component ('\\' is not a path separator on POSIX).
-    normalised = path.replace("\\", "/")
-    source = pathlib.Path(normalised)
-    if not source.is_absolute():
-        source = _PROJECT_ROOT / source
-    if not source.exists():
+    # The one photo resolver (backend/photo_storage.py): it normalises Windows backslashes and finds
+    # the bytes in the configured store (local folder or Cloudinary).
+    blob = photo_storage.load_photo(path)
+    if blob is None:
         return None, "NO_PHOTO"
     try:
-        if not source.is_file():
+        if blob.path is not None and not blob.path.is_file():
             raise OSError("not a file")
-        with Image.open(source) as image:
+        with Image.open(blob.open()) as image:
             image.draft("RGB", (PHOTO_PX[0] * 2, PHOTO_PX[1] * 2))      # JPEG: decode at reduced size (a big speed-up)
             image = ImageOps.exif_transpose(image)
             if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
@@ -234,7 +231,7 @@ def _prepare_photo(path: Optional[str]) -> tuple:
         fitted.save(out, "JPEG", quality=85, optimize=True)
         return out.getvalue(), None
     except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
-        logger.warning("photo could not be read for a pass: %s", source.name)
+        logger.warning("photo could not be read for a pass: %s", pathlib.PurePosixPath(path.replace("\\", "/")).name)
         return None, "PHOTO_UNREADABLE"
 
 

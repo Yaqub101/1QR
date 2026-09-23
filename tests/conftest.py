@@ -17,6 +17,12 @@ from sqlalchemy.engine import make_url
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
+# The suite never talks to a real Cloudinary account, whatever a developer's .env says: environment
+# variables win over .env, so every app the tests build uses the local photo store unless a test
+# deliberately hands it a (mocked) Cloudinary store. See tests/test_photo_storage.py.
+os.environ["PHOTO_STORAGE"] = "local"
+os.environ.pop("PHOTO_STORAGE_DIR", None)
+
 # Strict PostgreSQL default for test database
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL",

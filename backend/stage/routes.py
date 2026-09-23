@@ -5,15 +5,14 @@ audience screen loads) and serves only the approved LED payload.
 """
 from __future__ import annotations
 
-import mimetypes
-import pathlib
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
+from backend import photo_storage
 from backend.engine import service
 from backend.security import permissions
 from backend.security.deps import http_error, require_user
@@ -22,7 +21,7 @@ from backend.stage import controller, led, state as stage_state
 from backend.web import render
 
 router = APIRouter()
-PLACEHOLDER = pathlib.Path(__file__).resolve().parent.parent.parent / "static" / "placeholder.svg"
+PLACEHOLDER = photo_storage.PLACEHOLDER
 SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
 
 
@@ -157,8 +156,6 @@ def led_photo(key: str, request: Request):
         row = conn.execute(text("SELECT photo_path FROM display_snapshot WHERE led_key = :k"), {"k": key}).mappings().one_or_none()
     if row is None:
         raise http_error(404, "NOT_FOUND", "Not found.")
-    path = pathlib.Path(row["photo_path"]) if row["photo_path"] else None
-    if path is None or not path.is_file():
-        path = PLACEHOLDER
-    media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-    return FileResponse(str(path), media_type=media_type, headers={"Cache-Control": "private, max-age=600"})
+    # The same resolver as /photo: the bytes come from the server, so no storage URL reaches the LED.
+    return photo_storage.photo_response(row["photo_path"], getattr(request.app.state, "photo_store", None),
+                                        cache_control="private, max-age=600")

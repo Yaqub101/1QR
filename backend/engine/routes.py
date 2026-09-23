@@ -6,21 +6,19 @@ operator scanning the wrong student is not an HTTP error. HTTP errors are for wh
 """
 from __future__ import annotations
 
-import mimetypes
-import pathlib
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from backend import photo_storage
 from backend.engine import service
 from backend.security.deps import http_error, require_user
 from backend.security.sessions import Principal
 
 router = APIRouter()
-PLACEHOLDER = pathlib.Path(__file__).resolve().parent.parent.parent / "static" / "placeholder.svg"
+PLACEHOLDER = photo_storage.PLACEHOLDER
 
 
 class ScanBody(BaseModel):
@@ -88,16 +86,6 @@ def photo(student_id: str, request: Request, _: Principal = Depends(require_user
         row = conn.execute(text("SELECT photo_path FROM students WHERE id = :i"), {"i": sid}).mappings().one_or_none()
     if row is None:
         raise http_error(404, "NOT_FOUND", "No such student.")
-    path = None
-    if row["photo_path"]:
-        # Normalise backslashes (Windows-stored paths) and resolve relative paths against the
-        # project root (/app in the container) so "photos/foo.jpg" always resolves correctly.
-        normalised = row["photo_path"].replace("\\", "/")
-        candidate = pathlib.Path(normalised)
-        if not candidate.is_absolute():
-            candidate = PLACEHOLDER.parent.parent / candidate
-        path = candidate if candidate.is_file() else None
-    if path is None:
-        path = PLACEHOLDER
-    media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-    return FileResponse(str(path), media_type=media_type, headers={"Cache-Control": "private, max-age=300"})
+    # The one photo resolver (backend/photo_storage.py): local folder or Cloudinary, placeholder if none.
+    return photo_storage.photo_response(row["photo_path"], getattr(request.app.state, "photo_store", None),
+                                        cache_control="private, max-age=300")

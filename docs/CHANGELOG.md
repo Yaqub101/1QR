@@ -1,3 +1,63 @@
+## [0.15.0] - Students + photos in one Admin import, and photo storage that survives a Render deploy
+
+Render's web-service disk is wiped on every deploy and the current plan has no persistent disk, so the
+local `photos/` folder cannot be production's source of truth. Photos now go through one storage
+abstraction: a local folder in development, private Cloudinary images in production.
+
+### Added
+- **`backend/photo_storage.py`**: the ONE photo resolver (`load_photo` / `photo_response`) and two stores
+  behind one interface.
+  - `LocalPhotoStore` (default, `PHOTO_STORAGE=local`): `photos/` at the project root (`/app/photos` in
+    Docker) or `PHOTO_STORAGE_DIR`. Atomic writes (temp file + rename), an existing photo is never
+    replaced, a failed write raises instead of passing silently.
+  - `CloudinaryPhotoStore` (`PHOTO_STORAGE=cloudinary`): uploads as PRIVATE (`type=authenticated`)
+    images, `overwrite=False`, public ID = `CLOUDINARY_FOLDER/<sha256 of the key>` (no name or PRN at
+    Cloudinary; the same photo always lands on the same asset). The server fetches with a signed URL
+    and serves the bytes itself, so the browser never sees a Cloudinary URL or credential, `/photo`
+    keeps its sign-in rule and the LED keeps its opaque key. Small in-process cache for the LED.
+  - The database key is unchanged: `students.photo_path = photos/<file name>`. The store decides where
+    the bytes live, so the 1,199 existing (frozen) rows need no rewrite, and cannot need a master patch.
+  - Configuration fails loudly: `PHOTO_STORAGE=cloudinary` without `CLOUDINARY_CLOUD_NAME`,
+    `CLOUDINARY_API_KEY` or `CLOUDINARY_API_SECRET`, an unknown `PHOTO_STORAGE`, or a `PHOTO_STORAGE_DIR`
+    that does not exist stops the server at start-up with one sentence naming the setting (never its
+    value). An explicitly configured folder is never created (the earlier missing-volume bug). On Render
+    (`RENDER` set) with local storage the server starts but every photo write is refused.
+- **Admin → Import** takes an optional **Photo ZIP** next to the student list. The ZIP is copied to the
+  batch folder in 1 MB chunks, its table of contents is checked at upload (not a ZIP → refused, nothing
+  written), students are committed first, then `photos.import_photos_from_zip` runs with the same
+  spreadsheet for the Enrollment / Roll No → PRN mapping. The summary shows every category of the CLI
+  report plus **Could not be saved**. If the photo step fails, the students stay and the page says so.
+  The staged ZIP is deleted after the commit on every path (abandoned uploads: the existing 12-hour sweep).
+- `PhotoImportReport.storage_failed`, `photos.inspect_photo_zip`, `import_staging.attach_photos_zip /
+  drop_photos_zip / discard`.
+- Dependency: `cloudinary` (official SDK; used for the upload call and URL signing only).
+
+### Changed
+- `/photo/{id}`, `/led/photo/{key}` and the pass PDF (`passes._prepare_photo`) resolve through
+  `photo_storage` instead of three separate path rules. The LED route previously neither normalised
+  backslashes nor resolved against the project root (it only worked because the container's working
+  directory is `/app`).
+- `import_photos_from_zip(..., store=None)`: writes through the store and links a photo only after the
+  write is confirmed; a damaged ZIP entry or failed write is reported per file. Without `store` it
+  behaves exactly as before (`dest_dir` folder and keys). Frozen students whose key would change are
+  skipped before any upload.
+- `python -m backend.photos` is now `photos.main()`: same arguments, writes to the configured store
+  (`--dest` still forces a local folder), prints `Storage Write Failures` and exits 1 when any occurred.
+
+### Verified (scratch databases `convocation_e2e_fresh` / `convocation_e2e_copy`; production untouched)
+- Real files through the real HTTP flow on a uvicorn server: `StudentConvocationDetailReport_Fees Paid
+  Student.xls` (1,201 rows, one exact repeat) + `Student Profile Image.zip` (1,440 photos, 540 MiB):
+  1,200 created, 1,200 clean matches, 0 students without a photo, 239 orphaned, 1 duplicate photo PRN
+  (`BCATY15`), 1 duplicate student PRN (the repeated row), 0 malformed, 0 storage failures. Server peak
+  working set 192 MiB. Re-run: 0 created, 1,200 matched, 0 rows or files changed.
+- On a copy of the local database (1,199 students, all frozen): 1 created, 1,200 matched, 0 frozen
+  skipped, 0 frozen snapshot paths changed, QR tokens and activity events unchanged.
+- The Cloudinary branch with the real files (network call stubbed): 1,200 private uploads, 1,200
+  distinct opaque public IDs, 0 database rows changed.
+
+### Not verified
+- No upload to a real Cloudinary account (no credentials here, and the tests must not use any).
+
 ## [0.14.0] - Student Photo Import by PRN from ZIP Archive
 
 University student profile photos imported from `Student Profile Image.zip` (1,440 images) and matched

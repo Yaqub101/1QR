@@ -8,6 +8,10 @@ WHAT IS KEPT AND FOR HOW LONG
   * `<staging root>/<batch id>/upload.<ext>`  the bytes exactly as they were uploaded
   * `<staging root>/<batch id>/batch.json`    the file name, who uploaded it, the chosen column
                                               mapping, the photo folder and, afterwards, the summary
+  * `<staging root>/<batch id>/photos.zip`    the optional photo ZIP, copied in 1 MB chunks (the
+                                              university's is ~566 MB; it is never held in memory)
+                                              and deleted as soon as the commit has used it —
+                                              whether that went well or not
 A batch older than STALE_AFTER_HOURS is deleted the next time anything looks at the staging area, so
 the university's student list never lingers on a venue laptop for longer than the working day.
 
@@ -24,11 +28,13 @@ import secrets
 import shutil
 import tempfile
 import time
-from typing import Any, Optional
+from typing import Any, BinaryIO, Optional
 
 logger = logging.getLogger("backend.admin")
 
 STALE_AFTER_HOURS = 12
+PHOTOS_ZIP_NAME = "photos.zip"
+_COPY_CHUNK = 1024 * 1024
 _ALLOWED_SUFFIXES = {".csv", ".xlsx", ".xls", ".txt"}
 
 
@@ -57,6 +63,15 @@ class Batch:
     @property
     def photo_dir(self) -> Optional[str]:
         return self.meta.get("photo_dir") or None
+
+    @property
+    def photos_zip(self) -> Optional[dict]:
+        """{"filename", "size", "entries", "malformed"} of the staged photo ZIP, or None."""
+        return self.meta.get("photos_zip") or None
+
+    @property
+    def photos_zip_path(self) -> pathlib.Path:
+        return self.folder / PHOTOS_ZIP_NAME
 
     @property
     def summary(self) -> Optional[dict]:
@@ -133,6 +148,33 @@ def load(settings, batch_id: str) -> Batch:
     if not batch.upload_path.is_file():
         raise BatchNotFound(batch_id)
     return batch
+
+
+def attach_photos_zip(batch: Batch, source: BinaryIO, filename: str) -> int:
+    """Copy an uploaded photo ZIP into the batch, a chunk at a time. Returns the bytes written."""
+    written = 0
+    with open(batch.photos_zip_path, "wb") as out:
+        while True:
+            chunk = source.read(_COPY_CHUNK)
+            if not chunk:
+                break
+            out.write(chunk)
+            written += len(chunk)
+    update(batch, photos_zip={"filename": filename or PHOTOS_ZIP_NAME, "size": written})
+    return written
+
+
+def drop_photos_zip(batch: Batch) -> None:
+    """Delete the staged photo ZIP (its summary stays in batch.json)."""
+    try:
+        batch.photos_zip_path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("could not delete a staged photo ZIP in batch %s", batch.batch_id)
+
+
+def discard(batch: Batch) -> None:
+    """Delete a whole batch: an upload that was refused leaves nothing behind."""
+    shutil.rmtree(batch.folder, ignore_errors=True)
 
 
 def update(batch: Batch, **fields) -> Batch:

@@ -20,6 +20,7 @@ dependencies = [
     "segno>=1.6",        # QR code (SYSTEM_SPEC 26)
     "reportlab>=4.0",    # pass PDF
     "pillow>=10.0",      # photo handling for the pass
+    "cloudinary>=1.40",
 ]
 
 [project.optional-dependencies]

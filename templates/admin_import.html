@@ -9,10 +9,17 @@ students already on the list are left exactly as they are.</p>
 
 <form method="post" action="/admin/import/upload" enctype="multipart/form-data" class="card narrow">
   <label>Student list <input type="file" name="file" accept=".csv,.xlsx,.xls" required></label>
-  <label>Photo folder on this server <small class="muted">(optional)</small>
-    <input type="text" name="photo_dir" placeholder="/data/photos" autocomplete="off"></label>
-  <p class="muted">Photos are matched to students by file name: <code>&lt;PRN&gt;.jpg</code>. Leave the box
-    empty to import the list now and attach photos later.</p>
+  <label>Photo ZIP <small class="muted">(optional)</small>
+    <input type="file" name="photos_zip" accept=".zip,application/zip"></label>
+  <p class="muted">The university's photo ZIP (for example <code>Student Profile Image.zip</code>). Each photo is
+    matched to its student by the PRN or Enrollment / Roll number in its file name. Photos are added after the
+    students, and students already on the list keep the photo they have.</p>
+  <details>
+    <summary class="muted">Or: a photo folder on this server</summary>
+    <label>Photo folder <input type="text" name="photo_dir" placeholder="/data/photos" autocomplete="off"></label>
+    <p class="muted">Photos named <code>&lt;PRN&gt;.jpg</code>. Give a ZIP or a folder, not both.</p>
+  </details>
+  <p class="muted">Leave both empty to import the list now and attach photos later.</p>
   <button class="big" type="submit">Upload and check</button>
 </form>
 

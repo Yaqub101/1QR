@@ -4,7 +4,7 @@
 <p><a href="/admin/import/{{ batch.batch_id }}/columns">&larr; Match the columns</a></p>
 <h1>Check before importing</h1>
 <p class="muted"><b>{{ batch.filename }}</b> &middot; {{ row_count }} row{{ "s" if row_count != 1 }} read
-  {%- if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}</p>
+  {%- if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}{%- if batch.photos_zip %} &middot; photo ZIP {{ batch.photos_zip.filename }} ({{ batch.photos_zip.photos }} photo file{{ "s" if batch.photos_zip.photos != 1 }}{%- if batch.photos_zip.malformed %}, {{ batch.photos_zip.malformed }} with an unrecognised name{% endif %}){% endif %}</p>
 <p class="muted">Nothing has been written yet.</p>
 
 <div class="grid counts">
