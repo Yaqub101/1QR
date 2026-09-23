@@ -16,8 +16,8 @@
   <button class="big" type="submit">Filter</button>
 </form>
 <p>{{ data.total }} rows &middot;
-  <a href="/admin/api/audit/export?format=csv&{{ query }}">Export CSV</a> &middot;
-  <a href="/admin/api/audit/export?format=xlsx&{{ query }}">Export XLSX</a></p>
+  <a href="/admin/api/audit/export?format=csv&{{ query }}" data-download data-busy="Preparing export…">Export CSV</a> &middot;
+  <a href="/admin/api/audit/export?format=xlsx&{{ query }}" data-download data-busy="Preparing export…">Export XLSX</a></p>
 <table>
   <tr><th>Time</th><th>Action</th><th>Student</th><th>Activity</th><th>Who</th><th>Reason</th><th>Flags</th></tr>
   {% for r in data.rows %}

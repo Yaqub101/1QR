@@ -44,7 +44,7 @@ class ActivityConfig:
     prerequisites: tuple[Prerequisite, ...]
     display_fields: tuple[str, ...]      # extra card fields, chosen from extensions.DISPLAY_FIELDS
     confirm_label: str                   # text of the big confirm button
-    duplicate_message: str               # e.g. "THOBE ALREADY ALLOCATED — {time}"
+    duplicate_message: str               # e.g. "ROBE ALREADY ALLOCATED — {time}"
     record_fields: tuple[str, ...] = ()  # student fields copied into the event's details at confirm
     effects: tuple[str, ...] = ()        # named engine effects run inside the confirm transaction
     flag_rules: tuple[str, ...] = ()     # named engine rules that may add flags to the event

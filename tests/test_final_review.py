@@ -90,7 +90,7 @@ def raw_event(engine, pool, i, activity, *, kind="COMPLETE", cycle=1, corrects=N
 
 
 def seat_ready(engine, pool, i):
-    """Student i registered, thobe given and seated: ready for the Queue."""
+    """Student i registered, robe given and seated: ready for the Queue."""
     for activity in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING"):
         raw_event(engine, pool, i, activity)
 
@@ -265,7 +265,7 @@ def assert_history_untouched(before, after):
 
 
 def student_journey(engine, apps, world, student_pool, i=1):
-    """Student i: Registration seeded, then thobe, seating, queue and stage through the REAL API. Returns event ids."""
+    """Student i: Registration seeded, then robe, seating, queue and stage through the REAL API. Returns event ids."""
     raw_event(engine, student_pool, i, "REGISTRATION")
     for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE"):
         op = operator(apps, world, activity)
@@ -308,7 +308,7 @@ class TestCorrectionsAtTheDatabase:
             raw_event(engine, student_pool, 2, activity)
         adm = admin(apps)
         before = snapshot(engine)
-        waived = adm.post("/admin/api/corrections/waive-return", json={"student_id": str(s_id(student_pool, 2)), "reason": "lost thobe"})
+        waived = adm.post("/admin/api/corrections/waive-return", json={"student_id": str(s_id(student_pool, 2)), "reason": "lost robe"})
         assert waived.status_code == 200, waived.text
         mid = snapshot(engine)
         assert_history_untouched(before, mid)

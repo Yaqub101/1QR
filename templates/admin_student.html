@@ -8,22 +8,22 @@
   <div>{{ j.student.programme }} &middot; {{ j.student.school }}</div>
   <div>Status: <b>{{ j.student.journey_status }}</b>{% if j.student.master_status != "ACTIVE" %} &middot; <b>Not active on the master list</b>{% endif %}
        {% if j.student.frozen %} &middot; <span class="muted">Display data frozen</span>{% endif %}</div>
-  <div><a href="/admin/api/reports/student-history/export?format=csv&student_id={{ j.student.student_id }}">Download history (CSV)</a>
-       &middot; <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}">XLSX</a></div>
+  <div><a href="/admin/api/reports/student-history/export?format=csv&student_id={{ j.student.student_id }}" data-download>Download history (CSV)</a>
+       &middot; <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}" data-download>XLSX</a></div>
 </div>
 
 <h2>QR pass</h2>
 <div class="card">
   {% if qr.has_active %}
   <p>This student has an active QR{% if qr.reissued %} (reissued {{ qr.reissued }} time{{ "s" if qr.reissued != 1 }}){% endif %}.
-     <a href="/admin/api/students/{{ j.student.student_id }}/pass.pdf">Download pass (PDF)</a></p>
+     <a href="/admin/api/students/{{ j.student.student_id }}/pass.pdf" data-download>Download pass (PDF)</a></p>
   <p class="muted">Print at actual size (100%), not "fit to page".</p>
   {% else %}
   <p>{% if j.student.master_status == "ACTIVE" %}This student has no QR yet. Use <a href="/admin/passes">Passes and QR</a> to generate the missing ones.
      {% else %}This student is not active, so no QR is issued.{% endif %}</p>
   {% endif %}
   {% if j.student.master_status == "ACTIVE" %}
-  <form method="post" action="/admin/students/{{ j.student.student_id }}/reissue-qr" class="narrow">
+  <form method="post" action="/admin/students/{{ j.student.student_id }}/reissue-qr" class="narrow" data-busy="Reissuing…">
     <p class="muted">Lost, damaged or shared pass? Reissuing makes the old QR stop working and creates a new one. Print the new pass afterwards. This is logged.</p>
     <label>Reason <input name="reason" placeholder="Reason (required)" required></label>
     <button type="submit">Reissue QR</button>
@@ -33,7 +33,7 @@
 
 {% if j.student.frozen %}
 <h2>Master patch</h2>
-<form method="post" action="/admin/students/{{ j.student.student_id }}/master-patch" class="card">
+<form method="post" action="/admin/students/{{ j.student.student_id }}/master-patch" class="card" data-busy="Applying…">
   <p class="muted">The display data for this student has been frozen, so the LED, the printed pass and every
     station screen are built from what is below. Changing any of it is a logged action: give a reason, and
     the change, the reason and your name go into the audit trail together.</p>
@@ -60,7 +60,7 @@
     <td>{{ e.operator or "" }}</td><td>{{ e.flags|join(", ") }}</td><td>{{ e.reason or "" }}</td>
     <td>
       {% if e.can_reverse %}
-        <form method="post" action="/admin/students/{{ j.student.student_id }}/reverse" class="inline">
+        <form method="post" action="/admin/students/{{ j.student.student_id }}/reverse" class="inline" data-busy="Reversing…">
           <input type="hidden" name="event_id" value="{{ e.event_id }}">
           <input name="reason" placeholder="Reason (required)" required>
           <button type="submit">Reverse</button>
@@ -73,9 +73,9 @@
 </table>
 
 {% if j.can_waive_return %}
-<h2>Thobe lost or not returned</h2>
-<form method="post" action="/admin/students/{{ j.student.student_id }}/waive-return" class="card narrow">
-  <p class="muted">Counts as the thobe return so the student can go to Lunch. It is flagged as an Admin correction and listed on the waived thobes report.</p>
+<h2>Robe lost or not returned</h2>
+<form method="post" action="/admin/students/{{ j.student.student_id }}/waive-return" class="card narrow" data-busy="Saving…">
+  <p class="muted">Counts as the robe return so the student can go to Lunch. It is flagged as an Admin correction and listed on the waived robes report.</p>
   <label>Reason <input name="reason" required></label>
   <button class="big" type="submit">Return waived / lost</button>
 </form>

@@ -102,7 +102,7 @@ def activity_report(activity: str) -> Callable:
         cols = STUDENT_COLS + [("state", "Status"), ("completed_at", "Completed at"),
                                ("record_kind", "Record"), ("flags", "Flags"), ("note", "Note")]
         return Report(f"activity-{activity.lower().replace('_', '-')}", f"{ACTIVITY_LABEL[activity]}: completed / not completed",
-                      cols, rows, totals, "A Thobe Return waiver counts as completed (Record = WAIVER)." if activity == "THOBE_RETURN" else "")
+                      cols, rows, totals, "A Robe Return waiver counts as completed (Record = WAIVER)." if activity == "THOBE_RETURN" else "")
     return build
 
 
@@ -128,10 +128,10 @@ def incomplete_journey(conn, settings, params) -> Report:
                   {"incomplete": len(rows)})
 
 
-# ------------------------------------------------------------------ thobes
+# ------------------------------------------------------------------ robes
 def outstanding_thobes(conn, settings, params) -> Report:
     rows = _rows(conn, dashboard.OUTSTANDING_FROM + " ORDER BY al.server_time, s.sequence_no NULLS LAST, s.name", {}, settings.event_utc_offset_minutes)
-    return Report("outstanding-thobes", "Thobes allocated but not returned",
+    return Report("outstanding-robes", "Robes allocated but not returned",
                   [("prn", "PRN"), ("name", "Name"), ("school", "School"), ("programme", "Programme"),
                    ("allocated_at", "Allocated at"), ("stage_complete", "Stage complete")], rows, {"outstanding": len(rows)})
 
@@ -143,7 +143,7 @@ def waived_thobes(conn, settings, params) -> Report:
                a.details->>'reason' AS reason, CAST(a.details->>'thobe_allocation_on_record' AS boolean) AS allocation_on_record
         FROM active a JOIN students s ON s.id = a.student_id LEFT JOIN users u ON u.id = a.operator_id
         WHERE a.kind = 'WAIVER' ORDER BY a.server_time, s.sequence_no NULLS LAST, s.name""", {}, settings.event_utc_offset_minutes)
-    return Report("waived-thobes", "Return Waived / Lost thobes",
+    return Report("waived-robes", "Return Waived / Lost robes",
                   [("prn", "PRN"), ("name", "Name"), ("school", "School"), ("programme", "Programme"), ("waived_at", "Waived at"),
                    ("waived_by", "Approved by (Admin)"), ("reason", "Reason"), ("allocation_on_record", "Allocation on record")],
                   rows, {"waived": len(rows)}, "Waivers an Admin has since reversed are on the Corrections report.")
@@ -158,16 +158,16 @@ def thobe_count(conn, settings, params) -> Report:
                (SELECT count(*) FROM ({dashboard.OUTSTANDING_FROM}) o)                     AS outstanding
         FROM active""")).mappings().one()
     rows = [
-        {"metric": "Thobes issued (Thobe Allocation)", "value": int(row["issued"])},
+        {"metric": "Robes issued (Robe Allocation)", "value": int(row["issued"])},
         {"metric": "Returned", "value": int(row["returned"])},
         {"metric": "Waived / lost (Admin)", "value": int(row["waived"])},
         {"metric": "Expected back but not returned (issued, not returned or waived)", "value": int(row["outstanding"])},
-        {"metric": "Physical thobes counted at the Hall (enter after the event)", "value": ""},
+        {"metric": "Physical robes counted at the Hall (enter after the event)", "value": ""},
     ]
-    return Report("thobe-count", "Thobe stock check", [("metric", "Measure"), ("value", "Count")], rows,
+    return Report("robe-count", "Robe stock check", [("metric", "Measure"), ("value", "Count")], rows,
                   {"issued": int(row["issued"]), "returned": int(row["returned"]), "waived": int(row["waived"]),
                    "outstanding": int(row["outstanding"])},
-                  "Compare the physical count with 'Returned'. Any difference is a thobe not accounted for.")
+                  "Compare the physical count with 'Returned'. Any difference is a robe not accounted for.")
 
 
 # ------------------------------------------------------------------ Stage
@@ -262,8 +262,8 @@ def summary(by_programme: bool) -> Callable:
         total = {k: sum(r[k] for r in rows) for k in numeric}
         cols = [("school", "School")] + ([("programme", "Programme")] if by_programme else []) + [
             ("registered", "Registered"), ("reported", "Reported"), ("yet_to_report", "Yet to report"), ("not_attended", "Not attended"),
-            ("thobe_received", "Thobe received"), ("seated", "Seated"), ("queued", "Queued"), ("stage_complete", "Stage complete"),
-            ("thobe_returned", "Thobe returned"), ("exited", "Lunch / exited")]
+            ("thobe_received", "Robe received"), ("seated", "Seated"), ("queued", "Queued"), ("stage_complete", "Stage complete"),
+            ("thobe_returned", "Robe returned"), ("exited", "Lunch / exited")]
         return Report("programme-summary" if by_programme else "school-summary",
                       "Programme-wise summary" if by_programme else "School-wise summary", cols, rows, total,
                       "Each figure is a count of students with that activity recorded (an Admin waiver counts as a return).")
@@ -303,9 +303,9 @@ REPORTS: dict[str, tuple[str, str, Callable]] = {  # key -> (group, description,
     **{f"activity-{a.lower().replace('_', '-')}": ("Per activity", f"Everyone, completed or not, for {ACTIVITY_LABEL[a]}.", activity_report(a))
        for a in ACTIVITIES},
     "stage-outcomes": ("Stage", "Who completed and who was skipped, with the reasons.", stage_outcomes),
-    "outstanding-thobes": ("Thobes", "Thobe allocated but not returned or waived.", outstanding_thobes),
-    "waived-thobes": ("Thobes", "Return Waived / Lost approvals, with reasons.", waived_thobes),
-    "thobe-count": ("Thobes", "Issued, returned, waived and outstanding, for the physical stock check.", thobe_count),
+    "outstanding-robes": ("Robes", "Robe allocated but not returned or waived.", outstanding_thobes),
+    "waived-robes": ("Robes", "Return Waived / Lost approvals, with reasons.", waived_thobes),
+    "robe-count": ("Robes", "Issued, returned, waived and outstanding, for the physical stock check.", thobe_count),
     "late-registrations": ("Flags", "Registrations flagged LATE.", flagged("late-registrations", "Late registrations", "LATE", "REGISTRATION")),
     "provisional": ("Flags", "Events confirmed provisionally.", flagged("provisional", "Provisional events", "PROVISIONAL")),
     "manual": ("Flags", "Events entered by manual PRN search.", flagged("manual", "Manual entries", "MANUAL")),

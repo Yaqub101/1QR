@@ -1,4 +1,4 @@
-"""Phases 7-12 bundle: the guarantees that matter for Thobe Allocation, Seating, Queue, Thobe Return, Lunch.
+"""Phases 7-12 bundle: the guarantees that matter for Robe Allocation, Seating, Queue, Robe Return, Lunch.
 
 All five are CONFIGURATION on the Phase 6 engine (backend/engine/activities.py); nothing here tests a
 separate pipeline. Registration and Stage keep their Phase 6 tests.
@@ -86,7 +86,7 @@ def fingerprint(engine, sql):
     return q(engine, sql)[0]["f"]
 
 
-# =========================================================================== THOBE ALLOCATION
+# =========================================================================== ROBE ALLOCATION
 class TestThobeAllocation:
     def test_confirms_once_and_the_duplicate_shows_the_earlier_time(self, apps, world, engine):
         s = ready_student(engine, "THOBE_ALLOCATION")
@@ -94,7 +94,7 @@ class TestThobeAllocation:
         client = operator(apps, world, "THOBE_ALLOCATION")
         body = scan(client, "THOBE_ALLOCATION", s.token).json()
         assert body["result"] == "DUPLICATE" and body["colour"] == "amber"
-        assert body["message"] == f"THOBE ALREADY ALLOCATED — {clock(earlier.server_time)}"  # the earlier time, not now
+        assert body["message"] == f"ROBE ALREADY ALLOCATED — {clock(earlier.server_time)}"  # the earlier time, not now
         assert body["earlier"]["time"] == clock(earlier.server_time)
         assert confirm(client, "THOBE_ALLOCATION", token=s.token).json()["result"] == "DUPLICATE"
         assert len(events_of(engine, s, "THOBE_ALLOCATION")) == 1
@@ -126,7 +126,7 @@ class TestThobeAllocation:
 # =========================================================================== SEATING
 class TestSeating:
     """The university assigns no seats, so Seating is a plain "this student is seated" checkpoint,
-    exactly like Thobe Allocation: no seat is shown, none is asked for, and none is recorded."""
+    exactly like Robe Allocation: no seat is shown, none is asked for, and none is recorded."""
 
     def test_no_seat_is_shown_and_a_client_supplied_seat_is_ignored(self, apps, world, engine):
         s = ready_student(engine, "SEATING", seat_no="A-12")   # a leftover master seat changes nothing
@@ -142,11 +142,11 @@ class TestSeating:
 
     def test_blocked_without_thobe_allocation_with_the_specified_message(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, ["REGISTRATION"])  # registered, but no thobe yet
+        seed_events(engine, s, ["REGISTRATION"])  # registered, but no robe yet
         client = operator(apps, world, "SEATING")
         before = totals(engine)
         for body in (scan(client, "SEATING", s.token).json(), confirm(client, "SEATING", token=s.token).json()):
-            assert body["result"] == "REJECTED" and body["message"] == "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"
+            assert body["result"] == "REJECTED" and body["message"] == "SEATING NOT AVAILABLE — ROBE NOT RECEIVED"
         assert totals(engine) == before and events_of(engine, s, "SEATING") == []
 
     def test_a_second_scan_names_the_time_it_was_confirmed_and_no_seat(self, apps, world, engine):
@@ -175,7 +175,7 @@ class TestQueue:
 
     def test_blocked_without_seating(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION"])  # thobe given, not yet seated
+        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION"])  # robe given, not yet seated
         client = operator(apps, world, "QUEUE")
         before = totals(engine)
         for body in (scan(client, "QUEUE", s.token).json(), confirm(client, "QUEUE", token=s.token).json()):
@@ -268,7 +268,7 @@ class TestQueue:
         assert rows[0]["queue_position"] > other_pos  # strictly behind everyone who confirmed before the re-queue
 
 
-# =========================================================================== THOBE RETURN
+# =========================================================================== ROBE RETURN
 class TestThobeReturn:
     def test_confirms_once_and_the_duplicate_shows_the_earlier_time(self, apps, world, engine):
         s = ready_student(engine, "THOBE_RETURN")
@@ -284,18 +284,18 @@ class TestThobeReturn:
     def test_it_is_configured_to_require_stage_complete_and_the_thobe_allocation(self, apps, world, engine):
         client = operator(apps, world, "THOBE_RETURN")
         nothing = make_student(engine)
-        assert scan(client, "THOBE_RETURN", nothing.token).json()["message"] == "THOBE RETURN NOT AVAILABLE — STAGE PENDING"
+        assert scan(client, "THOBE_RETURN", nothing.token).json()["message"] == "ROBE RETURN NOT AVAILABLE — STAGE PENDING"
 
         skipped = make_student(engine)
         seed_at(engine, skipped, "THOBE_ALLOCATION", hours_ago=1)
         seed_at(engine, skipped, "STAGE", kind="SKIP", hours_ago=1)
-        assert scan(client, "THOBE_RETURN", skipped.token).json()["message"] == "THOBE RETURN NOT AVAILABLE — STAGE PENDING"
+        assert scan(client, "THOBE_RETURN", skipped.token).json()["message"] == "ROBE RETURN NOT AVAILABLE — STAGE PENDING"
 
         no_thobe = make_student(engine)
         seed_events(engine, no_thobe, ["REGISTRATION"])
         seed_at(engine, no_thobe, "STAGE", hours_ago=1)
         body = scan(client, "THOBE_RETURN", no_thobe.token).json()
-        assert body["result"] == "REJECTED" and body["message"] == "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED"
+        assert body["result"] == "REJECTED" and body["message"] == "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED"
         assert confirm(client, "THOBE_RETURN", token=no_thobe.token).json()["result"] == "REJECTED"
         assert events_of(engine, no_thobe, "THOBE_RETURN") == []
 
@@ -316,7 +316,7 @@ class TestLunch:
         seed_events(engine, none, ACTIVITIES[:5])  # everything but the return
         before = totals(engine)
         for body in (scan(client, "LUNCH", none.token).json(), confirm(client, "LUNCH", token=none.token).json()):
-            assert body["result"] == "REJECTED" and body["message"] == "LUNCH NOT AVAILABLE — THOBE RETURN PENDING"
+            assert body["result"] == "REJECTED" and body["message"] == "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"
         assert totals(engine) == before
         returned = ready_student(engine, "LUNCH")
         assert scan(client, "LUNCH", returned.token).json()["result"] == "READY"
@@ -334,7 +334,7 @@ class TestLunch:
         assert scan(operator(apps, world, "LUNCH"), "LUNCH", s.token).json()["result"] == "READY"
         seed_at(engine, s, "THOBE_RETURN", kind="REVERSAL", corrects=waiver.event_id, hours_ago=1)
         body = scan(operator(apps, world, "LUNCH"), "LUNCH", s.token).json()
-        assert body["result"] == "REJECTED" and body["message"] == "LUNCH NOT AVAILABLE — THOBE RETURN PENDING"
+        assert body["result"] == "REJECTED" and body["message"] == "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"
 
     def test_the_duplicate_shows_the_earlier_claim_time(self, apps, world, engine):
         s = ready_student(engine, "LUNCH")

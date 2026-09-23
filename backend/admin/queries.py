@@ -31,14 +31,14 @@ NEVER_REGISTERED = """
 NOT EXISTS (SELECT 1 FROM activity_events e WHERE e.student_id = s.id AND e.activity = 'REGISTRATION')"""
 
 FUNNEL_LABELS = {
-    "REGISTRATION": "Reported", "THOBE_ALLOCATION": "Thobe received", "SEATING": "Seated", "QUEUE": "Queued",
-    "STAGE": "Stage complete", "THOBE_RETURN": "Thobe returned", "LUNCH": "Lunch / Exited",
+    "REGISTRATION": "Reported", "THOBE_ALLOCATION": "Robe received", "SEATING": "Seated", "QUEUE": "Queued",
+    "STAGE": "Stage complete", "THOBE_RETURN": "Robe returned", "LUNCH": "Lunch / Exited",
 }
 assert tuple(FUNNEL_LABELS) == ACTIVITIES
 
 STATUS_LABEL = {
-    0: "Registered / not reported", 1: "Reported / thobe not received", 2: "Not seated", 3: "Not queued",
-    4: "Degree not received", 5: "Thobe not returned", 6: "Lunch eligible", 7: "Exited",
+    0: "Registered / not reported", 1: "Reported / robe not received", 2: "Not seated", 3: "Not queued",
+    4: "Degree not received", 5: "Robe not returned", 6: "Lunch eligible", 7: "Exited",
 }
 
 

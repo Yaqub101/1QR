@@ -2,7 +2,7 @@
 
 Verifies:
 1. QR decodability against live PDF and database.
-2. Role gating for all 8 roles (Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch, Admin).
+2. Role gating for all 8 roles (Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch, Admin).
 3. Sequential/prerequisite enforcement.
 4. Duplicate scan handling.
 5. Full 7-activity journey for one student with intermediate status checks and final EXITED check.
@@ -245,7 +245,7 @@ def main():
     prn_a = student_a["prn"]
     print(f"Fresh Test Student A: {student_a['name']} (PRN: {prn_a})")
 
-    # Pair 1: Thobe Allocation BEFORE Registration
+    # Pair 1: Robe Allocation BEFORE Registration
     print("\n--- Prerequisite Pair 1: THOBE_ALLOCATION before REGISTRATION ---")
     tok_thobe = login("2", "12345678")
     print("Step 3.1: Operator '2' attempts /confirm for THOBE_ALLOCATION (Prereq REGISTRATION missing):")
@@ -409,15 +409,15 @@ def main():
     assert st1 == 200 and bd1["result"] == "CONFIRMED"
     s1_step, s1_status = get_student_status(sid_b)
     print(f"Post-Registration DB Status: step {s1_step} -> '{s1_status}'")
-    assert s1_status == "REPORTED / THOBE NOT RECEIVED"
+    assert s1_status == "REPORTED / ROBE NOT RECEIVED"
 
-    # Step 2: Thobe Allocation
+    # Step 2: Robe Allocation
     print("\n--- 2/7: THOBE_ALLOCATION ---")
     st2, bd2, _ = http_req("/confirm", "POST", {"token": tok_b, "activity": "THOBE_ALLOCATION"}, token=login("2", "12345678"))
     print(f"HTTP Status: {st2}\nResponse: {json.dumps(bd2, indent=2)}")
     assert st2 == 200 and bd2["result"] == "CONFIRMED"
     s2_step, s2_status = get_student_status(sid_b)
-    print(f"Post-Thobe DB Status: step {s2_step} -> '{s2_status}'")
+    print(f"Post-Robe DB Status: step {s2_step} -> '{s2_status}'")
     assert s2_status == "NOT SEATED"
 
     # Step 3: Seating
@@ -466,15 +466,15 @@ def main():
     assert st5 == 200 and bd5.get("ok") is True
     s5_step, s5_status = get_student_status(sid_b)
     print(f"Post-Stage DB Status: step {s5_step} -> '{s5_status}'")
-    assert s5_status == "THOBE NOT RETURNED"
+    assert s5_status == "ROBE NOT RETURNED"
 
-    # Step 6: Thobe Return
+    # Step 6: Robe Return
     print("\n--- 6/7: THOBE_RETURN ---")
     st6, bd6, _ = http_req("/confirm", "POST", {"token": tok_b, "activity": "THOBE_RETURN"}, token=login("6", "12345678"))
     print(f"HTTP Status: {st6}\nResponse: {json.dumps(bd6, indent=2)}")
     assert st6 == 200 and bd6["result"] == "CONFIRMED"
     s6_step, s6_status = get_student_status(sid_b)
-    print(f"Post-Thobe Return DB Status: step {s6_step} -> '{s6_status}'")
+    print(f"Post-Robe Return DB Status: step {s6_step} -> '{s6_status}'")
     assert s6_status == "LUNCH ELIGIBLE"
     assert s6_status != "EXITED", "Student MUST NOT be EXITED before Lunch!"
 
@@ -513,7 +513,7 @@ def main():
     prn_c = student_c["prn"]
     print(f"LED Test Student C: {student_c['name']} (PRN: {prn_c}, ID: {sid_c})")
 
-    # Complete Reg, Thobe, Seating so Student C is ready for Queue
+    # Complete Reg, Robe, Seating so Student C is ready for Queue
     http_req("/confirm", "POST", {"token": tok_c, "activity": "REGISTRATION"}, token=login("1", "12345678"))
     http_req("/confirm", "POST", {"token": tok_c, "activity": "THOBE_ALLOCATION"}, token=login("2", "12345678"))
     http_req("/confirm", "POST", {"token": tok_c, "activity": "SEATING"}, token=login("3", "12345678"))

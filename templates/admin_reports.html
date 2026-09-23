@@ -20,8 +20,8 @@
 {% if report.key.startswith("activity-") %}
 <p><a href="/admin/reports/{{ report.key }}?status=all">All</a> &middot; <a href="/admin/reports/{{ report.key }}?status=completed">Completed</a> &middot;
    <a href="/admin/reports/{{ report.key }}?status=not_completed">Not completed</a></p>{% endif %}
-<p><a href="/admin/api/reports/{{ report.key }}/export?format=csv&{{ query }}">Download CSV</a> &middot;
-   <a href="/admin/api/reports/{{ report.key }}/export?format=xlsx&{{ query }}">Download XLSX</a></p>
+<p><a href="/admin/api/reports/{{ report.key }}/export?format=csv&{{ query }}" data-download>Download CSV</a> &middot;
+   <a href="/admin/api/reports/{{ report.key }}/export?format=xlsx&{{ query }}" data-download>Download XLSX</a></p>
 <table>
   <tr>{% for key, label in report.columns %}<th>{{ label }}</th>{% endfor %}</tr>
   {% for row in preview_rows %}<tr>{% for key, label in report.columns %}<td>{{ row.get(key, "") }}</td>{% endfor %}</tr>{% endfor %}

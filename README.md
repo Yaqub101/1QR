@@ -1,6 +1,6 @@
 # Convocation Event Management System
 
-The system tracks each university student through seven activities (Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch) using one QR code, across three physical locations (College, Stadium, Hall). Because there is no single reliable network between them, each location runs its own local server and keeps working with no Internet. Every action is saved locally first, and a background sync process copies actions to a central system and shares them with the other locations whenever a connection is available. Each activity is recorded at exactly one location, events are append-only, and operators only ever see SCAN → VERIFY → CONFIRM.
+The system tracks each university student through seven activities (Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) using one QR code, across three physical locations (College, Stadium, Hall). Because there is no single reliable network between them, each location runs its own local server and keeps working with no Internet. Every action is saved locally first, and a background sync process copies actions to a central system and shares them with the other locations whenever a connection is available. Each activity is recorded at exactly one location, events are append-only, and operators only ever see SCAN → VERIFY → CONFIRM.
 
 ## Status
 
@@ -109,9 +109,17 @@ The operator-screen logic (scanner-suffix stripping, debounce, focus, colour and
 ### 3b. First-time event setup
 
 1. Create the Admin and Deputy accounts (credentials come from the environment or a prompt, never from a file): `python -m backend.seed`
-2. Sign in as Admin, open **Stations**, and create the stations for this venue (an activity is fixed to its venue: College = Registration; Stadium = Thobe Allocation, Seating, Queue, Stage; Hall = Thobe Return, Lunch).
+2. Sign in as Admin, open **Stations**, and create the stations for this venue (an activity is fixed to its venue: College = Registration; Stadium = Robe Allocation, Seating, Queue, Stage; Hall = Robe Return, Lunch).
 3. On each operator laptop, sign in as Admin, open **Set up this laptop**, tap its station, then sign out. The laptop now *is* that station; the operator signs in with their own login and never chooses an activity.
 4. Operators open the site; the scan box is ready. A spare laptop is rebound the same way in three steps.
+
+### 3c. Starting over: Admin → System → Reset all data
+
+Clears the software for a new event: students, QR codes, every activity record, the queue and Stage/LED state, exceptions, scan attempts, staged imports, the event/import part of the audit log, and every student photo in the configured photo store (only this app's `CLOUDINARY_FOLDER/<32 hex>` assets on Cloudinary; nothing else in the account). Accounts, sessions, settings, configuration and the schema stay, and so do the audit rows for sign-ins, account changes and **every reset**. **Take a backup first** (`python -m backend.ha.backup once`): a reset cannot be undone.
+
+It takes three deliberate steps: type `DELETE ALL DATA` and your own password (wrong passwords are audited; five in 15 minutes lock the form), read the final page with the exact counts, press **Yes, delete all data**. The database part is one transaction (all or nothing). The photo clean-up runs after it; if it fails the page says so, with counts, and **Retry photo clean-up** stays on the System page until one run finishes (a retry never removes a photo a current student uses). A reset and an import commit never overlap: whichever comes second is told to wait. Details: `backend/admin/reset.py`.
+
+Slow Admin actions (imports, downloads, exports, pass generation, corrections, the reset) show a spinner and a "…ing" label, and cannot be submitted twice; see `static/busy.js`.
 
 ---
 mmuyru6rtdfvgggghello my naeasdasdjhakjdhjhsdkjha

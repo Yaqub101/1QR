@@ -24,7 +24,7 @@ For **TODO Phase 18** (Exit Gate 18: "each location passes the hardware checklis
 | **UPS** | The battery box that keeps things running when the mains power cuts. |
 | **Uplinks** | The two ways to reach the Internet: the venue broadband, and the 4G/5G SIM router. |
 
-**Numbers.** The desk counts below are the **starting plan** from TODO Phase 0 (Registration 6; Thobe Allocation 5; Seating 4; Queue 3; Stage 1 plus 1 backup; Thobe Return 4; Lunch 5). The project owner has not confirmed them. Write the final number in each blank when it is decided.
+**Numbers.** The desk counts below are the **starting plan** from TODO Phase 0 (Registration 6; Robe Allocation 5; Seating 4; Queue 3; Stage 1 plus 1 backup; Robe Return 4; Lunch 5). The project owner has not confirmed them. Write the final number in each blank when it is decided.
 
 **Why so many spares:** the whole design says one broken thing must never stop a place (SYSTEM_SPEC section 18). Spares are how that is kept.
 
@@ -94,7 +94,7 @@ Passed:  YES / NO   Problems still open: _______________________________________
 
 ---
 
-# STADIUM (Thobe Allocation, Seating, Queue, Stage, and the big screen)
+# STADIUM (Robe Allocation, Seating, Queue, Stage, and the big screen)
 
 Place: ______________________  Date checked: ____ / ____ / ______
 
@@ -116,7 +116,7 @@ Place: ______________________  Date checked: ____ / ____ / ______
 
 - [ ] **SERVER laptop** is labelled SERVER, on Ethernet, and its health page shows `"db": "up"` (open `http://stadium.local:8000/health`, or the address on the setup card).
 - [ ] **STAGE laptop** and **STAGE BACKUP laptop** are both set up. **The STAGE BACKUP laptop is also the STANDBY** for the Stadium (SYSTEM_SPEC section 18). Label it STAGE BACKUP / STANDBY. **[IT lead]** It is copying from the SERVER.
-- [ ] **Desk laptops:** number needed ____ (plan: Thobe Allocation 5, Seating 4, Queue 3 = 12). Each has its station name on a label. Each has been **bound to its station** by the Admin. Each has been signed in once by its own operator.
+- [ ] **Desk laptops:** number needed ____ (plan: Robe Allocation 5, Seating 4, Queue 3 = 12). Each has its station name on a label. Each has been **bound to its station** by the Admin. Each has been signed in once by its own operator.
 - [ ] **One spare desk laptop** is set up, charged and labelled SPARE.
 - [ ] **REBIND TEST.** The Admin binds the spare laptop to any station. It takes **under a minute**. Time it: ______ seconds.
 - [ ] **Chargers and batteries.** Every laptop is fully charged and has its charger. Desks are near a power socket.
@@ -136,7 +136,7 @@ Place: ______________________  Date checked: ____ / ____ / ______
 
 ## D. Scanners
 
-- [ ] Scanners needed ____ (one per scanning desk: Thobe Allocation, Seating, Queue) **plus at least 3 spares** (one for each of the three kinds of desk). The Stage desk does not scan. Total ready: ____
+- [ ] Scanners needed ____ (one per scanning desk: Robe Allocation, Seating, Queue) **plus at least 3 spares** (one for each of the three kinds of desk). The Stage desk does not scan. Total ready: ____
 - [ ] **SCANNER TEST, every scanner.** Open a text box (Notepad or the scan box on a station screen). Scan any QR code. The text appears **and the cursor jumps to a new line.**
   - Scanner numbers tested and passed: ______________________________
 - [ ] **Every kind of laptop has been tried with a scanner** (each model). Models tested: ______________________________
@@ -155,7 +155,7 @@ Place: ______________________  Date checked: ____ / ____ / ______
 ## F. Paper (the last resort)
 
 - [ ] **Fallback sheets printed** after the master list was frozen. **[IT lead]** They were made with `scripts/fallback_sheets.py`. The **total on every sheet equals the master count**: sheet says ______, Admin says ______.
-- [ ] The right sheet is at **every** desk: Thobe Allocation, Seating, Queue and Stage. Plus a spare copy of each.
+- [ ] The right sheet is at **every** desk: Robe Allocation, Seating, Queue and Stage. Plus a spare copy of each.
 - [ ] The **one-page failover sheet** for the Stadium ([docs/failover/STADIUM.md](../failover/STADIUM.md)) is printed and kept **next to the STAGE BACKUP/STANDBY laptop** and with the Admin. The phone numbers on it are filled in.
 - [ ] The **one-page instruction sheet** for each desk is at every desk (and one for the Stage operator).
 - [ ] Pens and clipboards for the paper sheets.
@@ -168,7 +168,7 @@ Passed:  YES / NO   Problems still open: _______________________________________
 
 ---
 
-# HALL (Thobe Return and Lunch)
+# HALL (Robe Return and Lunch)
 
 Place: ______________________  Date checked: ____ / ____ / ______
 
@@ -189,7 +189,7 @@ Place: ______________________  Date checked: ____ / ____ / ______
 
 - [ ] **SERVER laptop** is labelled SERVER, on Ethernet, and its health page shows `"db": "up"` (open `http://hall.local:8000/health`, or the address on the setup card).
 - [ ] **STANDBY laptop** is labelled STANDBY, on Ethernet, and switched on. **[IT lead]** It is copying from the SERVER.
-- [ ] **Desk laptops:** number needed ____ (plan: Thobe Return 4, Lunch 5 = 9). Each has its station name on a label. Each has been **bound to its station** by the Admin. Each has been signed in once by its own operator.
+- [ ] **Desk laptops:** number needed ____ (plan: Robe Return 4, Lunch 5 = 9). Each has its station name on a label. Each has been **bound to its station** by the Admin. Each has been signed in once by its own operator.
 - [ ] **One spare desk laptop** is set up, charged and labelled SPARE.
 - [ ] **REBIND TEST.** The Admin binds the spare laptop to any station. It takes **under a minute**. Time it: ______ seconds.
 - [ ] **Chargers and batteries.** Every laptop is fully charged and has its charger. Desks are near a power socket.
@@ -200,7 +200,7 @@ Place: ______________________  Date checked: ____ / ____ / ______
 
 ## C. Scanners
 
-- [ ] Scanners needed ____ (one per desk) **plus at least 2 spares** (one for Thobe Return, one for Lunch). Total ready: ____
+- [ ] Scanners needed ____ (one per desk) **plus at least 2 spares** (one for Robe Return, one for Lunch). Total ready: ____
 - [ ] **SCANNER TEST, every scanner.** Open a text box (Notepad or the scan box on a station screen). Scan any QR code. The text appears **and the cursor jumps to a new line.**
   - Scanner numbers tested and passed: ______________________________
 - [ ] **Every kind of laptop has been tried with a scanner** (each model). Models tested: ______________________________
@@ -219,7 +219,7 @@ Place: ______________________  Date checked: ____ / ____ / ______
 ## E. Paper (the last resort)
 
 - [ ] **Fallback sheets printed** after the master list was frozen. **[IT lead]** They were made with `scripts/fallback_sheets.py`. The **total on every sheet equals the master count**: sheet says ______, Admin says ______.
-- [ ] The Thobe Return sheet is at **every** Thobe Return desk and the Lunch sheet at **every** Lunch desk, plus a spare copy of each.
+- [ ] The Robe Return sheet is at **every** Robe Return desk and the Lunch sheet at **every** Lunch desk, plus a spare copy of each.
 - [ ] The **one-page failover sheet** for the Hall ([docs/failover/HALL.md](../failover/HALL.md)) is printed and kept **next to the STANDBY laptop** and with the Admin. The phone numbers on it are filled in.
 - [ ] The **one-page instruction sheet** for each desk is at every desk.
 - [ ] Pens and clipboards for the paper sheets.

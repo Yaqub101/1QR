@@ -95,3 +95,21 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
 form.inline { display:flex; gap:.35rem; margin:0; }
 form.inline input { min-width:12rem; }
 .filters { grid-template-columns:repeat(auto-fill, minmax(12rem, 1fr)); align-items:end; }
+
+/* ---- loading states (static/busy.js) ---- */
+.is-busy { cursor:progress; }
+button.is-busy, input.is-busy { opacity:.85; }
+button.is-busy::before, a.is-busy::before { content:""; display:inline-block; width:.9em; height:.9em; margin-right:.45em; vertical-align:-.1em;
+  border:.15em solid currentColor; border-right-color:transparent; border-radius:50%; animation:busy-spin .8s linear infinite; }
+a.is-busy { pointer-events:none; color:var(--muted); }
+.busy-note { margin:.5rem 0 0; padding:.6rem .8rem; border-radius:6px; background:#eaf1fb; color:var(--brand); font-weight:600; }
+.busy-note.busy-error { background:var(--bad); color:var(--badink); }
+@keyframes busy-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button.is-busy::before, a.is-busy::before { animation-duration:2.4s; } }
+
+/* ---- Admin → System (data reset) ---- */
+.danger-zone { border:2px solid var(--badink); background:#fff7f7; }
+.danger-zone h2 { color:var(--badink); margin:0; }
+.danger-zone ul { margin:.2rem 0; }
+button.big.danger { background:var(--badink); color:#fff; border:0; }
+code.phrase { font-weight:800; color:var(--badink); background:#fff; padding:.1rem .35rem; border:1px solid var(--badink); border-radius:4px; }

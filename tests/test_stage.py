@@ -253,7 +253,7 @@ class TestCompleteAndSkip:
         assert "MANUAL" not in event[0]["flags"]  # the controller identified them; nobody typed a PRN
         assert events_of(engine, waiting, "STAGE") == []  # only reached the Queue: no Stage record
         assert stage_stat(engine, first) == "DONE" and stage_stat(engine, waiting) == "QUEUED"
-        assert q(engine, "SELECT status FROM student_status WHERE student_id = :s", s=first.id)[0]["status"] == "THOBE NOT RETURNED"
+        assert q(engine, "SELECT status FROM student_status WHERE student_id = :s", s=first.id)[0]["status"] == "ROBE NOT RETURNED"
         assert led(apps).json()["mode"] == "HOME"  # a holding screen between students
         assert response.json()["state"]["current"] is None and response.json()["state"]["previous"]["name"] == first.name
 

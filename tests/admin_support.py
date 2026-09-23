@@ -132,7 +132,7 @@ def build_dataset(engine):
     person("H", S3, steps=4, then=[skip("not ready")])
     person("I", S1, steps=6, flags={"THOBE_RETURN": ["PROVISIONAL"]})
     person("J", S2, steps=5, then=[lambda p: (add_event(engine, p.s, "THOBE_RETURN", kind="WAIVER", details={
-        "reason": "lost thobe", "thobe_allocation_on_record": True}), p.active.add("THOBE_RETURN"))])
+        "reason": "lost robe", "thobe_allocation_on_record": True}), p.active.add("THOBE_RETURN"))])
     person("K1", S3, steps=7)
     person("K2", S1, steps=7)
     person("L", S1, steps=6, then=[reversal("THOBE_RETURN", "returned to the wrong desk")])
@@ -150,7 +150,7 @@ def build_dataset(engine):
                 c.execute(text("INSERT INTO scan_log (activity, result) VALUES ('SEATING', :r)"), {"r": result})
         j_event = c.execute(text("SELECT event_id FROM activity_events WHERE student_id = :s AND kind = 'WAIVER'"), {"s": people["J"].s.id}).scalar_one()
         c.execute(text("INSERT INTO exceptions (type, student_id, event_id, details) VALUES ('RETURN_WAIVED', :s, :e, "
-                       "CAST('{\"reason\": \"lost thobe\"}' AS jsonb))"), {"s": people["J"].s.id, "e": j_event})
+                       "CAST('{\"reason\": \"lost robe\"}' AS jsonb))"), {"s": people["J"].s.id, "e": j_event})
         c.execute(text("INSERT INTO exceptions (type) VALUES ('CONFLICT')"))
         c.execute(text("INSERT INTO exceptions (type, status, resolved_at) VALUES ('SEQ_GAP', 'RESOLVED', now())"))
     return SimpleNamespace(people=people, all=list(people.values()))

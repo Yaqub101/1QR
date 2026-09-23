@@ -50,8 +50,8 @@ Delete or disable entirely — do not leave dead code half-wired in:
   session. **The logged-in operator's ROLE determines which activity they can
   perform**, from that same generic scan screen, wherever they are.
 - **Role list stays the same as before**, just untied from a venue:
-  Registration Operator, Thobe Allocation Operator, Seating Operator, Queue
-  Operator, Stage Operator, Thobe Return Operator, Lunch Operator, Admin, Deputy
+  Registration Operator, Robe Allocation Operator, Seating Operator, Queue
+  Operator, Stage Operator, Robe Return Operator, Lunch Operator, Admin, Deputy
   Admin. A person can hold more than one role if you want that (e.g., cover two
   activities) — confirm with the project owner if that's needed; default to one
   role per account unless asked otherwise.
@@ -113,7 +113,7 @@ Do this carefully:
 4. Update or remove every test that depended on venue ownership or sync behavior.
    Do NOT just delete failing tests to make the suite green — replace venue-based
    test scenarios with role-based equivalents that test the same underlying
-   guarantee (e.g., "a Thobe operator cannot confirm a Lunch activity" instead of
+   guarantee (e.g., "a Robe operator cannot confirm a Lunch activity" instead of
    "the Hall server rejects a Registration event").
    Update docs/TODO.md's phase table to reflect Phases 14 and 15 being dropped and
    Phases 5, 6, 17, 18 being simplified, per this document's "Updated TODO.md phase
@@ -127,7 +127,7 @@ Do this carefully:
    full suite and paste the complete real output.
 
 7. Show me, with real evidence:
-   - A Thobe Allocation operator successfully confirming a Thobe Allocation from
+   - A Robe Allocation operator successfully confirming a Robe Allocation from
      any station/browser session.
    - The same operator's account attempting to confirm a Lunch activity — rejected,
      with a clear role-based message (not a venue message).

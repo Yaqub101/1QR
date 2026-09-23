@@ -47,27 +47,27 @@ PREREQ = {
     "SEATING": ["THOBE_ALLOCATION"],
     "QUEUE": ["SEATING"],
     "STAGE": ["QUEUE"],
-    "THOBE_RETURN": ["STAGE", "THOBE_ALLOCATION"],  # section 14: "NO THOBE WAS ISSUED" needs the allocation too
+    "THOBE_RETURN": ["STAGE", "THOBE_ALLOCATION"],  # section 14: "NO ROBE WAS ISSUED" needs the allocation too
     "LUNCH": ["THOBE_RETURN"],
 }
 # Every prerequisite is a hard block now (docs/ARCHITECTURE_PIVOT.md): one shared server,
 # so the data behind any prerequisite is always local and current.
 HARD_BLOCK_MESSAGE = {
-    "THOBE_ALLOCATION": "THOBE NOT AVAILABLE — REGISTRATION PENDING",
-    "SEATING": "SEATING NOT AVAILABLE — THOBE NOT RECEIVED",
+    "THOBE_ALLOCATION": "ROBE NOT AVAILABLE — REGISTRATION PENDING",
+    "SEATING": "SEATING NOT AVAILABLE — ROBE NOT RECEIVED",
     "QUEUE": "QUEUE NOT AVAILABLE — SEATING PENDING",
     "STAGE": "STAGE NOT AVAILABLE — QUEUE PENDING",
-    "THOBE_RETURN": "THOBE RETURN NOT AVAILABLE — STAGE PENDING",
-    "LUNCH": "LUNCH NOT AVAILABLE — THOBE RETURN PENDING",
+    "THOBE_RETURN": "ROBE RETURN NOT AVAILABLE — STAGE PENDING",
+    "LUNCH": "LUNCH NOT AVAILABLE — ROBE RETURN PENDING",
 }
 CONFIRM_LABEL = {
-    "REGISTRATION": "CONFIRM REGISTRATION", "THOBE_ALLOCATION": "CONFIRM THOBE GIVEN",
+    "REGISTRATION": "CONFIRM REGISTRATION", "THOBE_ALLOCATION": "CONFIRM ROBE GIVEN",
     "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE", "STAGE": "COMPLETE",
     "THOBE_RETURN": "CONFIRM RETURN", "LUNCH": "CONFIRM LUNCH",
 }
 DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are always shown).
     # The university's real list has no Convocation Sequence Number and no Seat Number, so neither
-    # appears anywhere: Seating is a plain seated / not-seated checkpoint like Thobe Allocation, and
+    # appears anywhere: Seating is a plain seated / not-seated checkpoint like Robe Allocation, and
     # the Queue runs purely on the order confirmations happen in.
     "REGISTRATION": ["prn", "programme", "school"],
     "THOBE_ALLOCATION": ["prn", "programme", "school"],
@@ -85,7 +85,7 @@ INACTIVE = "STUDENT NOT ACTIVE — CONTACT ADMIN"
 def duplicate_message(activity, *, time, position=None):
     return {
         "REGISTRATION": f"ALREADY REGISTERED — {time}",
-        "THOBE_ALLOCATION": f"THOBE ALREADY ALLOCATED — {time}",
+        "THOBE_ALLOCATION": f"ROBE ALREADY ALLOCATED — {time}",
         "SEATING": f"SEATING ALREADY CONFIRMED — {time}",
         "QUEUE": f"ALREADY IN QUEUE — POSITION {position} — {time}",
         "STAGE": f"DEGREE ALREADY RECEIVED — {time}",
@@ -761,7 +761,7 @@ class TestConfiguredBehaviours:
         lonely = make_student(engine)
         assert field(scan(operator(apps, world, "THOBE_RETURN"), "THOBE_RETURN", lonely.token).json()["student"], "thobe_issued") == "Not on record yet"
         lunch = ready_student(engine, "LUNCH")
-        assert field(scan(operator(apps, world, "LUNCH"), "LUNCH", lunch.token).json()["student"], "eligibility").startswith("Thobe returned")
+        assert field(scan(operator(apps, world, "LUNCH"), "LUNCH", lunch.token).json()["student"], "eligibility").startswith("Robe returned")
 
 
 # --------------------------------------------------------------------------- #

@@ -210,8 +210,10 @@ def _prepare_photo(path: Optional[str]) -> tuple:
     if not path:
         return None, "NO_PHOTO"
     # The one photo resolver (backend/photo_storage.py): it normalises Windows backslashes and finds
-    # the bytes in the configured store (local folder or Cloudinary).
-    blob = photo_storage.load_photo(path)
+    # the bytes in the configured store (local folder or Cloudinary). The pass variant asks Cloudinary
+    # for a copy already shrunk to twice the print size instead of the full original; the local store
+    # ignores it, and the crop below is the same either way.
+    blob = photo_storage.load_photo(path, variant=photo_storage.PASS_VARIANT)
     if blob is None:
         return None, "NO_PHOTO"
     try:

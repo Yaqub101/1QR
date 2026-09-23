@@ -1,6 +1,6 @@
 # Station Contract — configuring an activity on the station engine
 
-**Audience:** whoever builds Phases 7–12 (Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch).
+**Audience:** whoever builds Phases 7–12 (Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch).
 **You need to have read:** `AGENTS.md`, `docs/ARCHITECTURE_PIVOT.md` and this file. Nothing else about the codebase is assumed.
 **Authority:** `docs/SYSTEM_SPEC.md` decides behaviour, as amended by `docs/ARCHITECTURE_PIVOT.md`; this file decides *how you express it*. If they disagree, stop and ask the project owner.
 
@@ -52,9 +52,9 @@ Every entry is an `ActivityConfig(...)`. Startup **fails** with a `RegistryError
 | Key | Type | Required | Meaning |
 |---|---|---|---|
 | `activity` | str | yes | One of `REGISTRATION THOBE_ALLOCATION SEATING QUEUE STAGE THOBE_RETURN LUNCH`. Must equal the dictionary key. |
-| `prerequisites` | tuple of `Prerequisite(activity, missing_message)` | yes (may be `()`) | Activities that must already be **completed** (an Admin "Return Waived" counts as completing Thobe Return). Each must come **earlier** in the journey, and every one is a hard block (§4) — with one shared server there is no other server's stale copy of the data to be lenient about. |
+| `prerequisites` | tuple of `Prerequisite(activity, missing_message)` | yes (may be `()`) | Activities that must already be **completed** (an Admin "Return Waived" counts as completing Robe Return). Each must come **earlier** in the journey, and every one is a hard block (§4) — with one shared server there is no other server's stale copy of the data to be lenient about. |
 | `display_fields` | tuple of names | yes | Extra lines on the operator's card, in order. Photo and name are **always** shown. Choose only from the table below. |
-| `confirm_label` | str | yes | Text on the big confirm button. UPPERCASE, e.g. `"CONFIRM THOBE GIVEN"`. |
+| `confirm_label` | str | yes | Text on the big confirm button. UPPERCASE, e.g. `"CONFIRM ROBE GIVEN"`. |
 | `duplicate_message` | str template | yes | Shown when the student already completed this activity. Placeholders below. |
 | `record_fields` | tuple | no | Student values copied into the event's `details` when confirming. Allowed: `seat_no`, `sequence_no`. Needed if `duplicate_message` uses `{seat_no}`. |
 | `effects` | tuple of names | no | Extra work inside the confirm transaction. Only `enqueue` exists (Queue). |
@@ -71,20 +71,20 @@ Every entry is an `ActivityConfig(...)`. Startup **fails** with a `RegistryError
 | `seat_no` | University-assigned seat (read-only; the operator never chooses it) |
 | `queue_position` | Position held, or the position they will get on confirm |
 | `thobe_issued` | "Yes — issued 11:21 AM" / "Not on record yet" |
-| `eligibility` | Thobe returned / waived / pending (for Lunch) |
+| `eligibility` | Robe returned / waived / pending (for Lunch) |
 
 **`duplicate_message` placeholders — the only allowed ones**
 
 `{time}` earlier completion time (`11:21 AM`, event clock) · `{seat_no}` · `{queue_position}` (both read from the earlier event's `details`).
 Any other `{name}` stops startup.
 
-**Message rules (`missing_message`, `duplicate_message`, `confirm_label`)** — one line, ≤ 120 characters, no line breaks, no technical words (error, exception, SQL, id, code…). Follow the SYSTEM_SPEC §14 style: an UPPERCASE phrase, an em dash `—`, the reason. Examples: `SEATING NOT AVAILABLE — THOBE NOT RECEIVED`, `THOBE ALREADY ALLOCATED — {time}`.
+**Message rules (`missing_message`, `duplicate_message`, `confirm_label`)** — one line, ≤ 120 characters, no line breaks, no technical words (error, exception, SQL, id, code…). Follow the SYSTEM_SPEC §14 style: an UPPERCASE phrase, an em dash `—`, the reason. Examples: `SEATING NOT AVAILABLE — ROBE NOT RECEIVED`, `ROBE ALREADY ALLOCATED — {time}`.
 
 ---
 
 ## 4. Prerequisites: how to decide them
 
-1. Read SYSTEM_SPEC §5 (status chain) and §14 (messages). The chain is linear: each step needs the one before it. A step may have **more than one** prerequisite when §14 names a separate reason (Thobe Return needs Stage **and** Thobe Allocation — "NO THOBE WAS ISSUED").
+1. Read SYSTEM_SPEC §5 (status chain) and §14 (messages). The chain is linear: each step needs the one before it. A step may have **more than one** prerequisite when §14 names a separate reason (Robe Return needs Stage **and** Robe Allocation — "NO ROBE WAS ISSUED").
 2. List them as `Prerequisite(<earlier activity>, "<message shown when it is missing>")`.
 3. Every prerequisite is a **hard block**: missing → `REJECTED` with your `missing_message`, always (docs/ARCHITECTURE_PIVOT.md removed the old cross-venue freshness rule — one shared server means the data is always local and current).
 4. Only list **direct** predecessors. Do not list the whole chain.
@@ -98,12 +98,12 @@ All seven are already in `activities.py` (the engine's own test-suite needs all 
 | Activity (phase) | Prerequisites → message when missing | Card fields | Confirm label | Already-done message | Extras in config | Not covered by the engine (ask / build separately) |
 |---|---|---|---|---|---|---|
 | **REGISTRATION** (7) | none | prn, programme, school, sequence_no | CONFIRM REGISTRATION | `ALREADY REGISTERED — {time}` | flag rule `late_registration` | setting the cutoff |
-| **THOBE_ALLOCATION** (8) | REGISTRATION → `THOBE NOT AVAILABLE — REGISTRATION PENDING` | prn, programme, school | CONFIRM THOBE GIVEN | `THOBE ALREADY ALLOCATED — {time}` | — | — |
-| **SEATING** (9) | THOBE_ALLOCATION → `SEATING NOT AVAILABLE — THOBE NOT RECEIVED` | prn, seat_no | CONFIRM SEATING | `SEATING ALREADY COMPLETED — SEAT {seat_no} — {time}` | record `seat_no` | — |
+| **THOBE_ALLOCATION** (8) | REGISTRATION → `ROBE NOT AVAILABLE — REGISTRATION PENDING` | prn, programme, school | CONFIRM ROBE GIVEN | `ROBE ALREADY ALLOCATED — {time}` | — | — |
+| **SEATING** (9) | THOBE_ALLOCATION → `SEATING NOT AVAILABLE — ROBE NOT RECEIVED` | prn, seat_no | CONFIRM SEATING | `SEATING ALREADY COMPLETED — SEAT {seat_no} — {time}` | record `seat_no` | — |
 | **QUEUE** (10) | SEATING → `QUEUE NOT AVAILABLE — SEATING PENDING` | sequence_no, queue_position | CONFIRM QUEUE | `ALREADY IN QUEUE — POSITION {queue_position} — {time}` | effect `enqueue` | queue-depth indicator; out-of-sequence report |
 | **STAGE** (11) | QUEUE → `STAGE NOT AVAILABLE — QUEUE PENDING` | programme, school | COMPLETE | `DEGREE ALREADY RECEIVED — {time}` | — | *Built in Phase 11* (`backend/stage/`): the Stage Controller and public LED. It records COMPLETE through `service.confirm_in_transaction` and SKIP through `service.record_skip`; never write Stage events by hand. |
-| **THOBE_RETURN** (12) | STAGE → `THOBE RETURN NOT AVAILABLE — STAGE PENDING`; THOBE_ALLOCATION → `THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED` | prn, thobe_issued | CONFIRM RETURN | `ALREADY RETURNED — {time}` | — | Admin "Return Waived / Lost" action (Phase 12/13) |
-| **LUNCH** (12) | THOBE_RETURN → `LUNCH NOT AVAILABLE — THOBE RETURN PENDING` (an Admin waiver counts) | prn, eligibility | CONFIRM LUNCH | `LUNCH ALREADY CLAIMED — {time}` | — | — |
+| **THOBE_RETURN** (12) | STAGE → `ROBE RETURN NOT AVAILABLE — STAGE PENDING`; THOBE_ALLOCATION → `ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED` | prn, thobe_issued | CONFIRM RETURN | `ALREADY RETURNED — {time}` | — | Admin "Return Waived / Lost" action (Phase 12/13) |
+| **LUNCH** (12) | THOBE_RETURN → `LUNCH NOT AVAILABLE — ROBE RETURN PENDING` (an Admin waiver counts) | prn, eligibility | CONFIRM LUNCH | `LUNCH ALREADY CLAIMED — {time}` | — | — |
 
 ---
 
@@ -112,16 +112,16 @@ All seven are already in `activities.py` (the engine's own test-suite needs all 
 Pretend the entry did not exist. This is exactly how it is derived, so you can do the same for any activity.
 
 **Step 1 — read the spec.**
-* §2/§3: Thobe Return is step 6; the operator "sees student + confirmation that a thobe was issued" and confirms the return; data recorded: time, operator.
-* §5: after Stage → `THOBE NOT RETURNED`; after Return → `LUNCH ELIGIBLE`.
-* §14: "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED" when no thobe was issued; already done → "ALREADY RETURNED — time" (TODO Phase 12).
+* §2/§3: Robe Return is step 6; the operator "sees student + confirmation that a robe was issued" and confirms the return; data recorded: time, operator.
+* §5: after Stage → `ROBE NOT RETURNED`; after Return → `LUNCH ELIGIBLE`.
+* §14: "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED" when no robe was issued; already done → "ALREADY RETURNED — time" (TODO Phase 12).
 
 **Step 2 — fill in the checklist.**
 
 | Question | Answer | Source |
 |---|---|---|
-| Direct predecessors | `STAGE` (degree received) and `THOBE_ALLOCATION` (a thobe was issued) | §5, §14 |
-| Card fields | `prn`, `thobe_issued` (the "confirmation a thobe was issued") | §3 |
+| Direct predecessors | `STAGE` (degree received) and `THOBE_ALLOCATION` (a robe was issued) | §5, §14 |
+| Card fields | `prn`, `thobe_issued` (the "confirmation a robe was issued") | §3 |
 | Confirm label | `CONFIRM RETURN` | TODO Phase 12 |
 | Duplicate message | `ALREADY RETURNED — {time}` | TODO Phase 12 |
 | Effects / flags / recorded fields | none | §3 records only time and operator |
@@ -132,8 +132,8 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 "THOBE_RETURN": ActivityConfig(
     activity="THOBE_RETURN",
     prerequisites=(
-        Prerequisite("STAGE", "THOBE RETURN NOT AVAILABLE — STAGE PENDING"),
-        Prerequisite("THOBE_ALLOCATION", "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED"),
+        Prerequisite("STAGE", "ROBE RETURN NOT AVAILABLE — STAGE PENDING"),
+        Prerequisite("THOBE_ALLOCATION", "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED"),
     ),
     display_fields=("prn", "thobe_issued"),
     confirm_label="CONFIRM RETURN",

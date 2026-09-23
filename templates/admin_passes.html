@@ -5,7 +5,7 @@
 <h1>Passes and QR</h1>
 
 <div class="card">
-  <form method="post" action="/admin/passes/generate">
+  <form method="post" action="/admin/passes/generate" data-busy="Generating…">
     <p class="muted">Creates a QR only for students who do not have one yet. Existing QR codes are never changed, so it is safe to press again after importing more students.</p>
     <button class="big" type="submit">Generate missing tokens</button>
   </form>
@@ -14,7 +14,8 @@
 <h2>Passes List</h2>
 
 <div class="card">
-  <a href="/admin/passes/download_all" class="button">Download all passes (PDF)</a>
+  <a href="/admin/passes/download_all" class="button" data-download data-busy="Preparing all passes…">Download all passes (PDF)</a>
+  <p class="muted">A large list makes a large PDF: this can take a minute or two.</p>
 </div>
 
 <table class="spaced">
@@ -26,7 +27,7 @@
       <td>{% if s.token %}Yes{% else %}No{% endif %}</td>
       <td>
         {% if s.token %}
-        <a href="/admin/passes/download/{{ s.id }}" class="button small">Download pass</a>
+        <a href="/admin/passes/download/{{ s.id }}" class="button small" data-download>Download pass</a>
         {% endif %}
       </td>
   </tr>

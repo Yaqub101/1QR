@@ -8,7 +8,7 @@
 
 ## Steps
 
-1. **Tell every desk to carry on on paper.** Write the student's name and the time on the printed list. Take thobes back and serve lunch as normal. Everything is typed in later. Students can keep moving; every screen is only a record.
+1. **Tell every desk to carry on on paper.** Write the student's name and the time on the printed list. Take robes back and serve lunch as normal. Everything is typed in later. Students can keep moving; every screen is only a record.
 2. **Switch the old server OFF.** Hold its power button until the light goes out, then unplug its network cable. Do not skip this: if the old server is still running, two servers would each keep half the record.
 3. **Go to the STANDBY laptop.** Open the shortcut called **Failover** (a black window opens).
 4. **Type this and press Enter:** `./scripts/failover.sh`
@@ -17,7 +17,7 @@
 7. **Point the name at the new server.** If the router is set up for it, this is automatic. If not, do what step 4 of the window tells you (it prints the exact instruction).
 8. **Every screen comes back on its own** in about a minute. If a screen shows the sign-in page, sign in again.
 9. **The big screen (LED)** shows the university holding screen for a moment, then carries on. The Stage operator presses **TAKE OVER** if the screen says another laptop is running the stage.
-10. **Type in the paper entries** from the printed list, using the PRN search on the relevant screen. A student whose thobe was not returned goes to the Admin ("Return Waived / Lost").
+10. **Type in the paper entries** from the printed list, using the PRN search on the relevant screen. A student whose robe was not returned goes to the Admin ("Return Waived / Lost").
 11. **Do not switch the old server back on** until the IT lead has looked at it. It must be wiped and set up again as the new standby.
 
 ## If it does not work

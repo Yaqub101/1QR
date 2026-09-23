@@ -25,16 +25,16 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
     ),
     "THOBE_ALLOCATION": ActivityConfig(
         activity="THOBE_ALLOCATION",
-        prerequisites=(Prerequisite("REGISTRATION", "THOBE NOT AVAILABLE — REGISTRATION PENDING"),),
+        prerequisites=(Prerequisite("REGISTRATION", "ROBE NOT AVAILABLE — REGISTRATION PENDING"),),
         display_fields=("prn", "programme", "school"),
-        confirm_label="CONFIRM THOBE GIVEN",
-        duplicate_message="THOBE ALREADY ALLOCATED — {time}",
+        confirm_label="CONFIRM ROBE GIVEN",
+        duplicate_message="ROBE ALREADY ALLOCATED — {time}",
     ),
     "SEATING": ActivityConfig(
         activity="SEATING",
-        prerequisites=(Prerequisite("THOBE_ALLOCATION", "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"),),
+        prerequisites=(Prerequisite("THOBE_ALLOCATION", "SEATING NOT AVAILABLE — ROBE NOT RECEIVED"),),
         # The university's data has no Seat Number column, so there is no seat to show and none to
-        # record: Seating is a plain "this student is seated" checkpoint, like Thobe Allocation.
+        # record: Seating is a plain "this student is seated" checkpoint, like Robe Allocation.
         display_fields=("prn", "programme", "school"),
         confirm_label="CONFIRM SEATED",
         duplicate_message="SEATING ALREADY CONFIRMED — {time}",
@@ -58,8 +58,8 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
     "THOBE_RETURN": ActivityConfig(
         activity="THOBE_RETURN",
         prerequisites=(
-            Prerequisite("STAGE", "THOBE RETURN NOT AVAILABLE — STAGE PENDING"),
-            Prerequisite("THOBE_ALLOCATION", "THOBE RETURN NOT AVAILABLE — NO THOBE WAS ISSUED"),
+            Prerequisite("STAGE", "ROBE RETURN NOT AVAILABLE — STAGE PENDING"),
+            Prerequisite("THOBE_ALLOCATION", "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED"),
         ),
         display_fields=("prn", "thobe_issued"),
         confirm_label="CONFIRM RETURN",
@@ -68,7 +68,7 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
     "LUNCH": ActivityConfig(
         activity="LUNCH",
         # An Admin "Return Waived / Lost" counts as the return.
-        prerequisites=(Prerequisite("THOBE_RETURN", "LUNCH NOT AVAILABLE — THOBE RETURN PENDING"),),
+        prerequisites=(Prerequisite("THOBE_RETURN", "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"),),
         display_fields=("prn", "eligibility"),
         confirm_label="CONFIRM LUNCH",
         duplicate_message="LUNCH ALREADY CLAIMED — {time}",

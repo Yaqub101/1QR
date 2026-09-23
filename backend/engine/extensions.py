@@ -57,10 +57,10 @@ def _thobe_issued(conn, student, ctx):
 def _eligibility(conn, student, ctx):
     returned = active_completion(conn, student["id"], "THOBE_RETURN")
     if returned is None:
-        return "Thobe return pending"
+        return "Robe return pending"
     if returned["kind"] == "WAIVER":
         return "Return waived by Admin"
-    return f"Thobe returned {clock_text(returned['server_time'], ctx.settings.event_utc_offset_minutes)}"
+    return f"Robe returned {clock_text(returned['server_time'], ctx.settings.event_utc_offset_minutes)}"
 
 
 DISPLAY_FIELDS: dict[str, DisplayField] = {
@@ -68,7 +68,7 @@ DISPLAY_FIELDS: dict[str, DisplayField] = {
     "programme": DisplayField("Programme", _programme),
     "school": DisplayField("School", _school),
     "queue_position": DisplayField("Queue position", _queue_position),
-    "thobe_issued": DisplayField("Thobe issued", _thobe_issued),
+    "thobe_issued": DisplayField("Robe issued", _thobe_issued),
     "eligibility": DisplayField("Eligibility", _eligibility),
 }
 

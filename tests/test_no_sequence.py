@@ -4,7 +4,7 @@ WHAT IS UNDER TEST
   * `students.sequence_no` is nullable and NOT unique: the column survives for the day the
     university supplies numbers, but nothing may require, assume or collide on it.
   * `students.seat_no` is nullable and unused: Seating is a plain "this student is seated"
-    confirmation, exactly like Thobe Allocation.
+    confirmation, exactly like Robe Allocation.
   * No code path orders by, displays or validates against either column. The order the ceremony
     actually runs on is the queue confirmation order, which was already built.
   * The printable pass prints a sequence line only when there is a number to print.
@@ -174,8 +174,8 @@ class TestStationScreens:
         assert all(cfg.record_fields == () for cfg in ACTIVITY_CONFIGS.values())
 
     def test_seating_asks_for_the_same_things_as_thobe_allocation(self):
-        seating, thobe = ACTIVITY_CONFIGS["SEATING"], ACTIVITY_CONFIGS["THOBE_ALLOCATION"]
-        assert seating.display_fields == thobe.display_fields
+        seating, robe = ACTIVITY_CONFIGS["SEATING"], ACTIVITY_CONFIGS["THOBE_ALLOCATION"]
+        assert seating.display_fields == robe.display_fields
         assert "{seat_no}" not in seating.duplicate_message
 
     def test_a_seated_student_is_confirmed_with_no_seat_anywhere_on_the_card_or_the_event(self, apps, world, engine):

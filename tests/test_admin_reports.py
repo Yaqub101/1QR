@@ -231,8 +231,8 @@ class TestAttendanceAndJourneyReports:
         expected = {p.prn for p in data.all if "REGISTRATION" in p.active and "LUNCH" not in p.active}
         assert {r["prn"] for r in body["rows"]} == expected and body["totals"]["incomplete"] == len(expected) == 15
         by = {r["prn"]: r for r in body["rows"]}
-        assert by[data.people["C3"].prn]["not_yet_done"].startswith("Thobe Allocation, Seating, Queue, Stage")
-        assert by[data.people["L"].prn]["journey_status"] == "Thobe not returned"  # stage done, return reversed
+        assert by[data.people["C3"].prn]["not_yet_done"].startswith("Robe Allocation, Seating, Queue, Stage")
+        assert by[data.people["L"].prn]["journey_status"] == "Robe not returned"  # stage done, return reversed
         assert data.people["K1"].prn not in by and data.people["A1"].prn not in by and data.people["B"].prn not in by
 
     def test_stage_completed_and_skipped_with_reasons(self, apps, data):
@@ -244,17 +244,17 @@ class TestAttendanceAndJourneyReports:
 
 class TestThobeReports:
     def test_outstanding_thobes_list(self, apps, data):
-        body = report(apps, "outstanding-thobes")
+        body = report(apps, "outstanding-robes")
         expected = {p.prn for p in data.all if "THOBE_ALLOCATION" in p.active and "THOBE_RETURN" not in p.active}
         assert {r["prn"] for r in body["rows"]} == expected and body["totals"]["outstanding"] == 10
 
     def test_waived_or_lost_list(self, apps, data):
-        body = report(apps, "waived-thobes")
-        assert [r["prn"] for r in body["rows"]] == [data.people["J"].prn] and body["rows"][0]["reason"] == "lost thobe"
+        body = report(apps, "waived-robes")
+        assert [r["prn"] for r in body["rows"]] == [data.people["J"].prn] and body["rows"][0]["reason"] == "lost robe"
         assert body["totals"] == {"waived": 1}
 
     def test_thobe_stock_check(self, apps):
-        t = report(apps, "thobe-count")["totals"]
+        t = report(apps, "robe-count")["totals"]
         assert t == {"issued": 14, "returned": 3, "waived": 1, "outstanding": 10}  # 14 out; 3 back; 1 written off; 10 still out
         assert t["issued"] == t["returned"] + t["waived"] + t["outstanding"]
 
@@ -321,7 +321,7 @@ class TestExports:
         assert len(parsed) == 4
 
     def test_csv_and_json_report_the_same_rows(self, apps):
-        for key in ("school-summary", "activity-lunch", "waived-thobes"):
+        for key in ("school-summary", "activity-lunch", "waived-robes"):
             _, parsed = parse_csv(export(apps, key).content)
             assert len(parsed) == len(report(apps, key)["rows"]), key
 
@@ -346,7 +346,7 @@ class TestExports:
     def test_every_report_in_the_catalogue_runs_and_exports_in_both_formats(self, apps, data):
         catalogue = get(apps, "hall", "/admin/api/reports").json()["reports"]
         keys = {c["key"] for c in catalogue}
-        assert {"not-attended", "incomplete-journey", "outstanding-thobes", "waived-thobes", "thobe-count", "late-registrations",
+        assert {"not-attended", "incomplete-journey", "outstanding-robes", "waived-robes", "robe-count", "late-registrations",
                 "provisional", "manual", "corrections", "exceptions", "school-summary", "programme-summary", "stage-outcomes",
                 "audit", "student-history"} <= keys
         assert {slug(a) for a in ORDER} <= keys
@@ -360,8 +360,8 @@ class TestExports:
 
     def test_student_history_export_is_that_students_full_journey(self, apps, data):
         _, parsed = parse_csv(export(apps, "student-history", student_id=str(data.people["L"].s.id)).content)
-        assert [r["Activity"] for r in parsed].count("Thobe Return") == 2  # the return and its reversal are both kept
-        assert {r["State"] for r in parsed if r["Activity"] == "Thobe Return"} == {"REVERSED", "CORRECTION"}
+        assert [r["Activity"] for r in parsed].count("Robe Return") == 2  # the return and its reversal are both kept
+        assert {r["State"] for r in parsed if r["Activity"] == "Robe Return"} == {"REVERSED", "CORRECTION"}
 
     def test_an_export_leaves_an_audit_row_naming_who_and_what(self, apps, engine, world):
         before = scalar(engine, "SELECT count(*) FROM audit_log WHERE action = 'EXPORT'")

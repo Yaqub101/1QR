@@ -7,7 +7,9 @@
 before anything is written, and you can run the same file again later when the rest of the list arrives:
 students already on the list are left exactly as they are.</p>
 
-<form method="post" action="/admin/import/upload" enctype="multipart/form-data" class="card narrow">
+<form method="post" action="/admin/import/upload" enctype="multipart/form-data" class="card narrow"
+      data-busy="Uploading and checking…"
+      data-busy-note="Uploading the file. With a photo ZIP this may take several minutes. Please keep this page open.">
   <label>Student list <input type="file" name="file" accept=".csv,.xlsx,.xls" required></label>
   <label>Photo ZIP <small class="muted">(optional)</small>
     <input type="file" name="photos_zip" accept=".zip,application/zip"></label>

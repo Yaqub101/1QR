@@ -21,11 +21,11 @@ ACTIVITIES = (
 
 ACTIVITY_LABEL = {
     "REGISTRATION": "Registration",
-    "THOBE_ALLOCATION": "Thobe Allocation",
+    "THOBE_ALLOCATION": "Robe Allocation",
     "SEATING": "Seating",
     "QUEUE": "Queue",
     "STAGE": "Stage",
-    "THOBE_RETURN": "Thobe Return",
+    "THOBE_RETURN": "Robe Return",
     "LUNCH": "Lunch",
 }
 

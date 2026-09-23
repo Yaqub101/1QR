@@ -55,7 +55,7 @@ def reverse(apps, venue, event_id, reason="entered for the wrong student", clien
     return (client or admin(apps, venue)).post("/admin/api/corrections/reverse", json=body)
 
 
-def waive(apps, venue, student, reason="thobe lost on the way", client=None):
+def waive(apps, venue, student, reason="robe lost on the way", client=None):
     body = {"student_id": str(student.id if hasattr(student, "id") else student)}
     if reason is not None:
         body["reason"] = reason
@@ -113,7 +113,7 @@ class TestReversalNeverMutatesHistory:
     def test_the_derived_status_changes_because_a_row_was_added_not_because_one_was_edited(self, apps, engine):
         s, ids = journey_upto(engine, "THOBE_RETURN")               # Registration .. Stage done
         status = lambda: scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id)  # noqa: E731
-        assert status() == "THOBE NOT RETURNED"
+        assert status() == "ROBE NOT RETURNED"
         assert reverse(apps, "stadium", ids["STAGE"], "pressed COMPLETE by accident").status_code == 200
         assert status() == "DEGREE NOT RECEIVED"                    # status went BACK
         assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s", s=s.id) == 6  # 5 originals + 1 reversal
@@ -309,28 +309,28 @@ class TestReturnWaived:
     def make(self, engine):
         s = make_student(engine)
         from tests.test_station_engine import seed_events
-        seed_events(engine, s, ACTIVITIES[:5])                 # through Stage; never returned the thobe
+        seed_events(engine, s, ACTIVITIES[:5])                 # through Stage; never returned the robe
         return s
 
     def test_the_waiver_unlocks_lunch_is_flagged_and_fully_audited(self, apps, engine, world):
         s = self.make(engine)
         blocked = lunch_scan(apps, world, s)
-        assert blocked["result"] == "REJECTED" and blocked["message"] == "LUNCH NOT AVAILABLE — THOBE RETURN PENDING"
+        assert blocked["result"] == "REJECTED" and blocked["message"] == "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"
         allocation = scalar(engine, "SELECT event_id FROM activity_events WHERE student_id = :s AND activity = 'THOBE_ALLOCATION'", s=s.id)
         before = counts(engine)
 
-        r = waive(apps, "hall", s, "student reports the thobe was lost")
+        r = waive(apps, "hall", s, "student reports the robe was lost")
         assert r.status_code == 200, r.text
         assert r.json()["kind"] == "WAIVER" and r.json()["thobe_allocation_on_record"] is True
 
         event = rows(engine, "SELECT * FROM activity_events WHERE event_id = :e", e=r.json()["correction_event_id"])[0]
         assert event["kind"] == "WAIVER" and event["activity"] == "THOBE_RETURN"
         assert "CORRECTED" in event["flags"] and event["operator_id"] == world.admin_id
-        assert event["details"]["reason"] == "student reports the thobe was lost" and event["completion_cycle"] == 1
+        assert event["details"]["reason"] == "student reports the robe was lost" and event["completion_cycle"] == 1
         assert scalar(engine, "SELECT count(*) FROM activity_events") == before["activity_events"] + 1   # one new row, nothing else
         audit = rows(engine, "SELECT * FROM audit_log WHERE event_id = :e", e=event["event_id"])[0]
         assert audit["action"] == "RETURN_WAIVED" and audit["corrected_by"] == world.admin_id and "CORRECTED" in audit["flags"]
-        assert audit["reason"] == "student reports the thobe was lost" and audit["corrects_event_id"] == allocation  # links to the thobe written off
+        assert audit["reason"] == "student reports the robe was lost" and audit["corrects_event_id"] == allocation  # links to the robe written off
         ex = rows(engine, "SELECT * FROM exceptions WHERE event_id = :e", e=event["event_id"])[0]
         assert ex["type"] == "RETURN_WAIVED" and ex["status"] == "OPEN" and ex["student_id"] == s.id
 
@@ -341,8 +341,8 @@ class TestReturnWaived:
 
     def test_it_shows_in_the_waived_list_and_leaves_the_outstanding_list(self, apps, engine):
         s = self.make(engine)
-        outstanding = lambda: {r["prn"] for r in admin(apps, "hall").get("/admin/api/reports/outstanding-thobes").json()["rows"]}  # noqa: E731
-        waived = lambda: {r["prn"]: r for r in admin(apps, "hall").get("/admin/api/reports/waived-thobes").json()["rows"]}  # noqa: E731
+        outstanding = lambda: {r["prn"] for r in admin(apps, "hall").get("/admin/api/reports/outstanding-robes").json()["rows"]}  # noqa: E731
+        waived = lambda: {r["prn"]: r for r in admin(apps, "hall").get("/admin/api/reports/waived-robes").json()["rows"]}  # noqa: E731
         assert s.prn in outstanding() and s.prn not in waived()
         assert waive(apps, "hall", s, "lost in transit").status_code == 200
         assert s.prn not in outstanding() and waived()[s.prn]["reason"] == "lost in transit"
@@ -414,7 +414,7 @@ class TestReturnWaived:
 
     def test_a_waiver_without_an_allocation_on_record_is_allowed_but_says_so(self, apps, engine):
         s = add_student(engine, school="School of Law")
-        r = waive(apps, "hall", s, "student insists a thobe was issued at the Stadium")
+        r = waive(apps, "hall", s, "student insists a robe was issued at the Stadium")
         assert r.status_code == 200 and r.json()["thobe_allocation_on_record"] is False
         assert scalar(engine, "SELECT corrects_event_id FROM audit_log WHERE event_id = :e", e=r.json()["correction_event_id"]) is None
 

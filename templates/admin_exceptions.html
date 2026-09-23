@@ -5,7 +5,7 @@
 <h1>Exceptions</h1>
 <p>
   <a href="/admin/exceptions?status=OPEN">Open</a> &middot; <a href="/admin/exceptions?status=RESOLVED">Resolved</a> &middot;
-  <a href="/admin/exceptions?status=ALL">All</a> &middot; <a href="/admin/api/reports/exceptions/export?format=csv">Download CSV</a>
+  <a href="/admin/exceptions?status=ALL">All</a> &middot; <a href="/admin/api/reports/exceptions/export?format=csv" data-download>Download CSV</a>
 </p>
 <table>
   <tr><th>Raised</th><th>Type</th><th>Student</th><th>Detail</th><th>Status</th></tr>
@@ -16,7 +16,7 @@
     <td>{{ x.reason or "" }}</td>
     <td>
       {% if x.status == "OPEN" %}
-      <form method="post" action="/admin/exceptions/{{ x.id }}/resolve" class="inline">
+      <form method="post" action="/admin/exceptions/{{ x.id }}/resolve" class="inline" data-busy="Saving…">
         <input name="note" placeholder="How was it dealt with? (required)" required>
         <button type="submit">Resolve</button>
       </form>

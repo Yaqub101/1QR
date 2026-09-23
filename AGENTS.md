@@ -2,7 +2,7 @@
 
 ## What this is
 A hybrid offline-first convocation system. One student = one QR = seven activities
-(Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch) across
+(Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) across
 three locations (College, Stadium, Hall) with a central server. Full behaviour is in
 docs/SYSTEM_SPEC.md. Build order is in docs/TODO.md.
 
@@ -14,8 +14,8 @@ small vanilla JS, Server-Sent Events, pytest, Docker Compose. No Firebase.
 1. ONE QR per student. The QR holds only an opaque random token. No personal data.
 2. The station decides the activity. Operators never choose it.
 3. Duplicate prevention is PER ACTIVITY. Enforce it with a database unique constraint.
-4. Each activity has exactly one owning venue (College: Registration; Stadium: Thobe
-   Allocation, Seating, Queue, Stage; Hall: Thobe Return, Lunch). Reject other writes.
+4. Each activity has exactly one owning venue (College: Registration; Stadium: Robe
+   Allocation, Seating, Queue, Stage; Hall: Robe Return, Lunch). Reject other writes.
 5. Events are append-only. Corrections are new events with a reason. Never delete/update history.
 6. Save the event and its outbox row in ONE transaction. Show success only after commit.
 7. Every station works with the internet unplugged. The internet is only for sync.

@@ -9,7 +9,7 @@
   PRN, name, programme and school are needed; everything else is optional — the university's list has no
   convocation sequence number and no seat number, and neither is required.</p>
 
-<form method="post" action="/admin/import/{{ batch.batch_id }}/columns">
+<form method="post" action="/admin/import/{{ batch.batch_id }}/columns" data-busy="Checking…">
   <table class="spaced">
     <tr><th>Column in the file</th><th>Is this</th><th>First values</th></tr>
     {% for index, column in columns %}

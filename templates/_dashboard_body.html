@@ -29,7 +29,7 @@
     {% if d.stage.next %}&middot; next: {% for n in d.stage.next %}{{ n.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>
 </div>
 
-<h2>Outstanding thobes: <span id="n-outstanding">{{ d.outstanding_thobes.count }}</span></h2>
+<h2>Outstanding robes: <span id="n-outstanding">{{ d.outstanding_thobes.count }}</span></h2>
 {% if d.outstanding_thobes.students %}
 <table>
   <tr><th>Name</th><th>PRN</th><th>School</th><th>Allocated</th><th>Stage done</th></tr>
@@ -39,7 +39,7 @@
   {% endfor %}
 </table>
 {% if d.outstanding_thobes.count > d.outstanding_thobes.students|length %}
-<p class="muted">Showing the first {{ d.outstanding_thobes.students|length }}. <a href="/admin/reports/outstanding-thobes">Full list</a></p>{% endif %}
+<p class="muted">Showing the first {{ d.outstanding_thobes.students|length }}. <a href="/admin/reports/outstanding-robes">Full list</a></p>{% endif %}
 {% endif %}
 
 <h2>Needs attention</h2>

@@ -53,16 +53,16 @@ This is a **walk-through with checks**, read out by a Director, watched by Obser
 
 ### The cast (the Director fills in the PRN of each; the state means "which steps this student has ALREADY done before the scenario starts")
 
-**Step count.** Steps in order: 1 Registration, 2 Thobe Allocation, 3 Seating, 4 Queue, 5 Stage, 6 Thobe Return, 7 Lunch. **State N** = the first N steps are done and nothing else.
+**Step count.** Steps in order: 1 Registration, 2 Robe Allocation, 3 Seating, 4 Queue, 5 Stage, 6 Robe Return, 7 Lunch. **State N** = the first N steps are done and nothing else.
 
 | Label | PRN | Start state | Used in |
 |---|---|---|---|
 | **S1** | | 0 (nothing) | Scenarios 1 and 2 |
-| **F1** | | 2 (registered, thobe given) | Scenario 2 |
+| **F1** | | 2 (registered, robe given) | Scenario 2 |
 | **S2** | | 1 (registered only) | Scenario 3 |
 | **S3** | | 0 (never registered) | Scenario 3 |
 | **S4** | | 2 | Scenario 3 |
-| **S5** | | 5 (through Stage; thobe **not** returned) | Scenarios 3 and 8 |
+| **S5** | | 5 (through Stage; robe **not** returned) | Scenarios 3 and 8 |
 | **S7** | | 0 | Scenario 4 (damaged QR, PRN search) |
 | **S8** | | 0, and **INACTIVE** | Scenario 4 |
 | **S9, S10** | | 0 | Scenario 5 |
@@ -78,11 +78,11 @@ The Director gets the states ready by having the operators scan the dummy studen
 | State | The Status line shows |
 |---|---|
 | 0 | `REGISTERED / NOT REPORTED` |
-| 1 | `REPORTED / THOBE NOT RECEIVED` |
+| 1 | `REPORTED / ROBE NOT RECEIVED` |
 | 2 | `NOT SEATED` |
 | 3 | `NOT QUEUED` |
 | 4 | `DEGREE NOT RECEIVED` |
-| 5 | `THOBE NOT RETURNED` |
+| 5 | `ROBE NOT RETURNED` |
 | 6 | `LUNCH ELIGIBLE` |
 | 7 | `EXITED` |
 
@@ -97,11 +97,11 @@ The Director gets the states ready by having the operators scan the dummy studen
 | # | Where | Who | What happens |
 |---|---|---|---|
 | 1 | College, Registration | Operator | Scans S1's pass. Looks at the photo. Presses **CONFIRM REGISTRATION**. |
-| 2 | Stadium, Thobe Allocation | Operator | Scans. Hands over one thobe. Presses **CONFIRM THOBE GIVEN**. |
+| 2 | Stadium, Robe Allocation | Operator | Scans. Hands over one robe. Presses **CONFIRM ROBE GIVEN**. |
 | 3 | Stadium, Seating | Operator | Scans. Reads the seat the university assigned. Presses **CONFIRM SEATING**. The operator does **not** choose a seat. |
 | 4 | Stadium, Queue | Operator | Scans. Presses **CONFIRM QUEUE**. |
 | 5 | Stadium, Stage | Stage operator | **DISPLAY NEXT** (S1 is the only one waiting), then after S1 is on the big screen, **COMPLETE**. |
-| 6 | Hall, Thobe Return | Operator | Scans. Receives the thobe. Presses **CONFIRM RETURN**. |
+| 6 | Hall, Robe Return | Operator | Scans. Receives the robe. Presses **CONFIRM RETURN**. |
 | 7 | Hall, Lunch | Operator | Scans. Presses **CONFIRM LUNCH**. |
 
 **You should see, at each desk (steps 1 to 4, 6, 7):**
@@ -119,12 +119,12 @@ The Director gets the states ready by having the operators scan the dummy studen
 
 **Then the Admin opens S1's page ("Find a student") at any place, once all places show 🟢:**
 
-- [ ] The Journey table has **exactly seven rows**, one per activity, in this order: Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch.
+- [ ] The Journey table has **exactly seven rows**, one per activity, in this order: Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch.
 - [ ] Every row says **COMPLETE** in the Record column and **ACTIVE** in the State column. There are no flags, no reasons, no reversals.
 - [ ] The **Station / by** column shows the right station name and the operator's name for each row. (Write the station names here: ________________________)
 - [ ] The times **increase** down the table and match the Observers' wall-clock notes to within a minute.
 - [ ] The **Status** line reads `EXITED`.
-- [ ] At **each step** the Director checked the Status line in between, and it moved along the chain in the state table under Set-up: `REPORTED / THOBE NOT RECEIVED`, `NOT SEATED`, `NOT QUEUED`, `DEGREE NOT RECEIVED`, `THOBE NOT RETURNED`, `LUNCH ELIGIBLE`, `EXITED`.
+- [ ] At **each step** the Director checked the Status line in between, and it moved along the chain in the state table under Set-up: `REPORTED / ROBE NOT RECEIVED`, `NOT SEATED`, `NOT QUEUED`, `DEGREE NOT RECEIVED`, `ROBE NOT RETURNED`, `LUNCH ELIGIBLE`, `EXITED`.
 - [ ] Walk delay observed (College to Stadium, Stadium to Hall): ______ s / ______ s
 
 **PASS** if every box is ticked.
@@ -140,11 +140,11 @@ The Director gets the states ready by having the operators scan the dummy studen
 | # | Where | Operator scans S1's pass again | You should see: **amber** banner reading |
 |---|---|---|---|
 | 1 | College, Registration | again | `ALREADY REGISTERED — <time>` |
-| 2 | Stadium, Thobe Allocation | again | `THOBE ALREADY ALLOCATED — <time>` |
+| 2 | Stadium, Robe Allocation | again | `ROBE ALREADY ALLOCATED — <time>` |
 | 3 | Stadium, Seating | again | `SEATING ALREADY COMPLETED — SEAT <seat> — <time>` |
 | 4 | Stadium, Queue | again | `ALREADY IN QUEUE — POSITION <n> — <time>` |
 | 5 | Stadium, Stage | **no scan at Stage.** With nobody on stage, the Stage operator presses **COMPLETE** | a message `Nobody is on stage.` (not a second record) |
-| 6 | Hall, Thobe Return | again | `ALREADY RETURNED — <time>` |
+| 6 | Hall, Robe Return | again | `ALREADY RETURNED — <time>` |
 | 7 | Hall, Lunch | again | `LUNCH ALREADY CLAIMED — <time>` |
 
 For every row 1 to 4, 6 and 7:
@@ -157,7 +157,7 @@ For every row 1 to 4, 6 and 7:
 
 **Part B, a different activity is never wrongly rejected (F1, state 2):**
 
-- [ ] At Thobe Allocation, scan F1: **amber** `THOBE ALREADY ALLOCATED — <time>`.
+- [ ] At Robe Allocation, scan F1: **amber** `ROBE ALREADY ALLOCATED — <time>`.
 - [ ] Straight after, at Seating, scan F1: the normal **blue** card, then **green** *Done.* after confirming. F1 is now at state 3.
 
 **Part C, the double-read (any fresh student at any desk):**
@@ -175,11 +175,11 @@ The desks must say **no**, in one plain sentence, and record nothing. All places
 | # | Where | Student | What the operator does | You should see: **red** banner reading |
 |---|---|---|---|---|
 | 1 | **College** | | Registration is the first step, so **there is nothing to skip here.** Write "n/a, first step" and go on. | n/a |
-| 2 | **Stadium**, Seating | S2 (registered only) | Scans S2's pass | `SEATING NOT AVAILABLE — THOBE NOT RECEIVED` |
-| 3 | **Stadium**, Queue | S4 (thobe given, not seated) | Scans S4's pass | `QUEUE NOT AVAILABLE — SEATING PENDING` |
-| 4 | **Stadium**, Thobe Allocation | S3 (never registered) | Scans S3's pass | `THOBE NOT AVAILABLE — REGISTRATION PENDING` |
-| 5 | **Hall**, Thobe Return | S4 (no Stage yet) | Scans S4's pass | `THOBE RETURN NOT AVAILABLE — STAGE PENDING` |
-| 6 | **Hall**, Lunch | S5 (thobe not returned) | Scans S5's pass | `LUNCH NOT AVAILABLE — THOBE RETURN PENDING` |
+| 2 | **Stadium**, Seating | S2 (registered only) | Scans S2's pass | `SEATING NOT AVAILABLE — ROBE NOT RECEIVED` |
+| 3 | **Stadium**, Queue | S4 (robe given, not seated) | Scans S4's pass | `QUEUE NOT AVAILABLE — SEATING PENDING` |
+| 4 | **Stadium**, Robe Allocation | S3 (never registered) | Scans S3's pass | `ROBE NOT AVAILABLE — REGISTRATION PENDING` |
+| 5 | **Hall**, Robe Return | S4 (no Stage yet) | Scans S4's pass | `ROBE RETURN NOT AVAILABLE — STAGE PENDING` |
+| 6 | **Hall**, Lunch | S5 (robe not returned) | Scans S5's pass | `LUNCH NOT AVAILABLE — ROBE RETURN PENDING` |
 
 - [ ] Every row 2 to 6: the banner is **red**, the message is **one plain sentence**, and there is **no confirm button**.
 - [ ] Rows 2, 3 and 6 are **same-place** blocks. Rows 4 and 5 are **cross-place** blocks (Registration is done at College, Stage at Stadium).
@@ -210,7 +210,7 @@ SELECT occurred_at, station_id, result, message FROM scan_log WHERE result = 'IN
 The operator says "the QR will not scan". They open **"QR damaged? Search by PRN"**, type S7's PRN and press **Search**.
 
 - [ ] The student's card with **photo** appears with the blue banner *Check the photo, then confirm.* The operator **looks at the person in front of them** and compares the photo. Only then presses confirm.
-- [ ] **Green** *Done.* Do this at **three** desks: Registration (College), Thobe Allocation (Stadium), Seating (Stadium). Write which: ________________
+- [ ] **Green** *Done.* Do this at **three** desks: Registration (College), Robe Allocation (Stadium), Seating (Stadium). Write which: ________________
 - [ ] Once all places show 🟢, the Admin dashboard **Manual entries** number is **3 higher** than before, at each place.
 - [ ] Open the report **Reports and exports, "Manual entries"**: S7 is listed 3 times, one per activity, flagged **MANUAL**. The Journey page for S7 shows **MANUAL** in the Flags column.
 - [ ] **Stage:** the Stage operator uses **SEARCH** on the Stage screen (type a name or PRN of someone waiting in the queue). That is the Stage's own version of the PRN search. Tick when tried in Scenario 7: [ ]
@@ -280,7 +280,7 @@ The operator confirms **Q1 to Q5 in that order, one after another**, with the Ob
 - [ ] The Stage operator presses **COMPLETE**. The big screen returns to the holding screen. Then **DISPLAY NEXT** again: it shows the **second** student confirmed, **not** the student with the smallest sequence number.
 - [ ] The Stage operator does **DISPLAY NEXT** for the second student confirmed, then **COMPLETE**. **Leave the other four (Q3, Q4, Q5, Q6) waiting** for Scenario 7.
 - [ ] The four left waiting are still in the order they were queued.
-- [ ] The two who were completed each have a Stage record on their Journey page and the Status `THOBE NOT RETURNED`.
+- [ ] The two who were completed each have a Stage record on their Journey page and the Status `ROBE NOT RETURNED`.
 
 **PASS** if every box is ticked.
 
@@ -328,24 +328,24 @@ The operator confirms **Q1 to Q5 in that order, one after another**, with the Ob
 
 ---
 
-## Scenario 8: A lost thobe, the Admin waiver, then Lunch
+## Scenario 8: A lost robe, the Admin waiver, then Lunch
 
-**Where:** Hall.  **Student:** S5 (through Stage; says the thobe is lost).  **People:** Thobe Return operator, Lunch operator, Admin.
+**Where:** Hall.  **Student:** S5 (through Stage; says the robe is lost).  **People:** Robe Return operator, Lunch operator, Admin.
 
 1. S5 goes to a **Lunch** desk and the operator scans the pass.
-   - [ ] **Red**: `LUNCH NOT AVAILABLE — THOBE RETURN PENDING`.
-2. S5 goes to a **Thobe Return** desk and says the thobe is lost. The operator **cannot** confirm a return (no thobe was handed back) and **calls the Admin**.
-   - [ ] The Thobe Return screen has **no waive or override button**.
+   - [ ] **Red**: `LUNCH NOT AVAILABLE — ROBE RETURN PENDING`.
+2. S5 goes to a **Robe Return** desk and says the robe is lost. The operator **cannot** confirm a return (no robe was handed back) and **calls the Admin**.
+   - [ ] The Robe Return screen has **no waive or override button**.
    - [ ] If the operator's login is used to open an Admin page (for example `/admin`), it is **refused**. (Try it once.)
-3. The **Admin** signs in **at the Hall server**, opens **Find a student**, opens S5, scrolls to **"Thobe lost or not returned"**, types the reason **lost thobe (rehearsal)** and presses **Return waived / lost**.
+3. The **Admin** signs in **at the Hall server**, opens **Find a student**, opens S5, scrolls to **"Robe lost or not returned"**, types the reason **lost robe (rehearsal)** and presses **Return waived / lost**.
    - [ ] The reason box is required. It cannot be sent empty.
-   - [ ] S5's Journey has a new **Thobe Return** row of the **WAIVER** type, with **CORRECTED** in the Flags column and the reason.
+   - [ ] S5's Journey has a new **Robe Return** row of the **WAIVER** type, with **CORRECTED** in the Flags column and the reason.
    - [ ] (If you also open S5 on the **College** or **Stadium** Admin page, the form says the waiver is made at the Hall server. The Admin cannot make it there.)
 4. S5 goes back to the **Lunch** desk. The operator scans.
    - [ ] The normal **blue** card, then **green** *Done.* after **CONFIRM LUNCH**. S5's Status reads `EXITED`.
 5. **Reports:**
-   - [ ] **"Waived / lost thobes"** lists S5 with the reason.
-   - [ ] **"Outstanding thobes"** (dashboard list and report) does **not** list S5.
+   - [ ] **"Waived / lost robes"** lists S5 with the reason.
+   - [ ] **"Outstanding robes"** (dashboard list and report) does **not** list S5.
    - [ ] **"Exceptions"** shows a **RETURN_WAIVED** item for S5. The Admin resolves it with a note. It then shows as resolved and cannot be reopened.
 
 **PASS** if every box is ticked.
@@ -361,18 +361,18 @@ This is a **full** outage: **unplug both Stadium uplinks** (broadband **and** th
 | # | Time | Who | What happens |
 |---|---|---|---|
 | 1 | 0:00 | Director | Unplugs both Stadium uplinks. |
-| 2 | 0:00 onward | Stadium operators | Keep working as normal: confirm a few more Thobe Allocations, Seatings, Queues for other dummy students. |
+| 2 | 0:00 onward | Stadium operators | Keep working as normal: confirm a few more Robe Allocations, Seatings, Queues for other dummy students. |
 | 3 | within 1:00 | College operator | Registers **O1**. |
-| 4 | within 1:30 | Stadium operator | Tries **Thobe Allocation for O1**. |
-| 5 | after 3:00 | Stadium operator | Tries **Thobe Allocation for O1 again**. |
+| 4 | within 1:30 | Stadium operator | Tries **Robe Allocation for O1**. |
+| 5 | after 3:00 | Stadium operator | Tries **Robe Allocation for O1 again**. |
 | 6 | after 3:00 | Stadium operator, Stage operator | **Queue** and **Stage** for **O2**: scan at Queue, **DISPLAY NEXT**, **COMPLETE**. |
-| 7 | after 3:00 | Hall operator | Tries **Thobe Return for O2** (O2 walks to the Hall). |
+| 7 | after 3:00 | Hall operator | Tries **Robe Return for O2** (O2 walks to the Hall). |
 | 8 | when told | Director | Plugs **both** uplinks back in. Restarts the stopwatch. |
 
 **You should see while the Stadium is offline:**
 
 - [ ] **Step 2:** the Stadium operators see **nothing different**. No error, no "one moment". They are never asked to do anything (offline is not stopped).
-- [ ] **Step 4 (inside the first minute or two):** **red** `THOBE NOT AVAILABLE — REGISTRATION PENDING`. The Stadium's information about the College is still recent, so the software says the student truly has not registered.
+- [ ] **Step 4 (inside the first minute or two):** **red** `ROBE NOT AVAILABLE — REGISTRATION PENDING`. The Stadium's information about the College is still recent, so the software says the student truly has not registered.
 - [ ] **After about two minutes** the Stadium Admin dashboard's **Sync and freshness** table shows the Stadium as **🟡 OFFLINE — LOCAL MODE · N waiting**. Write the time it turned 🟡: ______  N at that moment: ______ . N **grows** as work continues: ______ later.
 - [ ] College and Hall still show 🟢 for themselves.
 - [ ] **Step 5:** now the same scan gives the normal **blue** card and a **green** *Done.* The operator is **not** told it is provisional. The Stadium's information is old, so the software accepts it and flags it.
@@ -387,7 +387,7 @@ This is a **full** outage: **unplug both Stadium uplinks** (broadband **and** th
 - [ ] O1 and O2 each have **one** record per activity done (no duplicates).
 - [ ] The **OPEN** exception for O1 (and O2's at the Hall) **closes by itself** after the missing records arrive. (Reconciliation runs after every sync.) An exception still **OPEN** after 5 minutes is written down.
 - [ ] **The Admin reviews the Exceptions page at each place.** The only entries are the ones this scenario planned (provisional items). There is **no CONFLICT**, no **SEQ_GAP**, no **SYNC_REJECTED** item.
-- [ ] **Reports and exports, "Provisional entries"** still lists O1's Thobe Allocation and O2's Thobe Return, flagged **PROVISIONAL** (the flag stays as a permanent record).
+- [ ] **Reports and exports, "Provisional entries"** still lists O1's Robe Allocation and O2's Robe Return, flagged **PROVISIONAL** (the flag stays as a permanent record).
 
 **PASS** if every box is ticked and the timings are written down.
 
@@ -471,8 +471,8 @@ Take these from the exported reports and the dashboard. Write the numbers:
 |---|---|---|
 | **Master count** (from the university's file) | ______ | this is the population |
 | **Reported + Not attended + Registration reversed** | ______ + ______ + ______ = ______ | equals the master count |
-| For **each of the seven "Everyone" (per-activity) reports**: completed + not completed | Registration ____ Thobe ____ Seating ____ Queue ____ Stage ____ Return ____ Lunch ____ | each equals the master count |
-| **Thobe stock check** ("Thobe count" report) | issued ______ = returned ______ + waived ______ + outstanding ______ | the left side equals the right side |
+| For **each of the seven "Everyone" (per-activity) reports**: completed + not completed | Registration ____ Robe ____ Seating ____ Queue ____ Stage ____ Return ____ Lunch ____ | each equals the master count |
+| **Robe stock check** ("Robe count" report) | issued ______ = returned ______ + waived ______ + outstanding ______ | the left side equals the right side |
 | **Stage outcomes**: completed + skipped-and-not-completed | ______ + ______ | matches the Director's tally |
 | **Provisional entries** | dashboard ____  report ____ | equal, and equal to what Scenario 9 planned |
 | **Manual entries** | dashboard ____  report ____ | equal, and equal to the Director's tally (Scenario 4) |
@@ -489,7 +489,7 @@ Take these from the exported reports and the dashboard. Write the numbers:
 
 - [ ] On a laptop with nothing on it, the person runs: `python -m backend.ha.restore --latest-from <folder of backups> --database-url <the new laptop's database>`. It ends with **RESTORED AND VERIFIED**.
 - [ ] The application starts on that laptop. The Admin signs in and the **dashboard numbers equal** the numbers in 12.6.
-- [ ] **Two reports** (for example the school summary and Thobe count) are exported from the restored laptop. Their contents **equal** the ones exported in 12.5 (same rows, same totals).
+- [ ] **Two reports** (for example the school summary and Robe count) are exported from the restored laptop. Their contents **equal** the ones exported in 12.5 (same rows, same totals).
 - [ ] *(Optional, Phase 17 drill)* Central is rebuilt from the three places' data (`python -m backend.sync.rebuild ...`, see docs/HA.md) and its counts equal each place's: [ ]
 
 **PASS** if every box is ticked.
@@ -501,11 +501,11 @@ Take these from the exported reports and the dashboard. Write the numbers:
 | Activity | Confirmed by operators (count) | Should equal, on the Admin dashboard funnel |
 |---|---|---|
 | Registration | | |
-| Thobe Allocation | | |
+| Robe Allocation | | |
 | Seating | | |
 | Queue | | |
 | Stage (completed) | | |
-| Thobe Return (including waived) | | |
+| Robe Return (including waived) | | |
 | Lunch | | |
 
 Timings to write down (Exit Gate 19 also wants these):
@@ -529,7 +529,7 @@ Timings to write down (Exit Gate 19 also wants these):
 | 5 Late registration | | | | |
 | 6 Queue ordering | | | | |
 | 7 Wrong student, HOME, SKIP, PREVIOUS | | | | |
-| 8 Lost thobe waiver | | | | |
+| 8 Lost robe waiver | | | | |
 | 9 Stadium outage and reconnect | | | | |
 | 10 Deputy correction | | | | |
 | 11 Server failover (optional) | | | | |

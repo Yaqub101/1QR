@@ -39,6 +39,7 @@ class FakeCloudinary:
         self.assets: dict[str, bytes] = {}
         self.upload_calls: list[dict] = []
         self.fetches: list[str] = []
+        self.url_options: list[dict] = []
         self.fail_for = set(fail_for)
         self.fail_with = fail_with or RuntimeError("connection reset")
 
@@ -55,11 +56,15 @@ class FakeCloudinary:
 
     def url_builder(self, public_id, **options):
         assert options["sign_url"] is True and options["type"] == "authenticated"
-        return f"https://res.cloudinary.test/{options['cloud_name']}/image/authenticated/s--sig--/{public_id}"
+        self.url_options.append(options)
+        url = f"https://res.cloudinary.test/{options['cloud_name']}/image/authenticated/s--sig--/{public_id}"
+        if "crop" in options:     # a transformed copy: marked so the tests can see which one was fetched
+            url += f"?t=c_{options['crop']},f_{options['fetch_format']},h_{options['height']},w_{options['width']}"
+        return url
 
     def fetcher(self, url, timeout):
         self.fetches.append(url)
-        public_id = url.split("/s--sig--/", 1)[1]
+        public_id = url.split("/s--sig--/", 1)[1].split("?", 1)[0]
         if public_id not in self.assets:
             raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
         return self.assets[public_id], "image/jpeg"
@@ -284,3 +289,89 @@ def test_no_other_module_builds_photo_paths_itself():
         assert "photo_storage.photo_response(" in source or "photo_storage.load_photo(" in source, name
         assert "pathlib.Path(row[" not in source and "_PROJECT_ROOT / source" not in source, name
         assert 'photo_path"].replace(' not in source, name
+
+
+# ─────────────────────────────────────────────────────────────── the pass-sized Cloudinary copy
+PASS_TX = "c_limit,f_jpg,h_944,w_756"
+
+
+def test_pass_variant_is_twice_the_print_size_and_only_shrinks():
+    tx = photo_storage.CLOUDINARY_VARIANTS[photo_storage.PASS_VARIANT]
+    assert (tx["width"], tx["height"]) == (passes.PHOTO_PX[0] * 2, passes.PHOTO_PX[1] * 2)
+    assert tx["crop"] == "limit" and tx["fetch_format"] == "jpg"          # never crops, never enlarges
+
+
+def test_real_sdk_signs_the_pass_transformation():
+    """The transformation is part of what the SDK signs: the signature differs from the original's, and the
+    URL is still the private, signed, secret-free kind."""
+    store = CloudinaryPhotoStore(cloud_name="demo-cloud", api_key=API_KEY, api_secret=SECRET)
+    original = store.delivery_url("photos/a.jpg")
+    small = store.delivery_url("photos/a.jpg", photo_storage.PASS_VARIANT)
+    assert small.startswith("https://res.cloudinary.com/demo-cloud/image/authenticated/s--")
+    assert f"/{PASS_TX}/" in small and PASS_TX not in original
+    assert store.public_id("photos/a.jpg") in small and SECRET not in small and API_KEY not in small
+    signature = lambda url: url.split("/authenticated/", 1)[1].split("/", 1)[0]
+    assert signature(small) != signature(original)
+    other = CloudinaryPhotoStore(cloud_name="demo-cloud", api_key=API_KEY, api_secret="another-secret")
+    assert signature(other.delivery_url("photos/a.jpg", photo_storage.PASS_VARIANT)) != signature(small)
+
+
+def test_pass_generation_requests_the_transformed_copy():
+    fake = FakeCloudinary()
+    store = fake.store()
+    key = store.save("p.jpg", jpeg_bytes())
+    photo_storage.set_current_store(store)
+    jpeg, warning = passes._prepare_photo(key)
+    assert warning is None and jpeg[:2] == b"\xff\xd8"
+    assert len(fake.fetches) == 1 and fake.fetches[0].endswith("?t=" + PASS_TX)
+    assert fake.url_options[-1]["crop"] == "limit" and fake.url_options[-1]["width"] == 756
+
+
+def test_other_photo_consumers_still_request_the_original():
+    """/photo, the Stage slots and the LED all go through photo_response / load_photo with no variant."""
+    fake = FakeCloudinary()
+    store = fake.store()
+    key = store.save("a.jpg", b"\xff\xd8photo")
+    photo_storage.set_current_store(store)
+    assert load_photo(key).data == b"\xff\xd8photo"
+    fresh = fake.store()                                                 # empty cache: photo_response must fetch
+    response = photo_storage.photo_response("photos/a.jpg", fresh, cache_control="no-store")
+    assert response.body == b"\xff\xd8photo"
+    assert len(fake.fetches) == 2 and not any("?t=" in url for url in fake.fetches)
+    assert all("crop" not in options for options in fake.url_options)
+
+
+def test_cache_keeps_the_original_and_the_pass_copy_apart():
+    fake = FakeCloudinary()
+    store = fake.store()
+    key = store.save("a.jpg", b"\xff\xd8original")
+    original = store.load(key)
+    small = store.load(key, variant=photo_storage.PASS_VARIANT)
+    assert small is not original and len(fake.fetches) == 2               # the pass never reuses the original
+    assert fake.fetches[0].endswith(store.public_id(key)) and fake.fetches[1].endswith("?t=" + PASS_TX)
+    assert store.load(key) is original                                    # each is cached under its own key
+    assert store.load("photos\\a.jpg", variant=photo_storage.PASS_VARIANT) is small
+    assert len(fake.fetches) == 2
+    assert set(store._cache) == {("photos/a.jpg", None), ("photos/a.jpg", photo_storage.PASS_VARIANT)}
+
+
+def test_local_store_ignores_the_pass_variant(tmp_path):
+    (tmp_path / "p.jpg").write_bytes(jpeg_bytes())
+    store = LocalPhotoStore(tmp_path)
+    plain, for_pass = store.load("photos/p.jpg"), store.load("photos\\p.jpg", variant=photo_storage.PASS_VARIANT)
+    assert plain == for_pass and plain.path == tmp_path / "p.jpg" and plain.data is None
+    assert store.load("photos/missing.jpg", variant=photo_storage.PASS_VARIANT) is None
+
+
+def test_pass_pdf_renders_from_the_transformed_cloudinary_copy():
+    fake = FakeCloudinary()
+    store = fake.store()
+    key = store.save("p.jpg", jpeg_bytes(size=(756, 944)))
+    photo_storage.set_current_store(store)
+    data = [passes.PassData(name=f"Student {i}", prn=f"PRN{i}", programme="B.Sc.", token="A" * 32,
+                            photo_path=key if i < 3 else "photos/not-uploaded.jpg") for i in range(5)]
+    sheets = passes.render_sheets(data, "Convocation")
+    single = passes.render_single(data[0], "Convocation")
+    assert sheets.pdf.startswith(b"%PDF") and single.pdf.startswith(b"%PDF") and sheets.count == 5
+    assert [(w.prn, w.code) for w in sheets.warnings] == [("PRN3", "NO_PHOTO"), ("PRN4", "NO_PHOTO")]
+    assert fake.fetches and all(url.endswith("?t=" + PASS_TX) for url in fake.fetches)

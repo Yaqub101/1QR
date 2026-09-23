@@ -31,6 +31,8 @@ from backend.admin.routes import router as admin_console_router
 from backend.web_admin import router as admin_router
 from backend.web_import import router as import_router
 from backend.web_auth import router as auth_router
+from backend.web_system import router as system_router
+from backend.admin import reset as reset_svc
 
 STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
 
@@ -96,6 +98,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(admin_console_router)  # dashboard, corrections, exceptions, audit, reports (Phases 13/16)
     app.include_router(import_router)         # the Admin import screen (Phase 3)
+    app.include_router(system_router)         # Admin → System: the full data reset
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
     app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
 
@@ -158,8 +161,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                     ],
                 },
             )
-        with engine.connect() as conn:
-            summary = commit_import(preview, conn)
+        try:
+            with reset_svc.import_lock(engine), engine.connect() as conn:   # never underneath a data reset
+                summary = commit_import(preview, conn)
+        except reset_svc.Busy as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
 
         return {
             "read": summary.read,

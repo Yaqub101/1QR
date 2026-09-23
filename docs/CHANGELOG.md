@@ -1,3 +1,55 @@
+## [0.17.0] - "Thobe" is now called "Robe"
+
+### Changed
+- Everything a person sees now says **Robe**: operator messages and buttons (e.g. `ROBE ALREADY ALLOCATED`,
+  `CONFIRM ROBE GIVEN`, `LUNCH NOT AVAILABLE — ROBE RETURN PENDING`), activity/role names (Robe Allocation,
+  Robe Return), journey statuses, dashboard, reports and their CSV headers, templates, README, AGENTS.md,
+  SYSTEM_SPEC and the other docs.
+- Report slugs renamed: `outstanding-robes`, `waived-robes`, `robe-count` (old `…-thobes` URLs now 404).
+- **Migration `0013_robe_status_labels`**: `CREATE OR REPLACE VIEW student_status` with the two labels
+  `REPORTED / ROBE NOT RECEIVED` and `ROBE NOT RETURNED`. No data is touched.
+
+### Not changed (on purpose)
+- The activity codes `THOBE_ALLOCATION` / `THOBE_RETURN` stay, along with the station URL slugs built from them,
+  the Python names and the JSON keys inside event `details`. They are stored in the append-only event history,
+  in roles and in constraints, and renaming them would mean rewriting history (rule 5). No person sees them.
+- Earlier changelog entries and applied migrations keep the old word.
+
+## [0.16.0] - Loading states for slow Admin actions, and Admin → System → Reset all data
+
+### Added
+- **Loading states** (`static/busy.js`, loaded by `base.html`; opt-in, so ordinary navigation is untouched).
+  A form marked `data-busy="Importing…"` disables and relabels its submit button(s), shows a spinner, and
+  swallows a second submit; `data-busy-note` adds a "Please keep this page open" line for the long ones. A
+  link marked `data-download` fetches the file itself, shows "Preparing download…" until the file has
+  arrived, ignores repeat clicks, saves under the server's file name, and shows a refusal as its one plain
+  sentence. A page restored by Back is reset. No progress percentages (the server reports none). Wired to:
+  import upload / column check / commit ("Importing students & photos…" when a ZIP is attached), pass
+  generation, every pass PDF, report / audit / exception / student-history exports, corrections, QR
+  reissue, master patch, exception resolve, account actions (the delete keeps its confirm box), the reset.
+- **Admin → System → Reset all data** (`backend/admin/reset.py`, `backend/web_system.py`,
+  `templates/admin_system*.html`). Phrase `DELETE ALL DATA` + the Admin's own password (wrong password →
+  `DATA_RESET_REFUSED`; five in 15 minutes lock the form) → a final page with exact counts and a one-time,
+  10-minute confirmation (`DATA_RESET_REQUESTED`, SHA-256 only) → the reset.
+  - Database: ONE transaction. The named append-only guard triggers are disabled and re-enabled INSIDE it
+    (`ALTER TABLE … DISABLE TRIGGER` is transactional and holds ACCESS EXCLUSIVE), the `DATA_RESET` audit row
+    is written before any delete, and a failure rolls everything back (`DATA_RESET_FAILED` is recorded).
+    Cleared: students, qr_tokens, activity_events, scan_log, queue, exceptions, display_snapshot, counters,
+    the Stage pointers, the event/import audit rows, staged import batches. Kept: users, sessions, settings,
+    alembic_version, sign-in / account audit rows and every `DATA_RESET*` row. A test fails if a new table is
+    not classified.
+  - Photos after COMMIT: `PhotoStore.purge(keep)`. Cloudinary: lists only private images under
+    `CLOUDINARY_FOLDER/`, deletes only IDs of the app's own `<folder>/<32 hex>` shape, by ID, 100 at a
+    time, never a prefix/folder/account delete; clears the in-memory photo cache. Local: image files
+    directly in the store folder only. A failure is reported with counts (`DATA_RESET_PHOTO_CLEANUP`,
+    complete=false) and **Retry photo clean-up** stays on the System page until a run completes; a clean-up
+    that never ran (restart) shows as unfinished. Photos any current student refers to are never removed.
+  - A PostgreSQL advisory lock: the reset holds it exclusively, an import commit (screen and
+    `/admin/import/commit`) holds it shared; neither waits, the second is told plainly to try again.
+
+### Tests
+- `tests/test_data_reset.py` (60), `tests/test_loading_ui.py` (11), `tests/js/busy.test.js` (15).
+
 ## [0.15.0] - Students + photos in one Admin import, and photo storage that survives a Render deploy
 
 Render's web-service disk is wiped on every deploy and the current plan has no persistent disk, so the

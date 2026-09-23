@@ -48,7 +48,8 @@
 
 {% if preview.is_valid %}
 <h2>Import</h2>
-<form method="post" action="/admin/import/{{ batch.batch_id }}/commit" class="card narrow">
+<form method="post" action="/admin/import/{{ batch.batch_id }}/commit" class="card narrow" data-busy="Importing…"
+      data-busy-note="{{ 'Importing students & photos…' if batch.photos_zip else 'Importing students…' }} Please keep this page open. This may take several minutes.">
   <p>{{ preview.to_create|length }} student{{ "s" if preview.to_create|length != 1 }} will be added.
      {{ preview.to_skip|length }} already on the list will be left alone.</p>
   <p class="muted">The whole file goes in together, or none of it does. The import is written to the audit log.</p>

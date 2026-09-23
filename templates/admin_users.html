@@ -12,15 +12,15 @@
     <td>{{ role_label[u.role] }}</td>
     <td>{{ "On" if u.active else "Switched off" }}</td>
     <td class="actions">
-      <form method="post" action="/admin/users/{{ u.id }}/active">
+      <form method="post" action="/admin/users/{{ u.id }}/active" data-busy="Saving…">
         <input type="hidden" name="active" value="{{ 0 if u.active else 1 }}">
         <button type="submit">{{ "Switch off" if u.active else "Switch on" }}</button>
       </form>
-      <form method="post" action="/admin/users/{{ u.id }}/password">
+      <form method="post" action="/admin/users/{{ u.id }}/password" data-busy="Saving…">
         <input name="password" type="password" placeholder="New password" minlength="{{ min_length }}" required>
         <button type="submit">Set password</button>
       </form>
-      <form method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('Are you sure you want to delete this account?');">
+      <form method="post" action="/admin/users/{{ u.id }}/delete" data-busy="Deleting…" onsubmit="return confirm('Are you sure you want to delete this account?');">
         <button type="submit" class="danger">Delete</button>
       </form>
     </td>
@@ -29,7 +29,7 @@
 </table>
 
 <h2>New operator</h2>
-<form method="post" action="/admin/users" class="card">
+<form method="post" action="/admin/users" class="card" data-busy="Creating…">
   <label>Username <input name="username" required></label>
   <label>Full name <input name="full_name"></label>
   <label>Role

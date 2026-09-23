@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from backend import import_staging, photo_storage
+from backend.admin import reset as reset_svc
 from backend.importer import (FIELD_LABELS, REQUIRED_FIELDS, commit_import, detect_column_mapping, excel_engine_for,
                               read_and_validate)
 from backend.photos import import_photos_from_zip, inspect_photo_zip, link_photos_by_prn
@@ -199,6 +200,16 @@ def preview_page(request: Request, batch_id: str, principal: Principal = Depends
 # ══════════════════════════════════════════════════════════════════ step 4: the commit
 @router.post("/import/{batch_id}/commit")
 def commit_batch(request: Request, batch_id: str, principal: Principal = Depends(require_admin)):
+    # Held for the whole commit, photos included, so a data reset can never start underneath it (and an
+    # import never starts while a reset is deleting photos). See backend/admin/reset.py.
+    try:
+        with reset_svc.import_lock(request.app.state.engine):
+            return _commit_batch(request, batch_id, principal)
+    except reset_svc.Busy as exc:
+        return redirect(f"/admin/import/{batch_id}/preview", error=exc.message)
+
+
+def _commit_batch(request: Request, batch_id: str, principal: Principal):
     batch = _batch(request, batch_id)
     if batch.committed:
         return redirect(f"/admin/import/{batch_id}/summary",

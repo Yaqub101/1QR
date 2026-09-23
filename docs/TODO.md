@@ -25,14 +25,14 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 |---|---|
 | Stack | Python FastAPI + PostgreSQL (+ SQLAlchemy, Alembic, Jinja2 + HTMX, SSE), Docker Compose; custom outbox sync. **Not** Firebase, **not** the Admitto codebase |
 | Architecture | Central cloud server + one local server (with hot standby) at each of College, Stadium, Hall |
-| Activity ownership | Registration → College. Thobe Allocation, Seating, Queue, Stage → Stadium. Thobe Return, Lunch → Hall |
+| Activity ownership | Registration → College. Robe Allocation, Seating, Queue, Stage → Stadium. Robe Return, Lunch → Hall |
 | QR | One opaque random token per student, used at all 7 stations |
 | Cross-location stale data | Accept as **provisional**; Admin reviews later |
 | "Not Attended" | Never registered. Registered-but-incomplete goes in a separate exceptions report |
 | Stage order | First come, first shown (order of queue confirmation). **Superseded: the university supplies no Convocation Sequence Number at all**, so nothing shows, sorts by or validates against one |
 | Manual fallback | PRN-only search with photo check, at all 7 stations |
-| Thobes | Identical, unnumbered. Allocation and Return are simple confirmations |
-| Lost/unreturned thobe | Admin approves "Return Waived / Lost" with reason; unlocks Lunch |
+| Robes | Identical, unnumbered. Allocation and Return are simple confirmations |
+| Lost/unreturned robe | Admin approves "Return Waived / Lost" with reason; unlocks Lunch |
 | Admin | One Admin plus a named deputy (identical powers) |
 | LED on server loss | Keep current student up to 10 s, then holding screen |
 | Central account owner | The university |
@@ -58,11 +58,11 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 | 5 | Auth, roles, sessions (simplified: role-based, no venue binding) | M1 | Completed |
 | 6 | Station engine (simplified: role-based access, hard blocks) | M1 | Completed |
 | 7 | Registration | M1 | Completed |
-| 8 | Thobe Allocation | M1 | Completed |
+| 8 | Robe Allocation | M1 | Completed |
 | 9 | Seating | M1 | Completed |
 | 10 | Queue | M2 | Completed |
 | 11 | Stage Controller and public LED | M2 | Completed |
-| 12 | Thobe Return and Lunch | M3 | Completed |
+| 12 | Robe Return and Lunch | M3 | Completed |
 | 13 | Admin: dashboard, corrections, exceptions, audit | M3 | Completed |
 | 14 | Sync engine (outbox, push/pull, status) | M4 | DROPPED (per ARCHITECTURE_PIVOT.md) |
 | 15 | Cross-location rules and reconciliation | M4 | DROPPED (per ARCHITECTURE_PIVOT.md) |
@@ -78,7 +78,7 @@ Source of truth for behaviour: `docs/SYSTEM_SPEC.md`. This file is the build ord
 ## Addendum — Camera-Based QR Scanning (post-Phase 13)
 
 Adds an in-browser "Scan with camera" option to the 6 activity stations that already had the
-manual scan-box + PRN-search pattern (Registration, Thobe Allocation, Seating, Queue, Thobe
+manual scan-box + PRN-search pattern (Registration, Robe Allocation, Seating, Queue, Robe
 Return, Lunch): `templates/station.html`, `static/camera_scan.js`, `static/station.js`,
 vendored `static/jsqr.min.js` (Apache-2.0, no CDN dependency). A decoded QR is handed to the
 exact same `submitScan()` the manual scan box already used, so it goes through the unchanged
@@ -123,7 +123,7 @@ project owner before implementation.
 - [ ] Decide the registration window and cutoff time
 - [ ] Decide the name of the deputy Admin
 - [ ] Get the LED/projector specs (16:9, HDMI) and the university branding assets
-- [ ] Confirm the number of stations per location (starting point: Registration 6; Thobe 5; Seating 4; Queue 3; Stage 1+1 backup; Return 4; Lunch 5)
+- [ ] Confirm the number of stations per location (starting point: Registration 6; Robe 5; Seating 4; Queue 3; Stage 1+1 backup; Return 4; Lunch 5)
 - [ ] Buy or borrow hardware (Phase 18 list)
 - [ ] Book dates for the three-location rehearsal
 
@@ -249,15 +249,15 @@ missing or repeated sequence number is a note on the preview, never an error. Se
 **Antigravity prompt:** "Implement personal logins, roles, station binding, and the single-writer ownership rule from SYSTEM_SPEC section 11.2. Enforce on the server. Write the role matrix test first."
 
 - [ ] Login with password hashing; session timeout suitable for event day
-- [ ] Roles: Admin (and deputy), Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch operator
+- [ ] Roles: Admin (and deputy), Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch operator
 - [ ] Each laptop is **bound to one station**; the station fixes the activity. Operators never choose the activity
-- [ ] **Venue ownership:** a venue server rejects activities it doesn't own (College = Registration; Stadium = Thobe Allocation, Seating, Queue, Stage; Hall = Thobe Return, Lunch)
+- [ ] **Venue ownership:** a venue server rejects activities it doesn't own (College = Registration; Stadium = Robe Allocation, Seating, Queue, Stage; Hall = Robe Return, Lunch)
 - [ ] Admin screens: users, stations, and station↔laptop binding; rebinding a spare laptop takes under a minute
 - [ ] Seed script for the initial Admin and deputy (credentials not committed)
 
 **Tests**
 - [ ] Role matrix: each role reaches only its own endpoints
-- [ ] A Thobe station cannot record Lunch
+- [ ] A Robe station cannot record Lunch
 - [ ] Hall server rejects a Registration write; College rejects Lunch
 - [ ] Disabled user cannot log in
 - [ ] Both Admin and deputy pass the same permission tests
@@ -274,7 +274,7 @@ missing or repeated sequence number is a note on the preview, never an error. Se
 - [ ] `POST /scan` (token, station) — the activity comes from the station
 - [ ] Pipeline: valid token → student ACTIVE → prerequisites (sequential order per spec) → this activity already completed? → show card
 - [ ] `POST /confirm`: one DB transaction writes the event **and** the outbox row; success is shown only after the commit
-- [ ] Duplicates are per activity; the message shows the earlier record ("THOBE ALREADY ALLOCATED — 11:21 AM")
+- [ ] Duplicates are per activity; the message shows the earlier record ("ROBE ALREADY ALLOCATED — 11:21 AM")
 - [ ] Manual PRN search on every station, with photo check; the event is flagged MANUAL
 - [ ] Operator-facing messages are one plain sentence (SYSTEM_SPEC section 14); technical details go to logs only
 - [ ] Large-button screen: auto-focused scan box, refocus after each action, debounce double scans, strip the scanner's Enter suffix, colour + sound for success/duplicate/rejected
@@ -316,13 +316,13 @@ missing or repeated sequence number is a note on the preview, never an error. Se
 
 ---
 
-## Phase 8 — Thobe Allocation (Stadium)
+## Phase 8 — Robe Allocation (Stadium)
 
-**Antigravity prompt:** "Configure Thobe Allocation: a plain confirmation (no number, no size). Requires Registration."
+**Antigravity prompt:** "Configure Robe Allocation: a plain confirmation (no number, no size). Requires Registration."
 
-- [ ] Screen: SCAN → VERIFY → CONFIRM THOBE GIVEN
-- [ ] Duplicate → "THOBE ALREADY ALLOCATED — time"
-- [ ] Not registered → "THOBE NOT AVAILABLE — REGISTRATION PENDING" (or provisional per Phase 15)
+- [ ] Screen: SCAN → VERIFY → CONFIRM ROBE GIVEN
+- [ ] Duplicate → "ROBE ALREADY ALLOCATED — time"
+- [ ] Not registered → "ROBE NOT AVAILABLE — REGISTRATION PENDING" (or provisional per Phase 15)
 
 **Tests**
 - [ ] Recorded once
@@ -338,19 +338,19 @@ missing or repeated sequence number is a note on the preview, never an error. Se
 
 **Changed after the real data arrived.** The university assigns **no seats** — there is no Seat
 Number column in the list at all. Seating is therefore a plain "this student is seated" checkpoint,
-exactly like Thobe Allocation: no seat is shown, none is asked for, and none is recorded on the
+exactly like Robe Allocation: no seat is shown, none is asked for, and none is recorded on the
 event. `students.seat_no` is kept, nullable and unused, in case seating is ever allocated later.
 
 - [x] ~~Shows Block/Row/Seat from the master data; the operator cannot change it~~ — no seat exists; the card shows PRN, programme and school, and the button says CONFIRM SEATED
-- [x] Requires Thobe Allocation; duplicate → "SEATING ALREADY CONFIRMED — time"
+- [x] Requires Robe Allocation; duplicate → "SEATING ALREADY CONFIRMED — time"
 
 **Tests**
 - [x] No seat appears on the card, on the event, or in the duplicate message
-- [x] Skipping Thobe → "SEATING NOT AVAILABLE — THOBE NOT RECEIVED"
+- [x] Skipping Robe → "SEATING NOT AVAILABLE — ROBE NOT RECEIVED"
 - [x] Duplicate rejected
 
 **Exit Gate 9 (M1 done)**
-- [ ] Registration → Thobe → Seating works locally; tag `m1-done`; backup taken
+- [ ] Registration → Robe → Seating works locally; tag `m1-done`; backup taken
 
 ---
 
@@ -405,12 +405,12 @@ in, and nothing else.
 
 ---
 
-## Phase 12 — Thobe Return and Lunch (Hall)
+## Phase 12 — Robe Return and Lunch (Hall)
 
-**Antigravity prompt:** "Configure Thobe Return (simple confirmation, requires Stage completed and Thobe Allocation) and Lunch (requires Thobe Return or Admin waiver). Lunch completion sets EXITED."
+**Antigravity prompt:** "Configure Robe Return (simple confirmation, requires Stage completed and Robe Allocation) and Lunch (requires Robe Return or Admin waiver). Lunch completion sets EXITED."
 
-- [ ] Thobe Return: SCAN → VERIFY → CONFIRM RETURN; duplicate → "ALREADY RETURNED — time"
-- [ ] Lunch: SCAN → VERIFY → CONFIRM; "LUNCH NOT AVAILABLE — THOBE RETURN PENDING" if needed; duplicate → "LUNCH ALREADY CLAIMED — time"
+- [ ] Robe Return: SCAN → VERIFY → CONFIRM RETURN; duplicate → "ALREADY RETURNED — time"
+- [ ] Lunch: SCAN → VERIFY → CONFIRM; "LUNCH NOT AVAILABLE — ROBE RETURN PENDING" if needed; duplicate → "LUNCH ALREADY CLAIMED — time"
 - [ ] Admin-only "Return Waived / Lost" (reason mandatory) counts as Return for Lunch; flagged CORRECTED
 - [ ] Multiple lunch counters cannot double-issue
 - [ ] Student status becomes EXITED after Lunch
@@ -431,7 +431,7 @@ in, and nothing else.
 **Antigravity prompt:** "Build the Admin dashboard, student search and journey view, corrections, exception list and audit viewer per SYSTEM_SPEC sections 12, 16 and 17."
 
 - [ ] Counts: Registered, Reported, Yet to Report, Reporting %, school-wise reporting
-- [ ] Funnel across the seven activities; stage view; outstanding thobes; exceptions counter
+- [ ] Funnel across the seven activities; stage view; outstanding robes; exceptions counter
 - [ ] Venue health: online/offline/syncing, pending records, last sync, primary/standby status
 - [ ] Student search and full journey timeline
 - [ ] Corrections: reverse or fix an activity with a mandatory reason; a correction is a new event, never a delete
@@ -470,7 +470,7 @@ in, and nothing else.
 - [ ] Per-activity completed / not-completed lists for all seven activities
 - [ ] Incomplete-journey report (registered but did not finish)
 - [ ] Stage completed / skipped (with reasons)
-- [ ] Thobes allocated but not returned; waived/lost thobes; end-of-event physical thobe count check
+- [ ] Robes allocated but not returned; waived/lost robes; end-of-event physical robe count check
 - [ ] Late registrations; provisional and manual entries; corrections; exceptions
 - [ ] School-wise / programme-wise summary; per-student full history; audit export
 - [ ] CSV (mandatory), XLSX; PDF if the university asks; exports limited to authorised roles and logged
@@ -566,7 +566,7 @@ Run these against the real hardware, with real scanners and people.
 - [ ] Late registration after the cutoff
 - [ ] Queue confirmed in a mixed order; stage follows first come, first shown
 - [ ] Wrong student displayed → HOME → recover; SKIP; PREVIOUS; COMPLETE
-- [ ] Lost thobe → Admin waiver → Lunch
+- [ ] Lost robe → Admin waiver → Lunch
 - [ ] Stadium loses internet mid-run, then reconnects; Admin reviews the exceptions
 - [ ] Server failover during the run
 - [ ] Deputy Admin performs a correction
@@ -657,7 +657,7 @@ New registration or payment workflows · complex mobile apps · facial recogniti
 
 ## What this is
 A hybrid offline-first convocation system. One student = one QR = seven activities
-(Registration, Thobe Allocation, Seating, Queue, Stage, Thobe Return, Lunch) across
+(Registration, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch) across
 three locations (College, Stadium, Hall) with a central server. Full behaviour is in
 docs/SYSTEM_SPEC.md. Build order is in docs/TODO.md.
 
@@ -669,8 +669,8 @@ small vanilla JS, Server-Sent Events, pytest, Docker Compose. No Firebase.
 1. ONE QR per student. The QR holds only an opaque random token. No personal data.
 2. The station decides the activity. Operators never choose it.
 3. Duplicate prevention is PER ACTIVITY. Enforce it with a database unique constraint.
-4. Each activity has exactly one owning venue (College: Registration; Stadium: Thobe
-   Allocation, Seating, Queue, Stage; Hall: Thobe Return, Lunch). Reject other writes.
+4. Each activity has exactly one owning venue (College: Registration; Stadium: Robe
+   Allocation, Seating, Queue, Stage; Hall: Robe Return, Lunch). Reject other writes.
 5. Events are append-only. Corrections are new events with a reason. Never delete/update history.
 6. Save the event and its outbox row in ONE transaction. Show success only after commit.
 7. Every station works with the internet unplugged. The internet is only for sync.

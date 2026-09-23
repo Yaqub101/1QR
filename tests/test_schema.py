@@ -49,11 +49,11 @@ ACTIVITIES = [
 # SYSTEM_SPEC section 5: label after completing each step (index 0 = nothing done)
 STATUS_AFTER_STEP = [
     "REGISTERED / NOT REPORTED",
-    "REPORTED / THOBE NOT RECEIVED",
+    "REPORTED / ROBE NOT RECEIVED",
     "NOT SEATED",
     "NOT QUEUED",
     "DEGREE NOT RECEIVED",
-    "THOBE NOT RETURNED",
+    "ROBE NOT RETURNED",
     "LUNCH ELIGIBLE",
     "EXITED",
 ]
@@ -224,7 +224,7 @@ class TestMigrations:
     def test_the_pivot_migration_refuses_to_downgrade(self, engine):
         """0012 (docs/ARCHITECTURE_PIVOT.md) is deliberately one-way: the venue/sync/station data
         it drops cannot be reconstructed. Downgrading past it fails loudly, not silently."""
-        result = run_alembic("downgrade", "-1")
+        result = run_alembic("downgrade", "0011_email_mobile")
         assert result.returncode != 0 and "NotImplementedError" in result.stderr
         assert run_alembic("upgrade", "head").returncode == 0  # still at head: the failed downgrade rolled back
 
@@ -767,7 +767,7 @@ class TestStudentStatus:
         s = new_student(conn)
         assert status_of(conn, s) == "REGISTERED / NOT REPORTED"
         add_event(conn, s, "REGISTRATION")
-        assert status_of(conn, s) == "REPORTED / THOBE NOT RECEIVED"
+        assert status_of(conn, s) == "REPORTED / ROBE NOT RECEIVED"
 
     def test_thobe_allocation_moves_to_not_seated(self, conn):
         s = new_student(conn)
@@ -791,7 +791,7 @@ class TestStudentStatus:
         s = new_student(conn)
         complete_steps(conn, s, 4)
         add_event(conn, s, "STAGE")
-        assert status_of(conn, s) == "THOBE NOT RETURNED"
+        assert status_of(conn, s) == "ROBE NOT RETURNED"
 
     def test_thobe_return_moves_to_lunch_eligible(self, conn):
         s = new_student(conn)
@@ -821,11 +821,11 @@ class TestStudentStatus:
         s = new_student(conn)
         complete_steps(conn, s, 4)
         stage = add_event(conn, s, "STAGE")
-        assert status_of(conn, s) == "THOBE NOT RETURNED"
+        assert status_of(conn, s) == "ROBE NOT RETURNED"
         add_event(conn, s, "STAGE", kind="REVERSAL", corrects=stage, cycle=1)
         assert status_of(conn, s) == "DEGREE NOT RECEIVED"
         add_event(conn, s, "STAGE", cycle=2)
-        assert status_of(conn, s) == "THOBE NOT RETURNED"
+        assert status_of(conn, s) == "ROBE NOT RETURNED"
 
     def test_status_is_identical_whatever_order_events_arrive_in(self, conn):
         rng = random.Random(20261015)

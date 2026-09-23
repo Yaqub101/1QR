@@ -1,4 +1,4 @@
-"""Admin corrections (SYSTEM_SPEC 16): reverse a completed activity, or waive a Thobe Return.
+"""Admin corrections (SYSTEM_SPEC 16): reverse a completed activity, or waive a Robe Return.
 
 THE RULE THIS MODULE EXISTS TO KEEP (golden rule 5): a correction is a NEW row that points at the original.
 The original activity_events row is never updated, never deleted, never "flagged". How that is guaranteed:
@@ -168,9 +168,9 @@ def _reverse(conn: Connection, *, principal, event_id, reason: str) -> dict:
             "later_activities_still_recorded": sorted(later)}
 
 
-# ------------------------------------------------------------------ waive a lost / unreturned thobe
+# ------------------------------------------------------------------ waive a lost / unreturned robe
 def waive_return(engine, *, principal, student_id, reason) -> dict:
-    """Admin "Return Waived / Lost": counts as the Thobe Return for Lunch, flagged CORRECTED, reason mandatory."""
+    """Admin "Return Waived / Lost": counts as the Robe Return for Lunch, flagged CORRECTED, reason mandatory."""
     _require_admin(principal)
     reason = clean_reason(reason)
     try:
@@ -182,7 +182,7 @@ def waive_return(engine, *, principal, student_id, reason) -> dict:
     except IntegrityError as exc:
         constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
         if constraint == "activity_events_one_completion":
-            raise CorrectionError(409, "ALREADY_RETURNED", "That thobe is already recorded as returned or waived.") from exc
+            raise CorrectionError(409, "ALREADY_RETURNED", "That robe is already recorded as returned or waived.") from exc
         logger.exception("waiver failed on a database rule: student_id=%s", student_id)
         raise CorrectionError(503, "TEMPORARY", "One moment, please try again.") from exc
     except Exception as exc:
@@ -199,7 +199,7 @@ def _waive(conn: Connection, *, principal, student_id, reason: str) -> dict:
     if student is None:
         raise CorrectionError(404, "STUDENT_NOT_FOUND", "That student does not exist.")
     if active_completion(conn, student["id"], activity) is not None:
-        raise CorrectionError(409, "ALREADY_RETURNED", "That thobe is already recorded as returned or waived.")
+        raise CorrectionError(409, "ALREADY_RETURNED", "That robe is already recorded as returned or waived.")
     allocation = active_completion(conn, student["id"], "THOBE_ALLOCATION")
     details = {"reason": reason, "thobe_allocation_event_id": str(allocation["event_id"]) if allocation else None,
                "thobe_allocation_on_record": allocation is not None}
@@ -207,7 +207,7 @@ def _waive(conn: Connection, *, principal, student_id, reason: str) -> dict:
     event = insert_correction_event(conn, student_id=student["id"], activity=activity, kind="WAIVER",
                                     operator_id=principal.user_id, cycle=cycle, details=details)
     # A WAIVER row cannot carry corrects_event_id (that column is reserved for reversals by a CHECK), so the
-    # audit row links it to the thobe allocation it writes off.
+    # audit row links it to the robe allocation it writes off.
     insert_audit(conn, action="RETURN_WAIVED", principal=principal, student_id=student["id"], activity=activity,
                  event=event, reason=reason, details=details, corrects_event_id=allocation["event_id"] if allocation else None)
     conn.execute(
