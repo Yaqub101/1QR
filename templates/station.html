@@ -21,7 +21,7 @@
 
   <!-- Hidden/Accessible scan input for hardware USB/Bluetooth barcode scanners -->
   <div class="scan-wrapper-offscreen" aria-hidden="true" style="position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0;">
-    <input id="scan" class="scan-box" type="text" autofocus autocomplete="off" autocapitalize="off"
+    <input id="scan" class="scan-box" type="text" inputmode="none" autocomplete="off" autocapitalize="off"
            autocorrect="off" spellcheck="false" placeholder="Scan QR here" aria-label="Hardware barcode scanner input">
   </div>
 
@@ -118,6 +118,50 @@
 
         <div class="confirm-wrapper" style="margin-top: 1rem;">
           <button id="confirm" class="confirm big-action go" type="button" hidden>{{ config.confirm_label }}</button>
+        </div>
+
+        <!-- Operator Station Actions (Pass download, Reissue QR, Exception / Lost Robe) -->
+        <div id="operator-station-actions" class="station-candidate-actions" hidden>
+          <div class="station-actions-row">
+            <button id="download-pass-btn" type="button" class="button secondary small-action-btn" title="Download official PDF pass with QR code">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Download Pass</span>
+            </button>
+            <button id="reissue-pass-toggle-btn" type="button" class="button secondary small-action-btn" title="Reissue QR token for lost or damaged physical passes">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span>Reissue QR</span>
+            </button>
+            <button id="waive-robe-toggle-btn" type="button" class="button secondary warning small-action-btn" title="Record lost or damaged robe exception" hidden>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>Waive Lost Robe</span>
+            </button>
+          </div>
+
+          <!-- Reissue QR Inline Form -->
+          <div id="reissue-pass-panel" class="station-subpanel" hidden>
+            <div class="subpanel-header">
+              <strong>Reissue Student QR Pass</strong>
+              <span class="muted" style="font-size: 0.8rem;">Previous QR token will be permanently revoked</span>
+            </div>
+            <div class="subpanel-form-row">
+              <input id="reissue-reason-input" type="text" placeholder="Reason (e.g. Lost physical pass at college)" aria-label="Reissue reason">
+              <button id="reissue-confirm-btn" type="button" class="button small">Confirm Reissue</button>
+              <button id="reissue-cancel-btn" type="button" class="button secondary small">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Waive Robe Inline Form (Exception) -->
+          <div id="waive-robe-panel" class="station-subpanel warning-border" hidden>
+            <div class="subpanel-header">
+              <strong style="color: var(--badink);">Record Robe Return Exception / Waiver</strong>
+              <span class="muted" style="font-size: 0.8rem;">Writes a RETURN_WAIVED exception &amp; unlocks Lunch</span>
+            </div>
+            <div class="subpanel-form-row">
+              <input id="waive-reason-input" type="text" placeholder="Reason (e.g. Lost robe; replacement fine paid)" aria-label="Waiver reason">
+              <button id="waive-confirm-btn" type="button" class="button small" style="background: var(--brand-dark); color: #fff;">Confirm Waiver</button>
+              <button id="waive-cancel-btn" type="button" class="button secondary small">Cancel</button>
+            </div>
+          </div>
         </div>
       </div>
 

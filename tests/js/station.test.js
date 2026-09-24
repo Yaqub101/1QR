@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 
 const logic = require(path.join(__dirname, "..", "..", "static", "station_logic.js"));
-const { createStationScreen } = require(path.join(__dirname, "..", "..", "static", "station.js"));
+const { createStationScreen, extractErrorMessage, post } = require(path.join(__dirname, "..", "..", "static", "station.js"));
 
 const NUL = String.fromCharCode(0);
 
@@ -48,7 +48,7 @@ function harness(overrides = {}) {
   const screen = createStationScreen({
     els, doc, post, sound: (name) => sounds.push(name), now: () => clock, resetMs: 2500, debounceMs: 1500,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => {},
-    activity: "REGISTRATION", ...overrides,
+    activity: "REGISTRATION", isTouch: overrides.isTouch != null ? overrides.isTouch : false, ...overrides,
   });
   screen.init();
   return {
@@ -392,3 +392,115 @@ test("a registered student's confirm with no new box ticked is refused on the sc
   assert.equal(h.els.message.textContent, "Tick at least one box, then confirm.");
   assert.equal(h.els.confirmBtn.hidden, false);  // the card stays up so the operator can tick
 });
+
+// ── STEP 4: Error messages in post() ──────────────────────────────────────────
+test("post() error extraction: detail.message takes highest priority", async () => {
+  const fakeFetch = async () => ({
+    ok: false,
+    status: 400,
+    json: async () => ({ detail: { message: "Token has been revoked by admin." } }),
+  });
+  const res = await post("/scan", {}, fakeFetch);
+  assert.equal(res.result, "ERROR");
+  assert.equal(res.message, "Token has been revoked by admin.");
+});
+
+test("post() error extraction: detail as string is used when detail.message is absent", async () => {
+  const fakeFetch = async () => ({
+    ok: false,
+    status: 404,
+    json: async () => ({ detail: "Student not found in registry." }),
+  });
+  const res = await post("/scan", {}, fakeFetch);
+  assert.equal(res.result, "ERROR");
+  assert.equal(res.message, "Student not found in registry.");
+});
+
+test("post() error extraction: detail[0].msg is extracted for 422 validation error lists", async () => {
+  const fakeFetch = async () => ({
+    ok: false,
+    status: 422,
+    json: async () => ({
+      detail: [
+        { loc: ["body", "token"], msg: "QR token cannot be blank.", type: "value_error" },
+        { loc: ["body", "activity"], msg: "Activity is required.", type: "missing" },
+      ],
+    }),
+  });
+  const res = await post("/confirm", {}, fakeFetch);
+  assert.equal(res.result, "ERROR");
+  assert.equal(res.message, "QR token cannot be blank.");
+});
+
+test("post() error extraction: generic fallback when no detail message exists", async () => {
+  const fakeFetch = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({ detail: null }),
+  });
+  const res = await post("/scan", {}, fakeFetch);
+  assert.equal(res.result, "ERROR");
+  assert.equal(res.message, "One moment, please try again.");
+});
+
+// ── STEP 5: Touch-primary / Coarse pointer refocus behaviour ──────────────────
+test("touch-primary / coarse-pointer device disables ALL automatic refocus paths", async () => {
+  const h = harness({ isTouch: true });
+  // 1. init() must not focus scan box
+  assert.equal(h.els.scan.focusCount, 0);
+
+  // 2. submitScan()
+  h.replies.push(READY);
+  await h.screen.submitScan("tok-touch");
+  assert.equal(h.els.scan.focusCount, 0);
+
+  // 3. confirm()
+  h.replies.push(CONFIRMED);
+  await h.screen.confirm();
+  assert.equal(h.els.scan.focusCount, 0);
+
+  // 4. scheduleReset()
+  h.runTimers();
+  assert.equal(h.els.scan.focusCount, 0);
+
+  // 5. search()
+  h.els.searchInput.value = "PRN123";
+  h.replies.push(READY);
+  await h.screen.search();
+  assert.equal(h.els.scan.focusCount, 0);
+
+  // 6. focusScan() direct call also respects touch guard
+  h.screen.focusScan();
+  assert.equal(h.els.scan.focusCount, 0);
+});
+
+test("non-touch / desktop device keeps all automatic refocus paths enabled", async () => {
+  const h = harness({ isTouch: false });
+  // 1. init() focuses scan box
+  assert.ok(h.els.scan.focusCount >= 1);
+  let prev = h.els.scan.focusCount;
+
+  // 2. submitScan() refocuses
+  h.replies.push(READY);
+  await h.screen.submitScan("tok-desk");
+  assert.ok(h.els.scan.focusCount > prev);
+  prev = h.els.scan.focusCount;
+
+  // 3. confirm() refocuses
+  h.replies.push(CONFIRMED);
+  await h.screen.confirm();
+  assert.ok(h.els.scan.focusCount > prev);
+  prev = h.els.scan.focusCount;
+
+  // 4. scheduleReset() refocuses
+  h.runTimers();
+  assert.ok(h.els.scan.focusCount > prev);
+  prev = h.els.scan.focusCount;
+
+  // 5. search() refocuses
+  h.els.searchInput.value = "PRN123";
+  h.replies.push(READY);
+  await h.screen.search();
+  assert.ok(h.els.scan.focusCount > prev);
+});
+

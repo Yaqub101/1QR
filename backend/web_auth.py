@@ -4,10 +4,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy import text
 
+from backend import passes as passes_svc, qr_tokens
+from backend.audit import write_audit
 from backend.engine import registry
 from backend.engine.activities import ACTIVITY_CONFIGS
 from backend.security import permissions, sessions
@@ -28,6 +31,18 @@ router = APIRouter()
 
 
 class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+class StationReissueBody(BaseModel):
+    student_id: str
+    reason: str
+
+
+class StationWaiveBody(BaseModel):
+    student_id: str
+    reason: str
     username: str
     password: str
 
@@ -129,3 +144,91 @@ def station_screen(request: Request, access: ActivityAccess = Depends(require_ac
         return render(request, "stage.html", principal=principal, activity="STAGE")
     return render(request, "station.html", principal=principal, activity=access.activity,
                   config=ACTIVITY_CONFIGS[access.activity])
+
+
+@router.get("/station/api/pass/{student_id}")
+def station_download_pass(request: Request, student_id: str, principal: Principal = Depends(require_user)):
+    """Allow Registry operators and Admins to download student passes directly at the station desk."""
+    if not (principal.is_admin or principal.role == "REGISTRY"):
+        raise http_error(403, "FORBIDDEN", "Only Registry operators and Admins can download passes here.")
+    if not qr_tokens.is_student_id(student_id):
+        raise http_error(404, "STUDENT_NOT_FOUND", "That student does not exist.")
+    engine = request.app.state.engine
+    settings = request.app.state.settings
+    with engine.connect() as conn:
+        found = conn.execute(text("SELECT status FROM students WHERE id = :i"), {"i": student_id}).scalar_one_or_none()
+        if found is None:
+            raise http_error(404, "STUDENT_NOT_FOUND", "That student does not exist.")
+        if found != "ACTIVE":
+            raise http_error(409, "STUDENT_NOT_ACTIVE", "That student is not active, so no pass can be printed.")
+        rows_ = passes_svc.load_passes(conn, student_id=student_id)
+        title = passes_svc.event_title(conn, settings.event_name)
+    if not rows_ or not rows_[0]["token"]:
+        raise http_error(409, "NO_TOKEN", "That student has no QR yet. Please generate the missing QR codes first.")
+    data = passes_svc.to_pass_data(rows_)[0]
+    result = passes_svc.render_single(data, title)
+    with engine.begin() as conn:
+        write_audit(conn, "PASS_DOWNLOADED", operator_id=principal.user_id, student_id=student_id,
+                    details={"prn": data.prn, "station": "REGISTRY", "warnings": [w.code for w in result.warnings]})
+    safe_prn = "".join(c for c in (data.prn or "") if c.isalnum() or c in "-_") or "student"
+    return Response(
+        result.pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="pass-{safe_prn}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/station/api/reissue-pass")
+def station_reissue_pass(request: Request, body: StationReissueBody, principal: Principal = Depends(require_user)):
+    """Allow Registry operators and Admins to reissue a QR pass with an audited reason."""
+    if not (principal.is_admin or principal.role == "REGISTRY"):
+        raise http_error(403, "FORBIDDEN", "Only Registry operators and Admins can reissue passes.")
+    from backend.admin.corrections import clean_reason, CorrectionError
+    try:
+        reason = clean_reason(body.reason)
+    except CorrectionError as exc:
+        raise http_error(exc.status_code, exc.code, exc.message)
+    try:
+        result = qr_tokens.reissue_token(
+            request.app.state.engine,
+            student_id=body.student_id,
+            reason=reason,
+            operator_id=principal.user_id,
+        )
+    except qr_tokens.TokenError as exc:
+        raise http_error(400, exc.code, exc.message)
+    return {
+        "ok": True,
+        "student_id": body.student_id,
+        "old_token_id": result.old_token_id,
+        "new_token_id": result.new_token_id,
+        "message": "New QR pass issued. Previous QR invalidated.",
+        "pass_url": f"/station/api/pass/{body.student_id}",
+    }
+
+
+@router.post("/station/api/waive-robe")
+def station_waive_robe(request: Request, body: StationWaiveBody, principal: Principal = Depends(require_user)):
+    """Allow Registry operators and Admins to record a robe return waiver / lost robe exception."""
+    if not (principal.is_admin or principal.role == "REGISTRY"):
+        raise http_error(403, "FORBIDDEN", "Only Registry operators and Admins can record robe waivers.")
+    from backend.admin.corrections import _waive, clean_reason, CorrectionError
+    from sqlalchemy.exc import IntegrityError
+    try:
+        reason = clean_reason(body.reason)
+    except CorrectionError as exc:
+        raise http_error(exc.status_code, exc.code, exc.message)
+    engine = request.app.state.engine
+    try:
+        with engine.begin() as conn:
+            result = _waive(conn, "THOBE_RETURN", principal=principal, student_id=body.student_id, reason=reason)
+        return result
+    except CorrectionError as exc:
+        raise http_error(exc.status_code, exc.code, exc.message)
+    except IntegrityError as exc:
+        raise http_error(409, "ALREADY_RETURNED", "That robe is already recorded as returned or waived.")
+    except Exception as exc:
+        raise http_error(503, "TEMPORARY", "One moment, please try again.")

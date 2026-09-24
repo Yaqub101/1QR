@@ -105,3 +105,45 @@ def db_status(engine: Optional[Engine] = None, database_url: Optional[str] = Non
                        ", ".join(missing))
         return NOT_READY, missing
     return UP, []
+
+
+import functools
+import pathlib
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+ALEMBIC_INI_PATH = pathlib.Path(__file__).resolve().parent.parent / "alembic.ini"
+
+
+@functools.lru_cache(maxsize=1)
+def get_expected_schema_version() -> str:
+    """Return the revision ID of the latest migration script (Alembic head)."""
+    cfg = Config(str(ALEMBIC_INI_PATH))
+    script = ScriptDirectory.from_config(cfg)
+    head = script.get_current_head()
+    return head or ""
+
+
+def get_db_schema_version(engine: Optional[Engine] = None, database_url: Optional[str] = None) -> Optional[str]:
+    """Read the current revision ID from the alembic_version table in the database."""
+    engine = _resolve(engine, database_url)
+    if engine is None:
+        return None
+    try:
+        with engine.connect() as conn:
+            table_names = inspect(conn).get_table_names()
+            if "alembic_version" not in table_names:
+                return None
+            row = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+            return str(row) if row is not None else None
+    except Exception as e:
+        logger.warning("Failed to query alembic_version: %s", e)
+        return None
+
+
+def check_schema_version(engine: Optional[Engine] = None, database_url: Optional[str] = None) -> Tuple[bool, Optional[str], str]:
+    """Compare DB alembic_version with code Alembic head. Returns (is_match, db_version, expected_head)."""
+    expected = get_expected_schema_version()
+    db_ver = get_db_schema_version(engine=engine, database_url=database_url)
+    return (db_ver == expected, db_ver, expected)
+

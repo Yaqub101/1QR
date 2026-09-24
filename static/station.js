@@ -9,8 +9,13 @@
  *   - the operator only ever reads the server's plain sentence, or "One moment, please try again.".
  */
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = { createStationScreen: factory(require("./station_logic.js")) };
-  else root.createStationScreen = factory(root.StationLogic);
+  const exportsObj = factory(typeof require === "function" ? require("./station_logic.js") : root.StationLogic);
+  if (typeof module === "object" && module.exports) module.exports = exportsObj;
+  else {
+    root.createStationScreen = exportsObj.createStationScreen;
+    root.extractErrorMessage = exportsObj.extractErrorMessage;
+    root.stationPost = exportsObj.post;
+  }
 })(typeof self !== "undefined" ? self : this, function (Logic) {
   "use strict";
 
@@ -18,19 +23,58 @@
   const IDLE_MESSAGE = "Scan a QR to begin.";
   const ENTER_CONFIRM_GUARD_MS = 500; // a scanner's second Enter must not confirm the card it just brought up
 
+  function extractErrorMessage(data) {
+    const detail = data && data.detail;
+    if (detail && typeof detail.message === "string" && detail.message.trim()) {
+      return detail.message;
+    }
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
+    if (Array.isArray(detail) && detail.length > 0 && detail[0] && typeof detail[0].msg === "string" && detail[0].msg.trim()) {
+      return detail[0].msg;
+    }
+    return TEMPORARY;
+  }
+
+  async function post(url, body, fetchImpl) {
+    const _fetch = fetchImpl || (typeof fetch !== "undefined" ? fetch : null);
+    const response = await _fetch(url, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    let data = null;
+    try { data = await response.json(); } catch (_) { /* not JSON */ }
+    if (response.status === 401) {
+      if (typeof window !== "undefined" && window.location) {
+        window.location.href = "/login";
+      }
+    }
+    if (response.ok && data) return data;
+    return { result: "ERROR", message: extractErrorMessage(data), student: null };
+  }
+
   function createStationScreen(deps) {
     const { els, doc, post, sound, now } = deps;
     const later = deps.setTimeout;
     const cancel = deps.clearTimeout || function () {};
     const resetMs = deps.resetMs != null ? deps.resetMs : 2500;
     const debouncer = Logic.createDebouncer({ windowMs: deps.debounceMs != null ? deps.debounceMs : 1500, now });
+    const isTouch = deps.isTouch != null
+      ? !!deps.isTouch
+      : (typeof window !== "undefined" && window.matchMedia
+          ? !!window.matchMedia("(pointer: coarse)").matches
+          : false);
 
     let pending = null; // what /confirm will send: { kind: "token" | "student", value, step, needsTick }
     const TICK_ONE = "Tick at least one box, then confirm.";
     let resetTimer = null;
     let readyAt = -Infinity;
 
-    function focusScan() { els.scan.focus(); }
+    function focusScan() {
+      if (isTouch) return;
+      els.scan.focus();
+    }
 
     function playSound(name) {
       if (!name) return;
@@ -229,7 +273,7 @@
     return { init, submitScan, confirm, search, focusScan };
   }
 
-  return createStationScreen;
+  return { createStationScreen, extractErrorMessage, post };
 });
 
 /* ---- browser wiring (skipped under node) ------------------------------------------------------- */
@@ -249,7 +293,11 @@
     lastScanBadge: byId("last-scan-badge"), lastScanTime: byId("last-scan-time"),
   };
 
-  async function post(url, body) {
+  const isTouch = (typeof window !== "undefined" && window.matchMedia)
+    ? !!window.matchMedia("(pointer: coarse)").matches
+    : false;
+
+  const post = window.stationPost || (async function (url, body) {
     const response = await fetch(url, {
       method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -259,8 +307,9 @@
     if (response.status === 401) { window.location.href = "/login"; }
     if (response.ok && data) return data;
     const detail = data && data.detail;
-    return { result: "ERROR", message: (detail && detail.message) || "One moment, please try again.", student: null };
-  }
+    const message = (window.extractErrorMessage ? window.extractErrorMessage(data) : ((detail && detail.message) || "One moment, please try again."));
+    return { result: "ERROR", message, student: null };
+  });
 
   // Short cues made with the browser's own synthesiser: nothing to download, works offline.
   let audio = null;
@@ -287,15 +336,18 @@
     els, doc: document, post, sound, now: Date.now,
     setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window),
     activity: rootEl.dataset.activity,
+    isTouch,
   });
   screen.init();
 
-  // Keep the hardware scan box focused whatever the operator touches.
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest("input, select, button, summary, a")) screen.focusScan();
-  });
-  window.addEventListener("focus", () => screen.focusScan());
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) screen.focusScan(); });
+  // Keep the hardware scan box focused whatever the operator touches (desktop/non-touch only).
+  if (!isTouch) {
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest("input, select, button, summary, a")) screen.focusScan();
+    });
+    window.addEventListener("focus", () => screen.focusScan());
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) screen.focusScan(); });
+  }
 
   // Camera-based scanning: battery-conscious lifecycle with inactivity timeout & tap-to-resume
   const cameraVideo = byId("camera-video");

@@ -72,6 +72,20 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             return RedirectResponse("/login", status_code=303)
         return await http_exception_handler(request, exc)
 
+    def _check_schema_guard():
+        try:
+            status, missing = database.db_status(engine=engine)
+            if status == database.UP and not missing:
+                is_match, db_ver, expected_ver = database.check_schema_version(engine=engine)
+                if not is_match:
+                    logging.getLogger("backend").error(
+                        "database schema out of date: db=%s, expected=%s", db_ver, expected_ver
+                    )
+        except Exception as exc:
+            logging.getLogger("backend").warning("Startup schema check could not run: %s", exc)
+
+    _check_schema_guard()
+
     # ── Static files ─────────────────────────────────────────────────────────
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -85,12 +99,32 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         # reports "not_ready" (run `alembic upgrade head`) rather than a healthy-looking "up".
         status, missing = database.db_status(engine=engine)
         body: Dict[str, Any] = {
+            "status": "OK" if status == database.UP else "NOT OK",
             "db": status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         if missing:
+            body["status"] = "NOT OK"
             body["missing_tables"] = missing
             body["detail"] = "the database schema is not set up: run `alembic upgrade head`"
+            return body
+
+        if status == database.UP:
+            try:
+                is_match, db_version, expected_head = database.check_schema_version(engine=engine)
+                body["alembic_version"] = db_version
+                body["expected_version"] = expected_head
+                if not is_match:
+                    body["status"] = "NOT OK"
+                    body["db"] = database.NOT_READY
+                    msg = f"database schema out of date: db={db_version}, expected={expected_head}"
+                    body["detail"] = msg
+                    body["message"] = msg
+            except Exception as e:
+                logging.getLogger("backend").error("Schema check failed during health check: %s", e)
+                body["status"] = "NOT OK"
+                body["detail"] = f"schema check failed: {e}"
+
         return body
 
     # ── Sign-in, station screens, admin screens (Phase 5) ────────────────────

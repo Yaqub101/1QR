@@ -51,8 +51,35 @@ def test_health_is_not_up_when_the_migrations_have_never_run(bare_database):
 def test_health_is_up_once_the_migrations_have_run(bare_database):
     migrate(bare_database)
     body = health(bare_database)
+    assert body["status"] == "OK"
     assert body["db"] == "up"
     assert body.get("missing_tables") in (None, [])
+    assert body.get("alembic_version") == body.get("expected_version")
+
+
+def test_health_mismatched_version_reports_not_ok_and_logs_error_on_startup(bare_database, request, caplog):
+    """When DB alembic_version differs from code Alembic head, health is NOT OK and startup logs ERROR."""
+    import logging
+    migrate(bare_database)
+    engine = create_engine(bare_database)
+    request.addfinalizer(engine.dispose)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE alembic_version SET version_num = '0016_optional_seating_labels'"))
+
+    body = health(bare_database)
+    assert body["status"] == "NOT OK"
+    assert body["db"] == "not_ready"
+    assert body["alembic_version"] == "0016_optional_seating_labels"
+    assert body["expected_version"] == "0017_money_deposit"
+    expected_msg = "database schema out of date: db=0016_optional_seating_labels, expected=0017_money_deposit"
+    assert body["detail"] == expected_msg
+    assert body["message"] == expected_msg
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        create_app(settings=Settings(database_url=bare_database))
+    assert expected_msg in caplog.text
+
 
 
 def test_health_is_not_up_when_the_schema_is_only_half_there(bare_database, request):

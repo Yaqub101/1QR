@@ -344,7 +344,7 @@ class TestRegistryScreen:
         page = desk(apps, world).get("/station/registry")
         assert page.status_code == 200
         assert 'data-activity="REGISTRY"' in page.text and "<h1>Registry</h1>" in page.text
-        assert 'id="scan"' in page.text and "autofocus" in page.text
+        assert 'id="scan"' in page.text and 'inputmode="none"' in page.text and "autofocus" not in page.text
         assert 'id="markers"' in page.text and 'id="card-state"' in page.text
         assert 'id="camera-details"' in page.text and "camera_scan.js" in page.text
         assert 'id="search-prn"' in page.text
@@ -464,3 +464,95 @@ class TestMigrations:
                         c.execute(text(insert), {"s": sid, "a": "QUEUE", "k": "WAIVER", "d": '{"reason": "x"}'})
         finally:
             eng.dispose()
+
+
+# --------------------------------------------------------------------------- #
+# Regression: All Checkmark Permutations and Full End-to-End Flow (Phase R4)
+# --------------------------------------------------------------------------- #
+class TestPermutationsAndFullFlow:
+    @pytest.mark.parametrize("marks,expected_events", [
+        ([], ["REGISTRATION"]),
+        ([ROBE], ["REGISTRATION", ROBE]),
+        ([MONEY], ["REGISTRATION", MONEY]),
+        ([ROBE, MONEY], ["REGISTRATION", ROBE, MONEY]),
+    ])
+    def test_registry_op_confirm_entry_permutations(self, apps, world, engine, marks, expected_events):
+        """Registry OP confirm for every entry checkmark permutation: [], [ROBE], [MONEY], [ROBE, MONEY]."""
+        s = make_student(engine)
+        reply = registry_confirm(desk(apps, world), token=s.token, step="ENTRY", marks=marks).json()
+        assert reply["result"] == "CONFIRMED"
+        assert [e["activity"] for e in reply["events"]] == expected_events
+        assert completions(engine, s) == {a: 1 for a in expected_events}
+
+    @pytest.mark.parametrize("marks,expected_events", [
+        ([ROBE_BACK], [ROBE_BACK]),
+        ([MONEY_BACK], [MONEY_BACK]),
+        ([ROBE_BACK, MONEY_BACK], [ROBE_BACK, MONEY_BACK]),
+    ])
+    def test_registry_op_confirm_return_permutations(self, apps, world, engine, marks, expected_events):
+        """Registry OP confirm for every return checkmark permutation: [ROBE_BACK], [MONEY_BACK], [ROBE_BACK, MONEY_BACK]."""
+        s = make_student(engine)
+        seed_events(engine, s, UP_TO_STAGE)
+        reply = registry_confirm(desk(apps, world), token=s.token, step="RETURN", marks=marks).json()
+        assert reply["result"] == "CONFIRMED"
+        assert [e["activity"] for e in reply["events"]] == expected_events
+        for a in expected_events:
+            assert completions(engine, s).get(a) == 1
+
+    def test_full_flow_registry_queue_stage_return_lunch(self, apps, world, engine):
+        """Full flow: Registry -> Queue -> Stage -> Return -> Lunch, on a database built with alembic upgrade head."""
+        from sqlalchemy import text
+        s = make_student(engine)
+        # Ensure display snapshot exists for Stage display
+        with engine.begin() as c:
+            c.execute(text("INSERT INTO display_snapshot (student_id, display_name, programme, school, award) "
+                           "VALUES (:s, :n, 'B.Tech Computer Science', 'School of Engineering', 'Degree') "
+                           "ON CONFLICT DO NOTHING"), {"s": s.id, "n": s.name})
+
+        reg_client = desk(apps, world)
+        queue_client = operator(apps, world, "QUEUE")
+        stage_client = operator(apps, world, "STAGE")
+        lunch_client = operator(apps, world, "LUNCH")
+
+        # 1. Registry Desk: Reporting + Robe + Money in one confirm
+        scan1 = registry_scan(reg_client, s.token).json()
+        assert scan1["result"] == "READY"
+        conf1 = registry_confirm(reg_client, token=s.token, step="ENTRY", marks=[ROBE, MONEY]).json()
+        assert conf1["result"] == "CONFIRMED"
+        assert status(engine, s) == "ROBE AND MONEY RECEIVED / NOT QUEUED"
+
+        # 2. Queue Station: Scan & Confirm (needs robe AND money; seating is optional)
+        with engine.begin() as c:
+            c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            c.execute(text("UPDATE stage_state SET current_student_id = NULL, display_student_id = NULL, "
+                           "previous_student_id = NULL, controller_session_id = NULL WHERE id = 1"))
+            c.execute(text("UPDATE queue SET status = 'DONE' WHERE status IN ('QUEUED','DISPLAYED','HELD','SKIPPED')"))
+
+        scan2 = queue_client.post("/scan", json={"activity": "QUEUE", "token": s.token}).json()
+        assert scan2["result"] == "READY"
+        conf2 = queue_client.post("/confirm", json={"activity": "QUEUE", "token": s.token}).json()
+        assert conf2["result"] == "CONFIRMED"
+        assert status(engine, s) == "DEGREE NOT RECEIVED"
+
+        # 3. Stage: Claim controller, NEXT shows student, NEXT records degree
+        stage_client.post("/stage/control", json={"station_id": "STG-01"})
+        nxt1 = stage_client.post("/stage/next", json={"expect_current": None})
+        assert nxt1.status_code == 200
+        nxt2 = stage_client.post("/stage/next", json={"expect_current": str(s.id)})
+        assert nxt2.status_code == 200
+        assert status(engine, s) == "ROBE AND MONEY NOT RETURNED"
+
+        # 4. Registry Return: Robe Returned + Money Returned
+        scan3 = registry_scan(reg_client, s.token).json()
+        assert scan3["result"] == "READY" and scan3["step"] == "RETURN"
+        conf3 = registry_confirm(reg_client, token=s.token, step="RETURN", marks=[ROBE_BACK, MONEY_BACK]).json()
+        assert conf3["result"] == "CONFIRMED"
+        assert status(engine, s) == "LUNCH ELIGIBLE"
+
+        # 5. Lunch Station: Scan & Confirm (needs both robe back and money back)
+        scan4 = lunch_client.post("/scan", json={"activity": "LUNCH", "token": s.token}).json()
+        assert scan4["result"] == "READY"
+        conf4 = lunch_client.post("/confirm", json={"activity": "LUNCH", "token": s.token}).json()
+        assert conf4["result"] == "CONFIRMED"
+        assert status(engine, s) == "EXITED"
+
