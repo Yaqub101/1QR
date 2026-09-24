@@ -87,9 +87,12 @@
     }
 
     // The Registry desk's tick boxes: one per marker the server sends; done ones are ticked and locked.
+    // Temporary workaround: exclude MONEY_RECEIVED and MONEY_RETURNED from UI
     function renderMarkers(markers) {
       if (!els.markers) return;
-      const list = Array.isArray(markers) ? markers : [];
+      const list = (Array.isArray(markers) ? markers : []).filter(
+        (m) => m && m.key !== "MONEY_RECEIVED" && m.key !== "MONEY_RETURNED"
+      );
       els.markers.replaceChildren(...list.map((m) => {
         const row = doc.createElement("label");
         row.className = "marker" + (m.done ? " done" : "");
@@ -112,7 +115,8 @@
       return Array.from(els.markers.children)  // a real page gives an HTMLCollection, not an array
         .map((row) => row.children[0])
         .filter((box) => box && box.checked && !box.disabled)
-        .map((box) => box.value);
+        .map((box) => box.value)
+        .filter((key) => key !== "MONEY_RECEIVED" && key !== "MONEY_RETURNED");
     }
 
     function clearCard() {
@@ -241,12 +245,15 @@
 
     async function confirm() {
       if (!pending || debouncer.busy) return;
+      if (deps.activity === "MONEY_RECEIVED" || deps.activity === "MONEY_RETURNED") return;
       const body = pending.kind === "token"
         ? { token: pending.value, activity: deps.activity }
         : { student_id: pending.value, activity: deps.activity };
       if (pending.step) {
         body.step = pending.step;
-        body.marks = tickedMarks();
+        body.marks = tickedMarks().filter(
+          (m) => m !== "MONEY_RECEIVED" && m !== "MONEY_RETURNED"
+        );
         if (pending.needsTick && body.marks.length === 0) {  // say it here; no request, the card stays up
           showBanner("red", TICK_ONE);
           playSound("rejected");

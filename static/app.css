@@ -833,6 +833,13 @@ button.confirm:disabled {
   border-color: var(--line);
 }
 
+.marker:has(input[value="MONEY_RECEIVED"]),
+.marker:has(input[value="MONEY_RETURNED"]),
+.marker[data-key="MONEY_RECEIVED"],
+.marker[data-key="MONEY_RETURNED"] {
+  display: none !important;
+}
+
 /* ==========================================================================
    Stage Operator Screen
    ========================================================================== */

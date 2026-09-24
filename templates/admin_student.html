@@ -135,7 +135,8 @@
 </form>
 {% endif %}
 
-{% if j.can_waive_money %}
+{# Temporarily hidden: Money Received and Money Returned disabled in UI #}
+{% if False and j.can_waive_money %}
 <h2>Money kept (not returned)</h2>
 <form method="post" action="/admin/students/{{ j.student.student_id }}/waive-money" class="card narrow" data-busy="Saving…">
   <p class="muted">Counts as the money return so the student can go to Lunch, for example when the money is kept for a lost or damaged robe. It is flagged as an Admin correction and listed for review.</p>

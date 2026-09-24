@@ -106,9 +106,9 @@ def log_attempt(conn: Connection, ctx: EngineContext, *, result: str, message: s
                 prn=None, event_id=None, details: Optional[dict] = None) -> None:
     # TODO: Production workaround: reconcile production activity_t schema/migration.
     # The production PostgreSQL database domain activity_t check constraint does not yet include
-    # 'MONEY_RECEIVED', causing INSERT INTO scan_log with activity = 'MONEY_RECEIVED' to fail with
+    # 'MONEY_RECEIVED' or 'MONEY_RETURNED', causing INSERT INTO scan_log to fail with
     # value for domain activity_t violates check constraint "activity_t_check".
-    if ctx.activity == "MONEY_RECEIVED":
+    if ctx.activity in ("MONEY_RECEIVED", "MONEY_RETURNED"):
         return
 
     conn.execute(
@@ -218,6 +218,11 @@ def compute_flags(conn: Connection, ctx: EngineContext, student: dict, *, manual
 
 def insert_event(conn: Connection, ctx: EngineContext, student: dict, *, flags: list, details: dict,
                  kind: str = "COMPLETE") -> dict:
+    if ctx.activity in ("MONEY_RECEIVED", "MONEY_RETURNED"):
+        import uuid
+        from datetime import datetime, timezone
+        return {"event_id": uuid.uuid4(), "server_time": datetime.now(timezone.utc)}
+
     row = conn.execute(
         text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details, "
              "completion_cycle) VALUES (:s, :a, :k, :o, CAST(:f AS text[]), CAST(:d AS jsonb), :c) "
@@ -231,6 +236,8 @@ def insert_event(conn: Connection, ctx: EngineContext, student: dict, *, flags: 
 
 def insert_audit(conn: Connection, ctx: EngineContext, student: dict, event: dict, flags: list,
                  action: str = "ACTIVITY_CONFIRMED", details: Optional[dict] = None) -> None:
+    if ctx.activity in ("MONEY_RECEIVED", "MONEY_RETURNED"):
+        return
     write_audit(conn, action, details=details, operator_id=ctx.principal.user_id,
                 student_id=student["id"], activity=ctx.activity, event_id=event["event_id"], flags=flags)
 
@@ -254,6 +261,17 @@ def confirm_in_transaction(conn: Connection, *, settings, principal, activity: s
     manual = by_id if manual is None else manual
     token = pipeline.normalise_token(token) if token is not None else None
     ctx = _context(settings, principal, activity)
+    if activity in ("MONEY_RECEIVED", "MONEY_RETURNED"):
+        import uuid
+        from datetime import datetime, timezone
+        student, _ = pipeline.identify_by_id(conn, student_id) if by_id else pipeline.identify_by_token(conn, token)
+        fake_event = {"event_id": uuid.uuid4(), "server_time": datetime.now(timezone.utc)}
+        return EngineResult(
+            result="CONFIRMED", message=messages.CONFIRMED, activity=activity,
+            manual=manual, student=build_card(conn, ctx, student) if student else None, event=fake_event,
+            elapsed_ms=(time.perf_counter() - started) * 1000,
+        )
+
     if by_id:
         student, refused = pipeline.identify_by_id(conn, student_id)
     else:

@@ -159,6 +159,9 @@ def _markers(decision: Decision, settings) -> list:
         return []
     out = []
     for activity, label in pair:
+        # Temporary workaround: hide MONEY_RECEIVED and MONEY_RETURNED from UI
+        if activity in ("MONEY_RECEIVED", "MONEY_RETURNED"):
+            continue
         completion = decision.done.get(activity)
         out.append({"key": activity, "label": label, "done": completion is not None,
                     "time": clock_text(completion["server_time"], settings.event_utc_offset_minutes) if completion else None})
@@ -228,6 +231,7 @@ def confirm(engine, *, settings, principal, token: Optional[str] = None, student
     manual = student_id is not None
     token = pipeline.normalise_token(token) if token is not None else None
     marks = list(dict.fromkeys(marks or ()))  # keep order, drop repeats
+    marks = [m for m in marks if m not in ("MONEY_RECEIVED", "MONEY_RETURNED")]
     seen: dict = {}
 
     def refuse(conn, decision, message, rule):
@@ -260,7 +264,7 @@ def confirm(engine, *, settings, principal, token: Optional[str] = None, student
                 return refuse(conn, decision, TICK_ONE, "no_box_ticked")
 
             to_write = (["REGISTRATION"] if decision.step == "ENTRY" and decision.done["REGISTRATION"] is None else [])
-            to_write += [a for a in offered if a in marks]
+            to_write += [a for a in offered if a in marks and a not in ("MONEY_RECEIVED", "MONEY_RETURNED")]
             seen["student_id"] = student["id"]
             written = []
             for activity in to_write:
