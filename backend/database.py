@@ -39,6 +39,8 @@ _sessionmakers: Dict[str, sessionmaker] = {}
 
 def get_engine(database_url: str) -> Engine:
     global _engines
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
     if database_url not in _engines:
         connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
         _engines[database_url] = create_engine(

@@ -24,6 +24,9 @@ try:
 except Exception:
     db_url = os.getenv("DATABASE_URL", "postgresql://convocation_user:convocation_password@localhost:5432/convocation_db")
 
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
 config.set_main_option("sqlalchemy.url", db_url)
 
 # Model's MetaData object for 'autogenerate' support

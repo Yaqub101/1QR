@@ -35,5 +35,5 @@ COPY scripts/ scripts/
 # Expose port
 EXPOSE 8000
 
-# Default command
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command: evaluate PORT dynamically for Render, with proxy headers enabled for HTTPS
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"]
