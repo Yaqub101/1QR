@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="{{ asset_url('led.css') }}">
 </head>
 <body class="led">
+  <header class="led-logos-header">
+    <div class="header-logo-pill">
+      <img src="{{ asset_url('img/mgm-logo.png') }}" alt="MGM University" class="header-logo mgm-logo">
+    </div>
+    <div class="header-logo-pill">
+      <img src="{{ asset_url('img/convocation-logo.png') }}" alt="Convocation Logo" class="header-logo convocation-logo">
+    </div>
+  </header>
   <main id="holding" class="holding">
     <h1 id="holding-title">{{ holding.title }}</h1>
     <p id="holding-text">{{ holding.text }}</p>

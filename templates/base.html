@@ -8,29 +8,39 @@
   <script src="{{ asset_url('busy.js') }}" defer></script>
 </head>
 <body class="{% if principal and principal.is_admin and is_admin_screen %}has-admin-sidebar{% endif %}">
+{% block header %}
 <header class="bar app-header {% if is_admin_screen %}admin-header{% else %}station-header{% endif %}">
-  <div class="brand brand-group">
+  <div class="header-left brand-group">
     {% if principal and principal.is_admin and is_admin_screen %}
     <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation menu">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
     {% endif %}
-    <a href="{{ '/admin' if principal and principal.is_admin else '/' }}" class="header-logo-link">
-      <img src="{{ asset_url('img/convocation-logo.png') }}" alt="Convocation Logo" class="header-logo">
-    </a>
-    <div class="header-title-block">
-      <span class="header-title-main">MGM UNIVERSITY</span>
+    <a href="{{ '/admin' if principal and principal.is_admin else '/' }}" class="header-brand-link">
+      <div class="header-logo-pill">
+        <img src="{{ asset_url('img/mgm-logo.png') }}" alt="MGM University" class="header-logo mgm-logo">
+      </div>
       <span class="header-title-sub">Convocation Management</span>
-    </div>
+    </a>
   </div>
-  {% if principal %}
-  <div class="user-group">
+
+  <div class="header-center">
+    <a href="{{ '/admin' if principal and principal.is_admin else '/' }}" class="header-center-link">
+      <div class="header-logo-pill">
+        <img src="{{ asset_url('img/convocation-logo.png') }}" alt="Convocation Logo" class="header-logo convocation-logo">
+      </div>
+    </a>
+  </div>
+
+  <div class="header-right user-group">
+    {% if principal %}
     <span class="role-badge">{{ role_label[principal.role] }}</span>
     <span class="who">{{ principal.full_name or principal.username }}</span>
     <form method="post" action="/logout"><button class="link signout-link" type="submit">Sign out</button></form>
+    {% endif %}
   </div>
-  {% endif %}
 </header>
+{% endblock %}
 
 <div class="{% if principal and principal.is_admin and is_admin_screen %}admin-layout-container{% else %}app-content-container{% endif %}">
   {% if principal and principal.is_admin and is_admin_screen %}

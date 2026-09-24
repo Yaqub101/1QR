@@ -34,6 +34,37 @@ body.led {
   display: none !important;
 }
 
+.led-logos-header {
+  position: absolute;
+  top: 2.2vh;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.header-logo-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #FFFFFF;
+  padding: 3px 14px;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.header-logo {
+  height: 44px;
+  width: auto;
+  max-width: 190px;
+  object-fit: contain;
+  display: block;
+}
+
 .holding {
   height: 100vh;
   display: flex;

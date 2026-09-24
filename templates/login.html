@@ -1,7 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Sign in{% endblock %}
+{% block header %}
+{# Suppress base header on sign-in so logos appear once centered above the card #}
+{% endblock %}
 {% block body %}
 <div class="login-wrapper" style="max-width: 28rem; margin: 2rem auto; text-align: center;">
+  <div class="standalone-logos-container" style="margin-bottom: 1.5rem;">
+    <div class="header-logo-pill">
+      <img src="{{ asset_url('img/mgm-logo.png') }}" alt="MGM University" class="header-logo mgm-logo">
+    </div>
+    <div class="header-logo-pill">
+      <img src="{{ asset_url('img/convocation-logo.png') }}" alt="Convocation Logo" class="header-logo convocation-logo">
+    </div>
+  </div>
   <div class="card" style="padding: 2.2rem 2rem; border-top: 4px solid var(--gold);">
     <div style="margin-bottom: 1.2rem;">
       <h2 style="font-family: var(--font-serif); font-size: 1.45rem; color: var(--brand-dark); margin: 0 0 0.2rem;">MGM UNIVERSITY</h2>
