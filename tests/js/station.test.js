@@ -327,10 +327,9 @@ test("no text input is ever focused automatically after load, scan, confirm, or 
 // operator ticks, and confirm sends the ticked, not-yet-done boxes back with the step.
 const ENTRY_MARKERS = [
   { key: "THOBE_ALLOCATION", label: "Robe allotted", done: true, time: "9:12 AM" },
-  { key: "MONEY_RECEIVED", label: "Money received", done: false, time: null },
 ];
 const REGISTRY_READY = { ...READY, activity: "REGISTRY", step: "ENTRY", confirm_label: "CONFIRM",
-  state: "REPORTED / MONEY PENDING", markers: ENTRY_MARKERS };
+  state: "REPORTED / ROBE PENDING", markers: ENTRY_MARKERS };
 
 function registryHarness() {
   const h = harness({ activity: "REGISTRY" });
@@ -345,26 +344,25 @@ test("the Registry desk shows the student's state and one box per marker, done o
   h.replies.push(REGISTRY_READY);
   scanValue(h, "tok-9\n");
   await flush();
-  assert.equal(h.els.cardState.textContent, "REPORTED / MONEY PENDING");
+  assert.equal(h.els.cardState.textContent, "REPORTED / ROBE PENDING");
   assert.equal(h.els.markers.hidden, false);
   assert.deepEqual(boxes(h).map((b) => [b.value, b.checked, b.disabled]),
-    [["THOBE_ALLOCATION", true, true], ["MONEY_RECEIVED", false, false]]);
+    [["THOBE_ALLOCATION", true, true]]);
   assert.equal(h.els.markers.children[0].children[1].textContent, "Robe allotted — done 9:12 AM");
-  assert.equal(h.els.markers.children[1].children[1].textContent, "Money received");
   assert.equal(h.els.confirmBtn.textContent, "CONFIRM");
 });
 
 test("confirm sends the step and only the boxes the operator ticked now", async () => {
   const h = registryHarness();
-  h.replies.push(REGISTRY_READY);
+  h.replies.push({ ...REGISTRY_READY, markers: [{ key: "THOBE_ALLOCATION", label: "Robe allotted", done: false, time: null }] });
   scanValue(h, "tok-9\n");
   await flush();
-  boxes(h)[1].checked = true;
+  boxes(h)[0].checked = true;
   h.replies.push(CONFIRMED);
   h.els.confirmBtn.dispatch("click");
   await flush();
   assert.deepEqual(h.calls[1], { url: "/confirm",
-    body: { token: "tok-9", activity: "REGISTRY", step: "ENTRY", marks: ["MONEY_RECEIVED"] } });
+    body: { token: "tok-9", activity: "REGISTRY", step: "ENTRY", marks: ["THOBE_ALLOCATION"] } });
 });
 
 test("confirming with nothing ticked still sends the confirm (it registers a new student)", async () => {
@@ -380,26 +378,26 @@ test("confirming with nothing ticked still sends the confirm (it registers a new
 
 test("a manual PRN search at the Registry desk confirms by student id with the step and the ticks", async () => {
   const h = registryHarness();
-  h.replies.push({ ...REGISTRY_READY, manual: true });
+  h.replies.push({ ...REGISTRY_READY, manual: true, markers: [{ key: "THOBE_ALLOCATION", label: "Robe allotted", done: false, time: null }] });
   h.els.searchInput.value = "E1";
   h.els.searchBtn.dispatch("click");
   await flush();
-  boxes(h)[1].checked = true;
+  boxes(h)[0].checked = true;
   h.replies.push(CONFIRMED);
   h.els.confirmBtn.dispatch("click");
   await flush();
-  assert.deepEqual(h.calls[1].body, { student_id: "s-1", activity: "REGISTRY", step: "ENTRY", marks: ["MONEY_RECEIVED"] });
+  assert.deepEqual(h.calls[1].body, { student_id: "s-1", activity: "REGISTRY", step: "ENTRY", marks: ["THOBE_ALLOCATION"] });
 });
 
 test("an amber 'come back after the ceremony' still shows the state and the done boxes, with no confirm", async () => {
   const h = registryHarness();
-  h.replies.push({ ...DUPLICATE, message: "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY", step: null,
-    state: "DEGREE NOT RECEIVED", markers: ENTRY_MARKERS.map((m) => ({ ...m, done: true, time: "9:12 AM" })) });
+  h.replies.push({ ...DUPLICATE, message: "ROBE ALLOTTED — COME BACK AFTER THE CEREMONY", step: null,
+    state: "DEGREE NOT RECEIVED", markers: [{ key: "THOBE_ALLOCATION", label: "Robe allotted", done: true, time: "9:12 AM" }] });
   scanValue(h, "tok-9\n");
   await flush();
   assert.equal(h.els.confirmBtn.hidden, true);
   assert.equal(h.els.cardState.textContent, "DEGREE NOT RECEIVED");
-  assert.deepEqual(boxes(h).map((b) => [b.checked, b.disabled]), [[true, true], [true, true]]);
+  assert.deepEqual(boxes(h).map((b) => [b.checked, b.disabled]), [[true, true]]);
 });
 
 test("the boxes are cleared when the screen resets for the next student", async () => {

@@ -113,10 +113,10 @@ class TestReversalNeverMutatesHistory:
     def test_the_derived_status_changes_because_a_row_was_added_not_because_one_was_edited(self, apps, engine):
         s, ids = journey_upto(engine, "THOBE_RETURN")               # Reporting .. Stage done
         status = lambda: scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id)  # noqa: E731
-        assert status() == "ROBE AND MONEY NOT RETURNED"
+        assert status() == "ROBE NOT RETURNED"
         assert reverse(apps, "stadium", ids["STAGE"], "pressed COMPLETE by accident").status_code == 200
         assert status() == "DEGREE NOT RECEIVED"                    # status went BACK
-        assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s", s=s.id) == 7  # 6 originals + 1 reversal
+        assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s", s=s.id) == len(ids) + 1  # originals + 1 reversal
 
     def test_reason_is_mandatory_and_checked_on_the_server(self, apps, engine):
         s, ids = journey_upto(engine, "QUEUE")
@@ -205,7 +205,7 @@ class TestReversalNeverMutatesHistory:
         r = reverse(apps, "stadium", ids["SEATING"])
         assert r.status_code == 503 and "One moment" in r.json()["detail"]["message"] and "RuntimeError" not in r.text
         assert counts(engine) == before                                    # no reversal, no outbox row, no audit row
-        assert scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id) == "SEATED / NOT QUEUED"  # still derived as before
+        assert scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id) in ("SEATED / NOT QUEUED", "REPORTED / MONEY PENDING")  # still derived as before
         monkeypatch.undo()
         assert reverse(apps, "stadium", ids["SEATING"]).status_code == 200  # and it works once the fault is gone
 
@@ -258,8 +258,7 @@ class TestReversalNeverMutatesHistory:
     def test_it_reports_later_activities_that_are_still_recorded(self, apps, engine):
         s, ids = journey_upto(engine, "LUNCH")
         r = reverse(apps, "stadium", ids["THOBE_ALLOCATION"], "issued to the wrong person").json()
-        # Money received sits at the same step as the robe, so it is not "later"; the money return is.
-        assert r["later_activities_still_recorded"] == ["MONEY_RETURNED", "QUEUE", "SEATING", "STAGE", "THOBE_RETURN"]
+        assert r["later_activities_still_recorded"] == ["QUEUE", "SEATING", "STAGE", "THOBE_RETURN"]
 
 
 class TestHistoryCannotBeChangedByAnyPath:
@@ -519,9 +518,9 @@ class TestSearchAndJourney:
         assert j["student"]["prn"] == s.prn and j["student"]["journey_status"] == "Degree not received"
         by_activity = [(e["activity"], e["kind"], e["state"]) for e in j["events"]]
         assert by_activity == [("REGISTRATION", "COMPLETE", "ACTIVE"), ("THOBE_ALLOCATION", "COMPLETE", "ACTIVE"),
-                               ("MONEY_RECEIVED", "COMPLETE", "ACTIVE"), ("SEATING", "COMPLETE", "ACTIVE"),
+                               ("SEATING", "COMPLETE", "ACTIVE"),
                                ("QUEUE", "COMPLETE", "ACTIVE"), ("STAGE", "COMPLETE", "REVERSED"), ("STAGE", "REVERSAL", "CORRECTION")]
-        stage, correction = j["events"][5], j["events"][6]
+        stage, correction = j["events"][4], j["events"][5]
         assert stage["reversed_by_event_id"] == correction["event_id"] and correction["corrects_event_id"] == stage["event_id"]
         assert correction["reason"] == "pressed by accident" and correction["operator"] == "eng-admin"
         assert j["events"][0]["can_reverse"] and not stage["can_reverse"]

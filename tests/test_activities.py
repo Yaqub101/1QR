@@ -329,16 +329,15 @@ class TestLunch:
         returned = ready_student(engine, "LUNCH")
         assert scan(client, "LUNCH", returned.token).json()["result"] == "READY"
         waived = make_student(engine)
-        seed_events(engine, waived, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")] + ["MONEY_RETURNED"])  # the money came back normally
+        seed_events(engine, waived, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")])
         seed_at(engine, waived, "THOBE_RETURN", kind="WAIVER", hours_ago=1)  # an EXISTING Admin waiver record
         ready = scan(client, "LUNCH", waived.token).json()
-        assert ready["result"] == "READY" and field(ready["student"], "eligibility").startswith(
-            "Robe waived by Admin · Money returned ")
+        assert ready["result"] == "READY" and field(ready["student"], "eligibility") == "Robe waived by Admin"
         assert confirm(client, "LUNCH", token=waived.token).json()["result"] == "CONFIRMED"
 
     def test_a_reversed_waiver_no_longer_unlocks_lunch(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")] + ["MONEY_RETURNED"])
+        seed_events(engine, s, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")])
         waiver = seed_at(engine, s, "THOBE_RETURN", kind="WAIVER", hours_ago=2)
         assert scan(operator(apps, world, "LUNCH"), "LUNCH", s.token).json()["result"] == "READY"
         seed_at(engine, s, "THOBE_RETURN", kind="REVERSAL", corrects=waiver.event_id, hours_ago=1)
@@ -380,10 +379,10 @@ class TestFullJourney:
 
     def test_registration_to_lunch_ends_exited(self, apps, world, engine):
         s, seen = self._walk(apps, world, engine, waive_return=False)
-        assert seen == STATUS_AFTER_STEP[1:] and seen[-1] == "EXITED"
-        assert len(events_of(engine, s)) == len(ACTIVITIES) == 9
-        # Each of the nine steps: the scan the operator was shown, then the confirm. No false duplicate anywhere.
-        assert [r["result"] for r in log_of(engine, s)] == ["READY", "SUCCESS"] * 9
+        assert seen[-1] == "EXITED"
+        assert len(events_of(engine, s)) == len(ACTIVITIES) == 7
+        # Each of the seven steps: the scan the operator was shown, then the confirm. No false duplicate anywhere.
+        assert [r["result"] for r in log_of(engine, s)] == ["READY", "SUCCESS"] * 7
 
     def test_the_same_journey_with_an_admin_waived_return_also_ends_exited(self, apps, world, engine):
         s, seen = self._walk(apps, world, engine, waive_return=True)

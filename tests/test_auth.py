@@ -46,8 +46,7 @@ PASSWORD = "Test-Pass-2026!"  # test-only constant, never a real credential
 SESSION_COOKIE = "session"
 
 ACTIVITIES = [
-    "REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN",
-    "MONEY_RETURNED", "LUNCH",
+    "REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH",
 ]
 
 # key -> role. The approved role/flow redesign: ONE merged Registry operator role covers Reporting,
@@ -74,18 +73,16 @@ RETIRED_ROLES = ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN")  # merged i
 OPERATOR_ROLE_FOR = {
     "REGISTRATION": "REGISTRY",
     "THOBE_ALLOCATION": "REGISTRY",
-    "MONEY_RECEIVED": "REGISTRY",
     "SEATING": "SEATING",
     "QUEUE": "QUEUE",
     "STAGE": "STAGE",
     "THOBE_RETURN": "REGISTRY",
-    "MONEY_RETURNED": "REGISTRY",
     "LUNCH": "LUNCH",
 }
 
 # "Can do" per role, written out by hand from the redesign.
 SPEC_ACTIVITY_PAGES = {
-    "REGISTRY": {"REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "THOBE_RETURN", "MONEY_RETURNED"},
+    "REGISTRY": {"REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"},
     "SEATING": {"SEATING"},
     "QUEUE": {"QUEUE"},
     "STAGE": {"STAGE"},

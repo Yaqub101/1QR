@@ -41,9 +41,9 @@ from tests.test_station_engine import (  # noqa: F401  (engine/world/apps are py
 )
 
 REGISTRY = "REGISTRY"
-ROBE, MONEY, ROBE_BACK, MONEY_BACK = "THOBE_ALLOCATION", "MONEY_RECEIVED", "THOBE_RETURN", "MONEY_RETURNED"
-RECEIVED_WAIT = "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY"
-ALL_RETURNED = "ROBE AND MONEY ALREADY RETURNED — {time}"
+ROBE, ROBE_BACK = "THOBE_ALLOCATION", "THOBE_RETURN"
+RECEIVED_WAIT = "ROBE ALLOTTED — COME BACK AFTER THE CEREMONY"
+ALL_RETURNED = "ROBE ALREADY RETURNED — {time}"
 TICK_ONE = "Tick at least one box, then confirm."
 CHANGED = "The record has just changed; check the boxes and confirm again."
 UNKNOWN_QR = "QR NOT RECOGNISED — use PRN search or contact Admin"
@@ -52,7 +52,7 @@ READY = "Check the photo, tick what you hand over, then confirm."
 READY_RETURN = "Check the photo, tick what you take back, then confirm."
 DONE = "Done."
 TEMPORARY = "One moment, please try again."
-ENTRY_DONE = ["REGISTRATION", ROBE, MONEY]
+ENTRY_DONE = ["REGISTRATION", ROBE]
 UP_TO_STAGE = ENTRY_DONE + ["QUEUE", "STAGE"]
 
 
@@ -106,11 +106,11 @@ def status(engine, student):
 # Entry: register, with or without the boxes
 # --------------------------------------------------------------------------- #
 class TestEntry:
-    def test_a_new_student_shows_the_two_entry_boxes_unticked_and_where_they_are(self, apps, world, engine):
+    def test_a_new_student_shows_the_entry_box_unticked_and_where_they_are(self, apps, world, engine):
         s = make_student(engine)
         reply = registry_scan(desk(apps, world), s.token).json()
         assert reply["result"] == "READY" and reply["message"] == READY and reply["step"] == "ENTRY"
-        assert markers(reply) == [(ROBE, "Robe allotted", False), (MONEY, "Money received", False)]
+        assert markers(reply) == [(ROBE, "Robe allotted", False)]
         assert reply["state"] == "REGISTERED / NOT REPORTED"
         assert reply["confirm_label"] == "CONFIRM"
         assert completions(engine, s) == {}  # a scan never records an activity
@@ -120,42 +120,37 @@ class TestEntry:
         reply = registry_confirm(desk(apps, world), token=s.token, step="ENTRY", marks=[]).json()
         assert reply["result"] == "CONFIRMED" and reply["message"] == DONE
         assert completions(engine, s) == {"REGISTRATION": 1}
-        assert reply["state"] == "REPORTED / ROBE AND MONEY PENDING"
+        assert reply["state"] == "REPORTED / ROBE PENDING"
 
-    def test_both_boxes_on_the_first_confirm_record_three_events_in_one_transaction(self, apps, world, engine):
+    def test_robe_box_on_the_first_confirm_records_two_events_in_one_transaction(self, apps, world, engine):
         s = make_student(engine)
-        reply = registry_confirm(desk(apps, world), token=s.token, step="ENTRY", marks=[ROBE, MONEY]).json()
+        reply = registry_confirm(desk(apps, world), token=s.token, step="ENTRY", marks=[ROBE]).json()
         assert reply["result"] == "CONFIRMED"
-        assert [e["activity"] for e in reply["events"]] == ["REGISTRATION", ROBE, MONEY]
-        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1, MONEY: 1}
+        assert [e["activity"] for e in reply["events"]] == ["REGISTRATION", ROBE]
+        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1}
         times = {events_of(engine, s, a)[0]["server_time"] for a in ENTRY_DONE}
         assert len(times) == 1  # ONE transaction: PostgreSQL's now() is the transaction start time
-        assert reply["state"] == status(engine, s) == "ROBE AND MONEY RECEIVED / NOT QUEUED"
+        assert reply["state"] == status(engine, s) == "ROBE RECEIVED / NOT QUEUED"
         audits = q(engine, "SELECT activity FROM audit_log WHERE student_id = :s AND action = 'ACTIVITY_CONFIRMED'", s=s.id)
         assert sorted(a["activity"] for a in audits) == sorted(ENTRY_DONE)
         for activity in ENTRY_DONE:
             assert "SUCCESS" in {r["result"] for r in log_of(engine, s, activity)}
 
-    def test_scanning_again_shows_the_same_two_boxes_with_what_is_already_done(self, apps, world, engine):
+    def test_scanning_again_shows_the_same_box_with_what_is_already_done(self, apps, world, engine):
         s = make_student(engine)
         client = desk(apps, world)
         registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE])
         reply = registry_scan(client, s.token).json()
-        assert reply["result"] == "READY" and reply["step"] == "ENTRY"
-        assert markers(reply) == [(ROBE, "Robe allotted", True), (MONEY, "Money received", False)]
-        assert reply["markers"][0]["time"] is not None and reply["markers"][1]["time"] is None
-        assert reply["state"] == "REPORTED / MONEY PENDING"
-        done = registry_confirm(client, token=s.token, step="ENTRY", marks=[MONEY]).json()
-        assert done["result"] == "CONFIRMED" and [e["activity"] for e in done["events"]] == [MONEY]
-        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1, MONEY: 1}  # Reporting is not written twice
+        assert reply["result"] == "DUPLICATE" and reply["step"] is None
+        assert reply["message"] == RECEIVED_WAIT
+        assert markers(reply) == [(ROBE, "Robe allotted", True)]
+        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1}
 
-    def test_money_first_then_robe_works_the_other_way_round(self, apps, world, engine):
+    def test_robe_then_report_works(self, apps, world, engine):
         s = make_student(engine)
         client = desk(apps, world)
-        registry_confirm(client, token=s.token, step="ENTRY", marks=[MONEY])
-        assert status(engine, s) == "REPORTED / ROBE PENDING"
         registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE])
-        assert status(engine, s) == "ROBE AND MONEY RECEIVED / NOT QUEUED"
+        assert status(engine, s) == "ROBE RECEIVED / NOT QUEUED"
 
     def test_a_reported_student_must_have_a_box_ticked(self, apps, world, engine):
         s = make_student(engine)
@@ -166,25 +161,23 @@ class TestEntry:
         assert_plain(reply["message"])
         assert completions(engine, s) == {"REGISTRATION": 1}
 
-    def test_once_both_are_recorded_the_desk_says_come_back_after_the_ceremony(self, apps, world, engine):
+    def test_once_robe_is_recorded_the_desk_says_come_back_after_the_ceremony(self, apps, world, engine):
         s = make_student(engine)
         client = desk(apps, world)
-        registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE, MONEY])
+        registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE])
         for reply in (registry_scan(client, s.token).json(),
                       registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE]).json()):
             assert reply["result"] == "DUPLICATE" and reply["colour"] == "amber"
             assert reply["message"] == RECEIVED_WAIT and reply["step"] is None
-            assert markers(reply) == [(ROBE, "Robe allotted", True), (MONEY, "Money received", True)]
-        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1, MONEY: 1}
+            assert markers(reply) == [(ROBE, "Robe allotted", True)]
+        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1}
 
     def test_a_box_somebody_else_just_ticked_is_not_recorded_twice(self, apps, world, engine):
         s = make_student(engine)
         client = desk(apps, world)
-        registry_confirm(client, token=s.token, step="ENTRY", marks=[])
-        registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE])  # another desk, a moment ago
-        reply = registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE, MONEY]).json()  # stale screen
-        assert reply["result"] == "READY" and reply["message"] == CHANGED
-        assert markers(reply) == [(ROBE, "Robe allotted", True), (MONEY, "Money received", False)]
+        registry_confirm(client, token=s.token, step="ENTRY", marks=[])  # register
+        # Robe already done by another desk — ENTRY is now "DUPLICATE" so no stale-screen scenario
+        registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE])
         assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1}
 
     @pytest.mark.parametrize("bad", [[ROBE_BACK], ["LUNCH"], ["QUEUE"], ["NOT_A_THING"]])
@@ -198,13 +191,13 @@ class TestEntry:
         s = make_student(engine)
         real_insert = service.insert_event
 
-        def fail_on_money(conn, ctx, student, **kw):
-            if ctx.activity == MONEY:
+        def fail_on_robe(conn, ctx, student, **kw):
+            if ctx.activity == ROBE:
                 raise RuntimeError("simulated crash between the writes")
             return real_insert(conn, ctx, student, **kw)
 
-        with mock.patch.object(service, "insert_event", side_effect=fail_on_money):
-            response = registry_confirm(desk(apps, world), token=s.token, step="ENTRY", marks=[ROBE, MONEY])
+        with mock.patch.object(service, "insert_event", side_effect=fail_on_robe):
+            response = registry_confirm(desk(apps, world), token=s.token, step="ENTRY", marks=[ROBE])
         assert response.status_code == 503 and response.json()["detail"]["message"] == TEMPORARY
         assert completions(engine, s) == {}
         assert q(engine, "SELECT count(*) AS n FROM audit_log WHERE student_id = :s AND action = 'ACTIVITY_CONFIRMED'",
@@ -220,9 +213,9 @@ class TestEntry:
             assert api_login(c, "eng-registration").status_code == 200
             clients.append(c)
         replies = _run_threads(
-            lambda i: registry_confirm(clients[i], token=s.token, step="ENTRY", marks=[ROBE, MONEY]).json(), 6)
+            lambda i: registry_confirm(clients[i], token=s.token, step="ENTRY", marks=[ROBE]).json(), 6)
         assert [r["result"] for r in replies].count("CONFIRMED") == 1, replies
-        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1, MONEY: 1}
+        assert completions(engine, s) == {"REGISTRATION": 1, ROBE: 1}
 
     def test_reporting_after_the_cutoff_is_still_flagged_late(self, apps, world, engine):
         s = make_student(engine)
@@ -241,36 +234,31 @@ class TestEntry:
 # After the degree: the return boxes
 # --------------------------------------------------------------------------- #
 class TestReturn:
-    def test_after_the_degree_the_same_scan_shows_the_two_return_boxes(self, apps, world, engine):
+    def test_after_the_degree_the_same_scan_shows_the_return_box(self, apps, world, engine):
         s = make_student(engine)
         seed_events(engine, s, UP_TO_STAGE)
         reply = registry_scan(desk(apps, world), s.token).json()
         assert reply["result"] == "READY" and reply["step"] == "RETURN" and reply["message"] == READY_RETURN
-        assert markers(reply) == [(ROBE_BACK, "Robe returned", False), (MONEY_BACK, "Money returned", False)]
-        assert reply["state"] == "ROBE AND MONEY NOT RETURNED"
+        assert markers(reply) == [(ROBE_BACK, "Robe returned", False)]
+        assert reply["state"] == "ROBE NOT RETURNED"
 
-    def test_robe_and_money_can_come_back_separately(self, apps, world, engine):
+    def test_robe_return_and_then_lunch_eligible(self, apps, world, engine):
         s = make_student(engine)
         seed_events(engine, s, UP_TO_STAGE)
         client = desk(apps, world)
         first = registry_confirm(client, token=s.token, step="RETURN", marks=[ROBE_BACK]).json()
-        assert first["result"] == "CONFIRMED" and first["state"] == "MONEY NOT RETURNED"
-        again = registry_scan(client, s.token).json()
-        assert again["step"] == "RETURN"
-        assert markers(again) == [(ROBE_BACK, "Robe returned", True), (MONEY_BACK, "Money returned", False)]
-        registry_confirm(client, token=s.token, step="RETURN", marks=[MONEY_BACK])
-        assert status(engine, s) == "LUNCH ELIGIBLE"
+        assert first["result"] == "CONFIRMED" and first["state"] == "LUNCH ELIGIBLE"
         assert events_of(engine, s, ROBE_BACK)[0]["details"] == {}  # robes are unnumbered: nothing to record
 
-    def test_both_back_in_one_confirm_and_then_a_plain_duplicate(self, apps, world, engine):
+    def test_robe_returned_and_then_a_plain_duplicate(self, apps, world, engine):
         s = make_student(engine)
         seed_events(engine, s, UP_TO_STAGE)
         client = desk(apps, world)
-        assert registry_confirm(client, token=s.token, step="RETURN", marks=[ROBE_BACK, MONEY_BACK]).json()["result"] == "CONFIRMED"
-        when = clock(events_of(engine, s, MONEY_BACK)[0]["server_time"])
+        assert registry_confirm(client, token=s.token, step="RETURN", marks=[ROBE_BACK]).json()["result"] == "CONFIRMED"
+        when = clock(events_of(engine, s, ROBE_BACK)[0]["server_time"])
         reply = registry_scan(client, s.token).json()
         assert reply["result"] == "DUPLICATE" and reply["message"] == ALL_RETURNED.format(time=when)
-        assert markers(reply) == [(ROBE_BACK, "Robe returned", True), (MONEY_BACK, "Money returned", True)]
+        assert markers(reply) == [(ROBE_BACK, "Robe returned", True)]
 
     def test_before_the_degree_there_are_no_return_boxes(self, apps, world, engine):
         s = make_student(engine)
@@ -283,10 +271,10 @@ class TestReturn:
 
     def test_admin_waivers_count_as_returned(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, UP_TO_STAGE + [ROBE_BACK, MONEY_BACK],
-                    kind_overrides={ROBE_BACK: "WAIVER", MONEY_BACK: "WAIVER"})
+        seed_events(engine, s, UP_TO_STAGE + [ROBE_BACK],
+                    kind_overrides={ROBE_BACK: "WAIVER"})
         reply = registry_scan(desk(apps, world), s.token).json()
-        assert reply["result"] == "DUPLICATE" and reply["message"].startswith("ROBE AND MONEY ALREADY RETURNED — ")
+        assert reply["result"] == "DUPLICATE" and reply["message"].startswith("ROBE ALREADY RETURNED — ")
 
 
 # --------------------------------------------------------------------------- #
@@ -309,7 +297,7 @@ class TestRefusalsAndFallback:
         client = desk(apps, world)
         found = registry_search(client, s.prn).json()
         assert found["result"] == "READY" and found["manual"] is True and found["step"] == "ENTRY"
-        reply = registry_confirm(client, student_id=found["student"]["student_id"], step="ENTRY", marks=[ROBE, MONEY]).json()
+        reply = registry_confirm(client, student_id=found["student"]["student_id"], step="ENTRY", marks=[ROBE]).json()
         assert reply["result"] == "CONFIRMED"
         for activity in ENTRY_DONE:
             assert "MANUAL" in events_of(engine, s, activity)[0]["flags"]
@@ -326,7 +314,7 @@ class TestRefusalsAndFallback:
 
     def test_a_registry_operator_cannot_confirm_lunch_or_queue(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, UP_TO_STAGE + [ROBE_BACK, MONEY_BACK])
+        seed_events(engine, s, UP_TO_STAGE + [ROBE_BACK])
         client = desk(apps, world)
         for activity in ("LUNCH", "QUEUE"):
             response = client.post("/confirm", json={"activity": activity, "token": s.token})
@@ -354,53 +342,48 @@ class TestRegistryScreen:
 # What the other scan points now need
 # --------------------------------------------------------------------------- #
 class TestJourney:
-    def test_the_queue_needs_the_robe_and_the_money(self, apps, world, engine):
+    def test_the_queue_needs_the_robe(self, apps, world, engine):
         queue = operator(apps, world, "QUEUE")
-        robe_only, money_only, both = make_student(engine), make_student(engine), make_student(engine)
-        seed_events(engine, robe_only, ["REGISTRATION", ROBE])
-        seed_events(engine, money_only, ["REGISTRATION", MONEY])
-        seed_events(engine, both, ENTRY_DONE)
-        assert scan(queue, "QUEUE", robe_only.token).json()["message"] == "QUEUE NOT AVAILABLE — MONEY NOT RECEIVED"
-        assert scan(queue, "QUEUE", money_only.token).json()["message"] == "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"
-        assert scan(queue, "QUEUE", both.token).json()["result"] == "READY"  # no seat needed
+        no_robe = make_student(engine)
+        seed_events(engine, no_robe, ["REGISTRATION"])
+        with_robe = make_student(engine)
+        seed_events(engine, with_robe, ENTRY_DONE)
+        assert scan(queue, "QUEUE", no_robe.token).json()["message"] == "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"
+        assert scan(queue, "QUEUE", with_robe.token).json()["result"] == "READY"  # no seat needed
 
-    def test_lunch_needs_both_returns(self, apps, world, engine):
+    def test_lunch_needs_the_robe_back(self, apps, world, engine):
         lunch = operator(apps, world, "LUNCH")
         s = make_student(engine)
-        seed_events(engine, s, UP_TO_STAGE + [ROBE_BACK])
-        assert scan(lunch, "LUNCH", s.token).json()["message"] == "LUNCH NOT AVAILABLE — MONEY RETURN PENDING"
-        registry_confirm(desk(apps, world), token=s.token, step="RETURN", marks=[MONEY_BACK])
+        seed_events(engine, s, UP_TO_STAGE)
+        assert scan(lunch, "LUNCH", s.token).json()["message"] == "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"
+        registry_confirm(desk(apps, world), token=s.token, step="RETURN", marks=[ROBE_BACK])
         assert scan(lunch, "LUNCH", s.token).json()["result"] == "READY"
 
-    def test_the_admin_can_record_money_kept_so_a_student_whose_robe_was_lost_can_still_have_lunch(self, apps, world, engine):
+    def test_the_admin_can_waive_the_robe_return_so_a_student_can_still_have_lunch(self, apps, world, engine):
         s = make_student(engine)
         seed_events(engine, s, UP_TO_STAGE)
         adm = admin(apps)
         robe = adm.post("/admin/api/corrections/waive-return", json={"student_id": str(s.id), "reason": "Robe lost"})
-        money = adm.post("/admin/api/corrections/waive-money", json={"student_id": str(s.id), "reason": "Kept for the lost robe"})
-        assert robe.status_code == 200 and money.status_code == 200, (robe.text, money.text)
-        assert money.json()["message"] == "Money kept. The student can now go to Lunch."  # the robe was already settled
-        assert [e["kind"] for e in events_of(engine, s, MONEY_BACK)] == ["WAIVER"]
-        assert "CORRECTED" in events_of(engine, s, MONEY_BACK)[0]["flags"]
+        assert robe.status_code == 200, robe.text
         assert status(engine, s) == "LUNCH ELIGIBLE"
-        again = adm.post("/admin/api/corrections/waive-money", json={"student_id": str(s.id), "reason": "twice"})
+        again = adm.post("/admin/api/corrections/waive-return", json={"student_id": str(s.id), "reason": "twice"})
         assert again.status_code == 409
         assert operator(apps, world, "REGISTRATION").post(
-            "/admin/api/corrections/waive-money", json={"student_id": str(s.id), "reason": "x"}).status_code == 403
+            "/admin/api/corrections/waive-return", json={"student_id": str(s.id), "reason": "x"}).status_code == 403
 
     def test_the_whole_journey_through_the_three_scan_points(self, apps, world, engine):
-        """Registry (entry) -> Queue -> [Stage] -> Registry (returns) -> Lunch."""
+        """Registry (entry) -> Queue -> [Stage] -> Registry (return) -> Lunch."""
         s = make_student(engine)
         client = desk(apps, world)
         assert registry_confirm(client, token=s.token, step="ENTRY", marks=[]).json()["result"] == "CONFIRMED"
-        assert registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE, MONEY]).json()["result"] == "CONFIRMED"
+        assert registry_confirm(client, token=s.token, step="ENTRY", marks=[ROBE]).json()["result"] == "CONFIRMED"
         queue = operator(apps, world, "QUEUE")
         assert queue.post("/confirm", json={"activity": "QUEUE", "token": s.token}).json()["result"] == "CONFIRMED"
         seed_events(engine, s, ["STAGE"])  # Stage is the Stage operator's NEXT, not a scan
-        assert registry_confirm(client, token=s.token, step="RETURN", marks=[ROBE_BACK, MONEY_BACK]).json()["result"] == "CONFIRMED"
+        assert registry_confirm(client, token=s.token, step="RETURN", marks=[ROBE_BACK]).json()["result"] == "CONFIRMED"
         lunch = operator(apps, world, "LUNCH")
         assert lunch.post("/confirm", json={"activity": "LUNCH", "token": s.token}).json()["result"] == "CONFIRMED"
-        assert completions(engine, s) == {a: 1 for a in UP_TO_STAGE + [ROBE_BACK, MONEY_BACK, "LUNCH"]}
+        assert completions(engine, s) == {a: 1 for a in UP_TO_STAGE + [ROBE_BACK, "LUNCH"]}
         assert status(engine, s) == "EXITED"
 
 
@@ -434,34 +417,33 @@ class TestMigrations:
         finally:
             eng.dispose()
 
-    def test_the_money_activities_are_accepted_only_after_their_migration_and_waivers_extend_to_money(self, bare_database):
+    def test_migration_0020_installs_the_seven_activity_student_status_view(self, bare_database):
         from sqlalchemy import create_engine, text
 
         from tests.conftest import run_alembic
 
-        assert run_alembic("upgrade", "0016_optional_seating_labels", database_url=bare_database).returncode == 0
+        assert run_alembic("upgrade", "head", database_url=bare_database).returncode == 0
         eng = create_engine(bare_database)
-        insert = ("INSERT INTO activity_events (student_id, activity, kind, operator_id, details) "
-                  "VALUES (:s, :a, :k, gen_random_uuid(), CAST(:d AS jsonb))")
         try:
             with eng.begin() as c:
                 sid = c.execute(text("INSERT INTO students (prn, name, programme, school) VALUES "
-                                     "('MIG1', 'Mig One', 'P', 'S') RETURNING id")).scalar_one()
+                                     "('MIG2', 'Mig Two', 'P', 'S') RETURNING id")).scalar_one()
+                # Seed the minimum activities to reach the return step
+                for activity in ('REGISTRATION', 'THOBE_ALLOCATION', 'QUEUE', 'STAGE'):
+                    c.execute(text(
+                        "INSERT INTO activity_events (student_id, activity, kind, operator_id, details) "
+                        "VALUES (:s, :a, 'COMPLETE', gen_random_uuid(), '{}')"
+                    ), {"s": sid, "a": activity})
+                # THOBE_RETURN waiver is still allowed in the 7-activity flow
+                c.execute(text(
+                    "INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details) "
+                    "VALUES (:s, 'THOBE_RETURN', 'WAIVER', gen_random_uuid(), '{CORRECTED}', "
+                    "'{\"reason\": \"lost\"}')"
+                ), {"s": sid})
             with eng.connect() as c:
-                with pytest.raises(Exception):
-                    with c.begin():
-                        c.execute(text(insert), {"s": sid, "a": MONEY, "k": "COMPLETE", "d": "{}"})
-            result = run_alembic("upgrade", "head", database_url=bare_database)
-            assert result.returncode == 0, result.stdout + result.stderr
-            with eng.begin() as c:
-                c.execute(text(insert), {"s": sid, "a": MONEY, "k": "COMPLETE", "d": "{}"})
-                c.execute(text("INSERT INTO activity_events (student_id, activity, kind, operator_id, flags, details) "
-                               "VALUES (:s, 'MONEY_RETURNED', 'WAIVER', gen_random_uuid(), '{CORRECTED}', "
-                               "'{\"reason\": \"kept\"}')"), {"s": sid})
-            with eng.connect() as c:
-                with pytest.raises(Exception):  # a waiver is still only for the two returns
-                    with c.begin():
-                        c.execute(text(insert), {"s": sid, "a": "QUEUE", "k": "WAIVER", "d": '{"reason": "x"}'})
+                status = c.execute(text("SELECT status FROM student_status WHERE student_id = :s"),
+                                   {"s": sid}).scalar()
+            assert status == "LUNCH ELIGIBLE"
         finally:
             eng.dispose()
 
@@ -473,11 +455,9 @@ class TestPermutationsAndFullFlow:
     @pytest.mark.parametrize("marks,expected_events", [
         ([], ["REGISTRATION"]),
         ([ROBE], ["REGISTRATION", ROBE]),
-        ([MONEY], ["REGISTRATION", MONEY]),
-        ([ROBE, MONEY], ["REGISTRATION", ROBE, MONEY]),
     ])
     def test_registry_op_confirm_entry_permutations(self, apps, world, engine, marks, expected_events):
-        """Registry OP confirm for every entry checkmark permutation: [], [ROBE], [MONEY], [ROBE, MONEY]."""
+        """Registry OP confirm for every entry checkmark permutation: [], [ROBE]."""
         s = make_student(engine)
         reply = registry_confirm(desk(apps, world), token=s.token, step="ENTRY", marks=marks).json()
         assert reply["result"] == "CONFIRMED"
@@ -486,11 +466,9 @@ class TestPermutationsAndFullFlow:
 
     @pytest.mark.parametrize("marks,expected_events", [
         ([ROBE_BACK], [ROBE_BACK]),
-        ([MONEY_BACK], [MONEY_BACK]),
-        ([ROBE_BACK, MONEY_BACK], [ROBE_BACK, MONEY_BACK]),
     ])
     def test_registry_op_confirm_return_permutations(self, apps, world, engine, marks, expected_events):
-        """Registry OP confirm for every return checkmark permutation: [ROBE_BACK], [MONEY_BACK], [ROBE_BACK, MONEY_BACK]."""
+        """Registry OP confirm for the return checkmark: [ROBE_BACK]."""
         s = make_student(engine)
         seed_events(engine, s, UP_TO_STAGE)
         reply = registry_confirm(desk(apps, world), token=s.token, step="RETURN", marks=marks).json()
@@ -514,14 +492,14 @@ class TestPermutationsAndFullFlow:
         stage_client = operator(apps, world, "STAGE")
         lunch_client = operator(apps, world, "LUNCH")
 
-        # 1. Registry Desk: Reporting + Robe + Money in one confirm
+        # 1. Registry Desk: Reporting + Robe in one confirm
         scan1 = registry_scan(reg_client, s.token).json()
         assert scan1["result"] == "READY"
-        conf1 = registry_confirm(reg_client, token=s.token, step="ENTRY", marks=[ROBE, MONEY]).json()
+        conf1 = registry_confirm(reg_client, token=s.token, step="ENTRY", marks=[ROBE]).json()
         assert conf1["result"] == "CONFIRMED"
-        assert status(engine, s) == "ROBE AND MONEY RECEIVED / NOT QUEUED"
+        assert status(engine, s) == "ROBE RECEIVED / NOT QUEUED"
 
-        # 2. Queue Station: Scan & Confirm (needs robe AND money; seating is optional)
+        # 2. Queue Station: Scan & Confirm (needs robe; seating is optional)
         with engine.begin() as c:
             c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
             c.execute(text("UPDATE stage_state SET current_student_id = NULL, display_student_id = NULL, "
@@ -540,16 +518,16 @@ class TestPermutationsAndFullFlow:
         assert nxt1.status_code == 200
         nxt2 = stage_client.post("/stage/next", json={"expect_current": str(s.id)})
         assert nxt2.status_code == 200
-        assert status(engine, s) == "ROBE AND MONEY NOT RETURNED"
+        assert status(engine, s) == "ROBE NOT RETURNED"
 
-        # 4. Registry Return: Robe Returned + Money Returned
+        # 4. Registry Return: Robe Returned
         scan3 = registry_scan(reg_client, s.token).json()
         assert scan3["result"] == "READY" and scan3["step"] == "RETURN"
-        conf3 = registry_confirm(reg_client, token=s.token, step="RETURN", marks=[ROBE_BACK, MONEY_BACK]).json()
+        conf3 = registry_confirm(reg_client, token=s.token, step="RETURN", marks=[ROBE_BACK]).json()
         assert conf3["result"] == "CONFIRMED"
         assert status(engine, s) == "LUNCH ELIGIBLE"
 
-        # 5. Lunch Station: Scan & Confirm (needs both robe back and money back)
+        # 5. Lunch Station: Scan & Confirm (needs robe back)
         scan4 = lunch_client.post("/scan", json={"activity": "LUNCH", "token": s.token}).json()
         assert scan4["result"] == "READY"
         conf4 = lunch_client.post("/confirm", json={"activity": "LUNCH", "token": s.token}).json()
