@@ -53,7 +53,10 @@ def render(request: Request, name: str, status_code: int = 200, **context):
     context.setdefault("msg", request.query_params.get("msg"))
     context.setdefault("error", request.query_params.get("error"))
     context.setdefault("settings", request.app.state.settings)
-    return templates.TemplateResponse(request, name, context, status_code=status_code)
+    response = templates.TemplateResponse(request, name, context, status_code=status_code)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 def redirect(url: str, *, msg: Optional[str] = None, error: Optional[str] = None) -> RedirectResponse:

@@ -60,21 +60,20 @@
     const cancel = deps.clearTimeout || function () {};
     const resetMs = deps.resetMs != null ? deps.resetMs : 2500;
     const debouncer = Logic.createDebouncer({ windowMs: deps.debounceMs != null ? deps.debounceMs : 1500, now });
-    const isTouch = deps.isTouch != null
-      ? !!deps.isTouch
-      : (typeof window !== "undefined" && window.matchMedia
-          ? !!window.matchMedia("(pointer: coarse)").matches
-          : false);
 
     let pending = null; // what /confirm will send: { kind: "token" | "student", value, step, needsTick }
     const TICK_ONE = "Tick at least one box, then confirm.";
     let resetTimer = null;
     let readyAt = -Infinity;
 
-    function focusScan() {
-      if (isTouch) return;
-      els.scan.focus();
-    }
+    const scannerBuffer = Logic.createScannerBuffer({
+      maxBurstGapMs: deps.maxBurstGapMs != null ? deps.maxBurstGapMs : 60,
+      now,
+      onScan: (scanned) => submitScan(scanned),
+      onConfirm: () => {
+        if (now() - readyAt > ENTER_CONFIRM_GUARD_MS) confirm();
+      },
+    });
 
     function playSound(name) {
       if (!name) return;
@@ -116,6 +115,13 @@
     }
 
     function clearCard() {
+      if (els.manualDetails) els.manualDetails.open = false;
+      if (els.searchInput) {
+        els.searchInput.value = "";
+        if (doc && doc.activeElement === els.searchInput && typeof els.searchInput.blur === "function") {
+          els.searchInput.blur();
+        }
+      }
       els.card.hidden = true;
       els.confirmBtn.hidden = true;
       if (els.cardState) els.cardState.textContent = "";
@@ -150,7 +156,6 @@
       resetTimer = later(() => {
         clearCard();
         showBanner("blue", IDLE_MESSAGE);
-        focusScan();
       }, resetMs);
     }
 
@@ -194,7 +199,6 @@
         els.confirmBtn.hidden = true;
         scheduleReset(); // refusals and completions clear themselves so the next student starts clean
       }
-      focusScan();
     }
 
     async function run(request, tokenForPending) {
@@ -213,10 +217,14 @@
     }
 
     async function submitScan(raw) {
+      if (els.manualDetails) els.manualDetails.open = false;
+      if (els.searchInput && doc && doc.activeElement === els.searchInput && typeof els.searchInput.blur === "function") {
+        els.searchInput.blur();
+      }
       const token = Logic.stripScannerSuffix(raw);
-      els.scan.value = ""; // always leave the box empty for the next scan
-      if (!token) { focusScan(); return; }
-      if (!debouncer.accept(token)) { focusScan(); return; }
+      if (els.scan) els.scan.value = ""; // clear legacy box if present
+      if (!token) return;
+      if (!debouncer.accept(token)) return;
       await run(() => post("/scan", { token, activity: deps.activity }), token);
     }
 
@@ -231,7 +239,6 @@
         if (pending.needsTick && body.marks.length === 0) {  // say it here; no request, the card stays up
           showBanner("red", TICK_ONE);
           playSound("rejected");
-          focusScan();
           return;
         }
       }
@@ -244,33 +251,42 @@
     }
 
     async function search() {
-      const prn = Logic.stripScannerSuffix(els.searchInput.value);
-      els.searchInput.value = "";
-      if (!prn || debouncer.busy) { focusScan(); return; }
+      const prn = Logic.stripScannerSuffix(els.searchInput ? els.searchInput.value : "");
+      if (els.manualDetails) els.manualDetails.open = false;
+      if (els.searchInput) {
+        if (typeof els.searchInput.blur === "function") els.searchInput.blur();
+        els.searchInput.value = "";
+      }
+      if (!prn || debouncer.busy) return;
       await run(() => post("/search", { prn, activity: deps.activity }), null);
     }
 
     function init() {
-      focusScan();
       showBanner("blue", IDLE_MESSAGE);
-      els.scan.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        if (Logic.stripScannerSuffix(els.scan.value)) submitScan(els.scan.value);
-        else if (now() - readyAt > ENTER_CONFIRM_GUARD_MS) confirm(); // keyboard-only: Enter confirms the card
-      });
-      // Some scanners put the newline INTO the box instead of sending an Enter key event.
-      els.scan.addEventListener("input", () => {
-        if (/[\r\n]/.test(els.scan.value)) submitScan(els.scan.value);
-      });
-      els.confirmBtn.addEventListener("click", confirm);
-      els.searchBtn.addEventListener("click", search);
-      els.searchInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") { event.preventDefault(); search(); }
-      });
+      if (doc && typeof doc.addEventListener === "function") {
+        doc.addEventListener("keydown", scannerBuffer.handleKeydown);
+      }
+      if (els.confirmBtn) els.confirmBtn.addEventListener("click", confirm);
+      if (els.searchBtn) els.searchBtn.addEventListener("click", search);
+      if (els.searchInput) {
+        els.searchInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") { event.preventDefault(); search(); }
+        });
+      }
+      if (els.scan) {
+        els.scan.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          if (Logic.stripScannerSuffix(els.scan.value)) submitScan(els.scan.value);
+          else if (now() - readyAt > ENTER_CONFIRM_GUARD_MS) confirm();
+        });
+        els.scan.addEventListener("input", () => {
+          if (/[\r\n]/.test(els.scan.value)) submitScan(els.scan.value);
+        });
+      }
     }
 
-    return { init, submitScan, confirm, search, focusScan };
+    return { init, submitScan, confirm, search, scannerBuffer };
   }
 
   return { createStationScreen, extractErrorMessage, post };
@@ -288,14 +304,11 @@
     cardName: byId("card-name"), cardPhoto: byId("card-photo"), cardFields: byId("card-fields"),
     confirmBtn: byId("confirm"), searchInput: byId("search-prn"), searchBtn: byId("search-btn"),
     markers: byId("markers"), cardState: byId("card-state"),
+    manualDetails: byId("manual-details"),
     lastScanSection: byId("last-scan-section"), lastScanName: byId("last-scan-name"),
     lastScanPhoto: byId("last-scan-photo"), lastScanDetails: byId("last-scan-details"),
     lastScanBadge: byId("last-scan-badge"), lastScanTime: byId("last-scan-time"),
   };
-
-  const isTouch = (typeof window !== "undefined" && window.matchMedia)
-    ? !!window.matchMedia("(pointer: coarse)").matches
-    : false;
 
   const post = window.stationPost || (async function (url, body) {
     const response = await fetch(url, {
@@ -332,22 +345,12 @@
     else { tone(170, 0, 0.42, "sawtooth"); }
   }
 
-  const screen = window.createStationScreen({
+  const screen = (typeof createStationScreen === "function" ? createStationScreen : window.createStationScreen)({
     els, doc: document, post, sound, now: Date.now,
     setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window),
     activity: rootEl.dataset.activity,
-    isTouch,
   });
   screen.init();
-
-  // Keep the hardware scan box focused whatever the operator touches (desktop/non-touch only).
-  if (!isTouch) {
-    document.addEventListener("click", (event) => {
-      if (!event.target.closest("input, select, button, summary, a")) screen.focusScan();
-    });
-    window.addEventListener("focus", () => screen.focusScan());
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) screen.focusScan(); });
-  }
 
   // Camera-based scanning: battery-conscious lifecycle with inactivity timeout & tap-to-resume
   const cameraVideo = byId("camera-video");

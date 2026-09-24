@@ -86,9 +86,19 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     _check_schema_guard()
 
+    class CachedStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            response = await super().get_response(path, scope)
+            query = scope.get("query_string", b"").decode("latin-1")
+            if "v=" in query:
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            return response
+
     # ── Static files ─────────────────────────────────────────────────────────
     if STATIC_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+        app.mount("/static", CachedStaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # ── Health ────────────────────────────────────────────────────────────────
     @app.get("/health")

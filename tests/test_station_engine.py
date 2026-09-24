@@ -932,7 +932,7 @@ class TestStationScreen:
         if activity == "STAGE":  # Phase 11: the Stage operator runs the Stage Controller, not a scan box
             assert 'id="stage-root"' in page.text and CONFIRM_LABEL["STAGE"] in page.text
             return
-        assert 'id="scan"' in page.text and 'inputmode="none"' in page.text and "autofocus" not in page.text
+        assert "autofocus" not in page.text
         assert CONFIRM_LABEL[activity] in page.text
         assert f'data-activity="{activity}"' in page.text
         assert "/static/station_logic.js" in page.text and "/static/station.js" in page.text
@@ -946,8 +946,9 @@ class TestStationScreen:
 
     def test_the_screen_wires_focus_debounce_colour_and_sound(self):
         source = (REPO_ROOT / "static" / "station.js").read_text(encoding="utf-8")
-        for needle in ("focus()", "stripScannerSuffix", "createDebouncer", "classifyResult", "AudioContext"):
+        for needle in ("scannerBuffer", "stripScannerSuffix", "createDebouncer", "classifyResult", "AudioContext"):
             assert needle in source, needle
+        assert "focus()" not in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")

@@ -58,5 +58,73 @@
     return { colour: view.colour, sound: view.sound };
   }
 
-  return { stripScannerSuffix, createDebouncer, classifyResult };
+  // USB/Bluetooth barcode scanners act like a keyboard, sending rapid keystrokes (< 60ms inter-key)
+  // followed by Enter. Keystrokes inside real form inputs/textareas are ignored so manual PRN typing
+  // or modal inputs are never swallowed or disrupted. Slow human typing outside inputs is discarded.
+  function createScannerBuffer(opts) {
+    const maxBurstGapMs = opts && opts.maxBurstGapMs != null ? opts.maxBurstGapMs : 60;
+    const now = (opts && opts.now) || Date.now;
+    const onScan = (opts && opts.onScan) || function () {};
+    const onConfirm = (opts && opts.onConfirm) || function () {};
+
+    let buffer = "";
+    let lastKeyAt = 0;
+
+    function reset() {
+      buffer = "";
+      lastKeyAt = 0;
+    }
+
+    function handleKeydown(event) {
+      if (!event) return;
+      const target = event.target;
+      // Never intercept keystrokes if the user is typing into an input, textarea, or select
+      if (target) {
+        if (typeof target.closest === "function" && target.closest("input, textarea, select")) {
+          return;
+        }
+        const tag = (target.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select") {
+          return;
+        }
+      }
+
+      const key = event.key;
+      if (!key) return;
+
+      if (key === "Enter") {
+        const t = now();
+        if (buffer.length > 0) {
+          if (t - lastKeyAt <= maxBurstGapMs) {
+            const scanned = buffer;
+            reset();
+            if (event.preventDefault) event.preventDefault();
+            onScan(scanned);
+            return;
+          }
+          // Slow typing before Enter: discard
+          reset();
+        } else {
+          // Empty buffer on Enter: confirm pending card
+          onConfirm(event);
+        }
+        return;
+      }
+
+      // Buffer single printable characters (ignore Control, Alt, Shift, Meta, Tab, etc.)
+      if (key.length === 1) {
+        const t = now();
+        if (buffer.length > 0 && t - lastKeyAt > maxBurstGapMs) {
+          // Gap exceeded: previous keystrokes were slow human typing, start fresh
+          buffer = "";
+        }
+        buffer += key;
+        lastKeyAt = t;
+      }
+    }
+
+    return { handleKeydown, reset, get buffer() { return buffer; } };
+  }
+
+  return { stripScannerSuffix, createDebouncer, classifyResult, createScannerBuffer };
 });

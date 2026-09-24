@@ -1,3 +1,16 @@
+## [0.24.0] - Zero programmatic input focus, document keydown scanner buffer, and mobile cache-control
+
+### Fixed
+- **Mobile soft keyboard popup**: Completely eliminated programmatic focus of text inputs across all devices. No autofocus, no refocus loops on load/scan/confirm/reset/click/tab-switch, and zero dependence on fragile device detection (`pointer: coarse`).
+- **USB/Bluetooth hardware barcode scanners**: Replaced off-screen `#scan` input with a top-level document `keydown` burst buffer (<60ms inter-key threshold). Fast hardware scanner bursts submit on Enter; keystrokes inside form inputs (`#search-prn`, reissue/waiver fields) are completely ignored by the buffer; slow human typing outside inputs is discarded.
+- **Manual PRN search auto-collapse**: `<details id="manual-details">` with summary "Can't scan? Search PRN" is closed by default and automatically closes and blurs on every scan, search, and screen reset, keeping the on-screen keyboard dismissed until explicitly tapped.
+- **Cache-Control & Stale Assets**: Dynamic HTML pages now set `Cache-Control: no-cache, no-store, must-revalidate, max-age=0` and `Pragma: no-cache`. Versioned static assets (`?v=...`) are served with `Cache-Control: public, max-age=31536000, immutable`.
+
+### Tests
+- Added 4 new tests in `tests/js/station.test.js` validating keydown scanner burst buffering, slow typing discard, PRN input isolation, and Enter confirmation.
+- Added tests asserting `document.activeElement` is never a text input after load, scan, confirm, or reset.
+- Updated `tests/test_station_engine.py` and `tests/test_registry.py`.
+
 ## [0.23.0] - Phase R4: the Registry desk's tick boxes (robe and money), and money as its own record
 
 ### Added

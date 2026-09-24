@@ -19,11 +19,6 @@
     <span id="message">Scan student QR to begin.</span>
   </div>
 
-  <!-- Hidden/Accessible scan input for hardware USB/Bluetooth barcode scanners -->
-  <div class="scan-wrapper-offscreen" aria-hidden="true" style="position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0;">
-    <input id="scan" class="scan-box" type="text" inputmode="none" autocomplete="off" autocapitalize="off"
-           autocorrect="off" spellcheck="false" placeholder="Scan QR here" aria-label="Hardware barcode scanner input">
-  </div>
 
   <!-- Main Scanning Station Workspace (2 columns on desktop, 1 on tablet/mobile) -->
   <div class="station-grid-layout">
@@ -82,7 +77,7 @@
       <!-- Secondary Fallback: PRN Manual Search -->
       <details class="manual secondary-fallback-card card" id="manual-details">
         <summary class="fallback-summary">
-          <span>QR damaged or unreadable? Search by PRN</span>
+          <span>Can't scan? Search PRN</span>
         </summary>
         <div class="fallback-body">
           <div class="manual-row">

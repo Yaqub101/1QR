@@ -344,7 +344,7 @@ class TestRegistryScreen:
         page = desk(apps, world).get("/station/registry")
         assert page.status_code == 200
         assert 'data-activity="REGISTRY"' in page.text and "<h1>Registry</h1>" in page.text
-        assert 'id="scan"' in page.text and 'inputmode="none"' in page.text and "autofocus" not in page.text
+        assert "autofocus" not in page.text
         assert 'id="markers"' in page.text and 'id="card-state"' in page.text
         assert 'id="camera-details"' in page.text and "camera_scan.js" in page.text
         assert 'id="search-prn"' in page.text

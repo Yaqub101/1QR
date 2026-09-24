@@ -12,26 +12,41 @@ const NUL = String.fromCharCode(0);
 
 // ---------------------------------------------------------------- fake DOM
 function fakeEl(props = {}) {
-  return {
-    value: "", textContent: "", className: "", hidden: false, disabled: false, focusCount: 0, children: [],
-    attributes: {}, handlers: {}, dataset: {},
-    focus() { this.focusCount += 1; },
+  const el = {
+    value: "", textContent: "", className: "", hidden: false, disabled: false, focusCount: 0, blurCount: 0, children: [],
+    attributes: {}, handlers: {}, dataset: {}, tagName: "DIV", open: false,
+    focus() { this.focusCount += 1; if (this.ownerDoc) this.ownerDoc.activeElement = this; },
+    blur() { this.blurCount += 1; if (this.ownerDoc && this.ownerDoc.activeElement === this) this.ownerDoc.activeElement = null; },
     addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); },
-    dispatch(type, event = {}) { (this.handlers[type] || []).forEach((fn) => fn({ preventDefault() {}, ...event })); },
+    dispatch(type, event = {}) { (this.handlers[type] || []).forEach((fn) => fn({ preventDefault() {}, target: this, ...event })); },
     setAttribute(k, v) { this.attributes[k] = v; },
     appendChild(child) { this.children.push(child); return child; },
     replaceChildren(...kids) { this.children = kids; },
+    closest(selector) {
+      if (typeof selector === "string" && selector.toLowerCase().includes(this.tagName.toLowerCase())) return this;
+      return null;
+    },
     ...props,
   };
+  return el;
 }
 
 function harness(overrides = {}) {
-  const els = {
-    scan: fakeEl(), banner: fakeEl(), message: fakeEl(), card: fakeEl({ hidden: true }), cardName: fakeEl(),
-    cardPhoto: fakeEl(), cardFields: fakeEl(), confirmBtn: fakeEl({ hidden: true }), searchInput: fakeEl(),
-    searchBtn: fakeEl(),
+  const doc = {
+    activeElement: null,
+    handlers: {},
+    addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); },
+    dispatch(type, event = {}) { (this.handlers[type] || []).forEach((fn) => fn({ preventDefault() {}, target: this, ...event })); },
+    createElement: (tag = "div") => fakeEl({ tagName: tag.toUpperCase(), ownerDoc: doc }),
   };
-  const doc = { createElement: () => fakeEl() };
+  const els = {
+    scan: fakeEl({ tagName: "INPUT", ownerDoc: doc }),
+    banner: fakeEl(), message: fakeEl(), card: fakeEl({ hidden: true }), cardName: fakeEl(),
+    cardPhoto: fakeEl(), cardFields: fakeEl(), confirmBtn: fakeEl({ hidden: true }),
+    searchInput: fakeEl({ tagName: "INPUT", ownerDoc: doc }),
+    searchBtn: fakeEl({ tagName: "BUTTON", ownerDoc: doc }),
+    manualDetails: fakeEl({ tagName: "DETAILS", open: false, ownerDoc: doc }),
+  };
   const calls = [];
   const sounds = [];
   const timers = [];
@@ -48,7 +63,7 @@ function harness(overrides = {}) {
   const screen = createStationScreen({
     els, doc, post, sound: (name) => sounds.push(name), now: () => clock, resetMs: 2500, debounceMs: 1500,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => {},
-    activity: "REGISTRATION", isTouch: overrides.isTouch != null ? overrides.isTouch : false, ...overrides,
+    activity: "REGISTRATION", ...overrides,
   });
   screen.init();
   return {
@@ -101,20 +116,23 @@ test("the debouncer drops a repeat of the same code inside the window and anythi
 });
 
 // ---------------------------------------------------------------- the screen
-test("the scan box is focused when the screen loads", () => {
+test("no input is programmatically focused when the screen loads", () => {
   const h = harness();
-  assert.ok(h.els.scan.focusCount >= 1);
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+  assert.equal(h.doc.activeElement, null);
 });
 
-test("a scan with the scanner's trailing Enter sends ONE clean request and clears and refocuses the box", async () => {
+test("a scan with the scanner's trailing Enter sends ONE clean request and clears the box with no refocus", async () => {
   const h = harness();
   h.replies.push(READY);
-  const before = h.els.scan.focusCount;
   scanValue(h, "token-abc\r\n");
   await flush();
   assert.deepEqual(h.calls, [{ url: "/scan", body: { token: "token-abc", activity: "REGISTRATION" } }]);
   assert.equal(h.els.scan.value, "");
-  assert.ok(h.els.scan.focusCount > before);
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+  assert.equal(h.doc.activeElement, null);
 });
 
 test("a scanner that types the newline into the box (no Enter key event) is also handled", async () => {
@@ -186,7 +204,7 @@ test("confirm sends the SAME identity that was scanned (the token), once, even o
   assert.deepEqual(confirms[0].body, { token: "tok-1", activity: "REGISTRATION" });
 });
 
-test("CONFIRMED is green with the success sound, then the screen resets for the next student and refocuses", async () => {
+test("CONFIRMED is green with the success sound, then the screen resets for the next student", async () => {
   const h = harness();
   h.replies.push(READY, CONFIRMED);
   scanValue(h, "tok\n");
@@ -196,10 +214,11 @@ test("CONFIRMED is green with the success sound, then the screen resets for the 
   assert.ok(h.els.banner.className.includes("green"));
   assert.deepEqual(h.sounds, ["success"]);
   assert.equal(h.els.confirmBtn.hidden, true);
-  const focusBefore = h.els.scan.focusCount;
   h.runTimers();
   assert.equal(h.els.card.hidden, true);
-  assert.ok(h.els.scan.focusCount > focusBefore);
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+  assert.equal(h.doc.activeElement, null);
 });
 
 test("DUPLICATE is amber and REJECTED / INVALID are red, each with their own sound and the message shown as given", async () => {
@@ -263,15 +282,30 @@ test("manual PRN search shows the photo card, and confirming it sends the studen
   assert.equal(h.els.searchInput.value, "");
 });
 
-test("focus returns to the scan box after every action", async () => {
+test("no text input is ever focused automatically after load, scan, confirm, or reset", async () => {
   const h = harness();
   h.replies.push(READY, CONFIRMED, DUPLICATE);
-  let last = h.els.scan.focusCount;
-  const step = async (fn) => { fn(); await flush(); assert.ok(h.els.scan.focusCount > last); last = h.els.scan.focusCount; };
-  await step(() => scanValue(h, "a\n"));
-  await step(() => h.els.confirmBtn.dispatch("click"));
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+  assert.equal(h.doc.activeElement, null);
+
+  scanValue(h, "a\n");
+  await flush();
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+  assert.equal(h.doc.activeElement, null);
+
+  h.els.confirmBtn.dispatch("click");
+  await flush();
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+  assert.equal(h.doc.activeElement, null);
+
   h.advance(3000);
-  await step(() => scanValue(h, "b\n"));
+  h.runTimers();
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+  assert.equal(h.doc.activeElement, null);
 });
 
 // ---------------------------------------------------------------- the Registry desk (tick boxes, Phase R4)
@@ -443,64 +477,141 @@ test("post() error extraction: generic fallback when no detail message exists", 
   assert.equal(res.message, "One moment, please try again.");
 });
 
-// ── STEP 5: Touch-primary / Coarse pointer refocus behaviour ──────────────────
-test("touch-primary / coarse-pointer device disables ALL automatic refocus paths", async () => {
-  const h = harness({ isTouch: true });
-  // 1. init() must not focus scan box
-  assert.equal(h.els.scan.focusCount, 0);
-
-  // 2. submitScan()
+// ── STEP 5: Document-level keydown buffer & zero programmatic focus ─────────
+test("hardware barcode scanner: rapid keystroke burst (<60ms) followed by Enter submits the scan", async () => {
+  const h = harness();
   h.replies.push(READY);
-  await h.screen.submitScan("tok-touch");
-  assert.equal(h.els.scan.focusCount, 0);
 
-  // 3. confirm()
-  h.replies.push(CONFIRMED);
-  await h.screen.confirm();
-  assert.equal(h.els.scan.focusCount, 0);
+  // Simulate hardware scanner sending "TOK123" rapidly (10ms between keys) followed by Enter
+  for (const ch of "TOK123") {
+    h.doc.dispatch("keydown", { key: ch });
+    h.advance(10);
+  }
+  h.doc.dispatch("keydown", { key: "Enter" });
+  await flush();
 
-  // 4. scheduleReset()
-  h.runTimers();
-  assert.equal(h.els.scan.focusCount, 0);
-
-  // 5. search()
-  h.els.searchInput.value = "PRN123";
-  h.replies.push(READY);
-  await h.screen.search();
-  assert.equal(h.els.scan.focusCount, 0);
-
-  // 6. focusScan() direct call also respects touch guard
-  h.screen.focusScan();
-  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.calls[0], { url: "/scan", body: { token: "TOK123", activity: "REGISTRATION" } });
+  assert.equal(h.screen.scannerBuffer.buffer, "");
 });
 
-test("non-touch / desktop device keeps all automatic refocus paths enabled", async () => {
-  const h = harness({ isTouch: false });
-  // 1. init() focuses scan box
-  assert.ok(h.els.scan.focusCount >= 1);
-  let prev = h.els.scan.focusCount;
-
-  // 2. submitScan() refocuses
+test("hardware barcode scanner: slow human typing (>60ms) is discarded and does not submit", async () => {
+  const h = harness();
   h.replies.push(READY);
-  await h.screen.submitScan("tok-desk");
-  assert.ok(h.els.scan.focusCount > prev);
-  prev = h.els.scan.focusCount;
 
-  // 3. confirm() refocuses
-  h.replies.push(CONFIRMED);
-  await h.screen.confirm();
-  assert.ok(h.els.scan.focusCount > prev);
-  prev = h.els.scan.focusCount;
+  // Human typing letters with 150ms gap (> 60ms threshold)
+  h.doc.dispatch("keydown", { key: "T" });
+  h.advance(150);
+  h.doc.dispatch("keydown", { key: "O" });
+  h.advance(150);
+  h.doc.dispatch("keydown", { key: "K" });
+  h.advance(150);
+  h.doc.dispatch("keydown", { key: "Enter" });
+  await flush();
 
-  // 4. scheduleReset() refocuses
-  h.runTimers();
-  assert.ok(h.els.scan.focusCount > prev);
-  prev = h.els.scan.focusCount;
+  // Burst was too slow: no scan submitted
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.screen.scannerBuffer.buffer, "");
+});
 
-  // 5. search() refocuses
-  h.els.searchInput.value = "PRN123";
+test("hardware barcode scanner: typing inside search-prn input is ignored by document scanner buffer", async () => {
+  const h = harness();
+  h.els.searchInput.focus();
+  assert.equal(h.doc.activeElement, h.els.searchInput);
+
+  // User typing fast or slow inside the PRN input
+  h.doc.dispatch("keydown", { key: "2", target: h.els.searchInput });
+  h.advance(10);
+  h.doc.dispatch("keydown", { key: "0", target: h.els.searchInput });
+  h.advance(10);
+  h.doc.dispatch("keydown", { key: "2", target: h.els.searchInput });
+  h.advance(10);
+  h.doc.dispatch("keydown", { key: "Enter", target: h.els.searchInput });
+  await flush();
+
+  // The document-level scanner buffer did NOT intercept or record any of these keystrokes
+  assert.equal(h.screen.scannerBuffer.buffer, "");
+  assert.equal(h.calls.filter((c) => c.url === "/scan").length, 0);
+});
+
+test("hardware barcode scanner: Enter on empty buffer confirms candidate card after guard time", async () => {
+  const h = harness();
+  h.replies.push(READY, CONFIRMED);
+
+  // Scanner brings up card
+  for (const ch of "TOK456") {
+    h.doc.dispatch("keydown", { key: ch });
+    h.advance(10);
+  }
+  h.doc.dispatch("keydown", { key: "Enter" });
+  await flush();
+  assert.equal(h.els.confirmBtn.hidden, false);
+
+  // Accidental immediate second Enter (< 500ms guard): ignored
+  h.doc.dispatch("keydown", { key: "Enter" });
+  await flush();
+  assert.equal(h.calls.filter((c) => c.url === "/confirm").length, 0);
+
+  // Enter after guard time: confirms candidate!
+  h.advance(600);
+  h.doc.dispatch("keydown", { key: "Enter" });
+  await flush();
+  assert.equal(h.calls.filter((c) => c.url === "/confirm").length, 1);
+  assert.deepEqual(h.calls[1], { url: "/confirm", body: { token: "TOK456", activity: "REGISTRATION" } });
+});
+
+test("manual PRN search: <details> is closed by default, closes and blurs after scan, search, or reset", async () => {
+  const h = harness();
+  // 1. Initially closed
+  assert.equal(h.els.manualDetails.open, false);
+
+  // 2. Operator opens accordion and focuses PRN input
+  h.els.manualDetails.open = true;
+  h.els.searchInput.value = "PRN999";
+  h.els.searchInput.focus();
+  assert.equal(h.doc.activeElement, h.els.searchInput);
+
+  // 3. Search closes accordion and blurs input
   h.replies.push(READY);
   await h.screen.search();
-  assert.ok(h.els.scan.focusCount > prev);
+  assert.equal(h.els.manualDetails.open, false);
+  assert.equal(h.doc.activeElement, null);
+
+  // 4. Operator opens it again, but a scan arrives via camera or hardware scanner
+  h.els.manualDetails.open = true;
+  h.els.searchInput.focus();
+  assert.equal(h.doc.activeElement, h.els.searchInput);
+  h.replies.push(READY);
+  await h.screen.submitScan("TOK789");
+  assert.equal(h.els.manualDetails.open, false);
+  assert.equal(h.doc.activeElement, null);
+});
+
+test("document.activeElement is never a text input after load, scan, confirm, or reset", async () => {
+  const h = harness();
+  // 1. After load
+  assert.equal(h.doc.activeElement, null);
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+
+  // 2. After scan
+  h.replies.push(READY);
+  await h.screen.submitScan("TOK111");
+  assert.equal(h.doc.activeElement, null);
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+
+  // 3. After confirm
+  h.replies.push(CONFIRMED);
+  await h.screen.confirm();
+  assert.equal(h.doc.activeElement, null);
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
+
+  // 4. After reset
+  h.runTimers();
+  assert.equal(h.doc.activeElement, null);
+  assert.equal(h.els.scan.focusCount, 0);
+  assert.equal(h.els.searchInput.focusCount, 0);
 });
 
