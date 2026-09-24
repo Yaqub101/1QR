@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% block title %}System{% endblock %}
 {% block body %}
-<p><a href="/admin">&larr; Admin</a></p>
-<h1>System</h1>
+<a href="/admin" class="back-link">&larr; Admin Console</a>
+<h1>System Operations &amp; Event Lifecycle</h1>
+<p class="muted">Administrative maintenance, pre-event data reset controls, and storage diagnostics.</p>
 
 {% if last %}
-<h2>Last data reset</h2>
-<div class="card" data-last-reset="{{ last.photo_status }}">
+<h2>Last System Reset Record</h2>
+<div class="card" data-last-reset="{{ last.photo_status }}" style="margin-bottom: 1.5rem;">
   <p>{{ last.when }} by <b>{{ last.by or "an Admin" }}</b>:
      {{ last.deleted.get("students", 0) }} student(s) and {{ last.deleted.get("activity_events", 0) }} activity record(s) deleted.</p>
   {% if last.photo_status == "complete" %}
@@ -26,29 +27,27 @@
 </div>
 {% endif %}
 
-<h2>Reset all data</h2>
+<h2>Pre-Event Data Reset</h2>
 <div class="card danger-zone">
-  <h2>Danger: this deletes everything from the event</h2>
-  <p>Use this only to clear the system before a new event. <b>It cannot be undone.</b> Take a backup first if
-     there is any chance you will need this data again.</p>
-  <p><b>Deleted:</b></p>
+  <h2>Danger: Irreversible Event Reset</h2>
+  <p>Use this facility only to clear the system before a new convocation event. <b>It cannot be undone.</b> Take a verified backup first if there is any chance you will need this data again.</p>
+  <p><b>Data records that will be permanently purged:</b></p>
   <ul>
     {% for label, n in counts %}<li>{{ label }}: <b data-count="{{ loop.index0 }}">{{ n }}</b></li>{% endfor %}
-    <li>Reporting, robe, seating, queue, stage, robe return and lunch progress, and the LED display</li>
-    <li>Every student photo in photo storage ({{ storage }}): only this system's student photos, nothing else</li>
-    <li>Import files that are still waiting on the import screen</li>
+    <li>Reporting, robe allocation, seating, queue, stage, robe return and lunch progress, and the LED display</li>
+    <li>Every student photo in photo storage ({{ storage }})</li>
+    <li>Import batches waiting on staging screen</li>
   </ul>
-  <p><b>Kept:</b> user accounts and passwords, settings, the event name, the photo storage set-up, and the audit
-     rows for sign-ins, account changes and every data reset (including this one).</p>
+  <p><b>Kept:</b> user accounts and passwords, settings, the event name, the photo storage set-up, and the audit rows for sign-ins, account changes and every data reset (including this one).</p>
 
-  <form method="post" action="/admin/system/reset" class="narrow" autocomplete="off" data-busy="Checking…">
-    <label>Type <code class="phrase">{{ phrase }}</code> to continue
+  <form method="post" action="/admin/system/reset" class="narrow" autocomplete="off" data-busy="Checking…" style="margin: 1rem 0 0.5rem;">
+    <label>Type <code class="phrase">{{ phrase }}</code> exactly to proceed:
       <input name="phrase" required autocomplete="off" autocapitalize="characters" spellcheck="false"
              pattern="{{ phrase }}" title="Type {{ phrase }} exactly"></label>
-    <label>Your password
+    <label style="margin-top: 0.6rem;">Administrator Password:
       <input name="password" type="password" required autocomplete="current-password"></label>
-    <p class="muted">Nothing is deleted yet: the next page shows exactly what will go and asks you once more.</p>
-    <button class="danger" type="submit">Continue to final confirmation</button>
+    <p class="muted" style="font-size: 0.85rem;">Nothing is deleted yet: the subsequent screen requires final confirmation.</p>
+    <button class="danger" type="submit" style="margin-top: 0.4rem;">Proceed to Final Confirmation</button>
   </form>
 </div>
 {% endblock %}

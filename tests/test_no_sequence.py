@@ -48,10 +48,12 @@ BACKEND = REPO / "backend"
 DISPLAY_KEYS_AFTER = {
     "REGISTRATION": ["prn", "programme", "school"],
     "THOBE_ALLOCATION": ["prn", "programme", "school"],
+    "MONEY_RECEIVED": ["prn", "programme", "school"],
     "SEATING": ["prn", "programme", "school"],
     "QUEUE": ["prn", "queue_position"],
     "STAGE": ["programme", "school"],
     "THOBE_RETURN": ["prn", "thobe_issued"],
+    "MONEY_RETURNED": ["prn", "money_received"],
     "LUNCH": ["prn", "eligibility"],
 }
 
@@ -209,7 +211,7 @@ class TestStationScreens:
         s = make_student(engine)
         with engine.begin() as c:
             c.execute(text("UPDATE students SET sequence_no = NULL, seat_no = NULL WHERE id = :i"), {"i": s.id})
-        for activity in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE"):
+        for activity in ("REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING", "QUEUE", "STAGE"):
             body = confirm(operator(apps, world, activity), activity, token=s.token).json()
             assert body["result"] == "CONFIRMED", (activity, body)
 
@@ -239,7 +241,7 @@ class TestOrdering:
             s = make_student(engine)
             with engine.begin() as c:
                 c.execute(text("UPDATE students SET sequence_no = NULL WHERE id = :i"), {"i": s.id})
-            seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION", "SEATING"])
+            seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING"])
             made.append(s)
         # Confirm the queue in the REVERSE of the order the students were created in.
         for s in reversed(made):

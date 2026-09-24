@@ -1,29 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Exceptions{% endblock %}
 {% block body %}
-<p><a href="/admin">&larr; Admin</a></p>
-<h1>Exceptions</h1>
-<p>
-  <a href="/admin/exceptions?status=OPEN">Open</a> &middot; <a href="/admin/exceptions?status=RESOLVED">Resolved</a> &middot;
-  <a href="/admin/exceptions?status=ALL">All</a> &middot; <a href="/admin/api/reports/exceptions/export?format=csv" data-download>Download CSV</a>
-</p>
-<table>
-  <tr><th>Raised</th><th>Type</th><th>Student</th><th>Detail</th><th>Status</th></tr>
+<a href="/admin" class="back-link">&larr; Admin Console</a>
+<h1>Operational Exceptions &amp; Flags</h1>
+
+<div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; margin-bottom: 1rem;">
+  <p style="font-weight: 600; margin: 0.4rem 0;">
+    Status:
+    <a href="/admin/exceptions?status=OPEN" style="margin: 0 0.35rem;">Open</a> &middot;
+    <a href="/admin/exceptions?status=RESOLVED" style="margin: 0 0.35rem;">Resolved</a> &middot;
+    <a href="/admin/exceptions?status=ALL" style="margin: 0 0.35rem;">All</a>
+  </p>
+  <div>
+    <a href="/admin/api/reports/exceptions/export?format=csv" class="button small" data-download>Download CSV</a>
+  </div>
+</div>
+
+<table class="spaced">
+  <tr><th>Raised At</th><th>Exception Type</th><th>Student Record</th><th>Incident Detail</th><th>Resolution Status</th></tr>
   {% for x in data.exceptions %}
   <tr>
-    <td>{{ x.created_at }}</td><td>{{ x.type }}</td>
-    <td>{% if x.student_id %}<a href="/admin/students/{{ x.student_id }}">{{ x.name }}</a> ({{ x.prn }}){% endif %}</td>
+    <td style="font-size: 0.88rem;">{{ x.created_at }}</td>
+    <td><code style="font-family: var(--font-mono); font-weight: 700; color: var(--badink);">{{ x.type }}</code></td>
+    <td>{% if x.student_id %}<a href="/admin/students/{{ x.student_id }}"><b>{{ x.name }}</b></a> <span class="muted">({{ x.prn }})</span>{% else %}—{% endif %}</td>
     <td>{{ x.reason or "" }}</td>
     <td>
       {% if x.status == "OPEN" %}
       <form method="post" action="/admin/exceptions/{{ x.id }}/resolve" class="inline" data-busy="Saving…">
-        <input name="note" placeholder="How was it dealt with? (required)" required>
-        <button type="submit">Resolve</button>
+        <input name="note" placeholder="Resolution note (required)" required style="padding: 0.35rem 0.5rem; font-size: 0.88rem;">
+        <button type="submit" class="small">Resolve</button>
       </form>
-      {% else %}Resolved by {{ x.resolved_by }} &middot; {{ x.resolution_note }}{% endif %}
+      {% else %}
+      <span class="role-badge" style="background: var(--ok); color: var(--okink); border-color: var(--okborder); font-size: 0.75rem;">Resolved</span>
+      <span class="muted" style="font-size: 0.85rem; margin-left: 0.4rem;">by {{ x.resolved_by }}: {{ x.resolution_note }}</span>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}
-  {% if not data.exceptions %}<tr><td colspan="5" class="muted">Nothing here.</td></tr>{% endif %}
+  {% if not data.exceptions %}<tr><td colspan="5" class="muted">No exceptions currently logged.</td></tr>{% endif %}
 </table>
 {% endblock %}

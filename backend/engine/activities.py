@@ -8,10 +8,11 @@ Sources: SYSTEM_SPEC section 2 (journey order), 3 (what each activity shows), 5 
 14 (messages); docs/TODO.md Phases 7-12.
 
 Journey order (a prerequisite must come EARLIER in this list):
-    REGISTRATION -> THOBE_ALLOCATION -> SEATING -> QUEUE -> STAGE -> THOBE_RETURN -> LUNCH
+    REGISTRATION -> THOBE_ALLOCATION -> MONEY_RECEIVED -> SEATING -> QUEUE -> STAGE -> THOBE_RETURN
+        -> MONEY_RETURNED -> LUNCH
 
-Since the role/flow redesign, REGISTRATION + THOBE_ALLOCATION (entry) and THOBE_RETURN are performed at
-the ONE Registry desk (backend/engine/registry.py), and SEATING is optional: nothing requires it.
+Since the role/flow redesign, REGISTRATION, the robe and the money (entry) and their returns are recorded at
+the ONE Registry desk with tick boxes (backend/engine/registry.py), and SEATING is optional: nothing requires it.
 """
 from __future__ import annotations
 
@@ -33,6 +34,14 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         confirm_label="CONFIRM ROBE GIVEN",
         duplicate_message="ROBE ALREADY ALLOCATED — {time}",
     ),
+    "MONEY_RECEIVED": ActivityConfig(
+        activity="MONEY_RECEIVED",
+        # A plain yes/no deposit tick next to the robe (Phase R4); no amount is stored.
+        prerequisites=(Prerequisite("REGISTRATION", "MONEY NOT AVAILABLE — REPORTING PENDING"),),
+        display_fields=("prn", "programme", "school"),
+        confirm_label="CONFIRM MONEY RECEIVED",
+        duplicate_message="MONEY ALREADY RECEIVED — {time}",
+    ),
     "SEATING": ActivityConfig(
         activity="SEATING",
         prerequisites=(Prerequisite("THOBE_ALLOCATION", "SEATING NOT AVAILABLE — ROBE NOT RECEIVED"),),
@@ -46,7 +55,8 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         activity="QUEUE",
         # Seating is optional since the role/flow redesign (a checkpoint that never blocks anything), so
         # the Queue needs the robe, not a seat.
-        prerequisites=(Prerequisite("THOBE_ALLOCATION", "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"),),
+        prerequisites=(Prerequisite("THOBE_ALLOCATION", "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"),
+                       Prerequisite("MONEY_RECEIVED", "QUEUE NOT AVAILABLE — MONEY NOT RECEIVED")),
         # Order on stage is the order these confirmations happen in — first come, first shown.
         display_fields=("prn", "queue_position"),
         confirm_label="CONFIRM QUEUE",
@@ -71,10 +81,21 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         confirm_label="CONFIRM RETURN",
         duplicate_message="ALREADY RETURNED — {time}",
     ),
+    "MONEY_RETURNED": ActivityConfig(
+        activity="MONEY_RETURNED",
+        prerequisites=(
+            Prerequisite("STAGE", "MONEY RETURN NOT AVAILABLE — STAGE PENDING"),
+            Prerequisite("MONEY_RECEIVED", "MONEY RETURN NOT AVAILABLE — NO MONEY WAS RECEIVED"),
+        ),
+        display_fields=("prn", "money_received"),
+        confirm_label="CONFIRM MONEY RETURNED",
+        duplicate_message="MONEY ALREADY RETURNED — {time}",
+    ),
     "LUNCH": ActivityConfig(
         activity="LUNCH",
         # An Admin "Return Waived / Lost" counts as the return.
-        prerequisites=(Prerequisite("THOBE_RETURN", "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"),),
+        prerequisites=(Prerequisite("THOBE_RETURN", "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"),
+                       Prerequisite("MONEY_RETURNED", "LUNCH NOT AVAILABLE — MONEY RETURN PENDING")),
         display_fields=("prn", "eligibility"),
         confirm_label="CONFIRM LUNCH",
         duplicate_message="LUNCH ALREADY CLAIMED — {time}",

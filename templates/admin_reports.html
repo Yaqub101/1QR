@@ -1,32 +1,52 @@
 {% extends "base.html" %}
 {% block title %}Reports{% endblock %}
 {% block body %}
-<p><a href="{{ '/admin/reports' if report else '/admin' }}">&larr; {{ "Reports" if report else "Admin" }}</a></p>
+<a href="{{ '/admin/reports' if report else '/admin' }}" class="back-link">&larr; {{ "Reports Catalog" if report else "Admin Console" }}</a>
 {% if not report %}
-<h1>Reports</h1>
+<h1>Official Reports &amp; Exports</h1>
+<p class="muted" style="margin-top: -0.2rem;">Download verified convocation audit lists in CSV or Excel (XLSX) format. Each export event is logged in the system audit trail.</p>
 {% for group, items in groups.items() %}
 <h2>{{ group }}</h2>
 <div class="grid">
   {% for r in items if r.key != "student-history" %}
-  <a class="tile" href="/admin/reports/{{ r.key }}">{{ r.key.replace("-", " ")|capitalize }}<small>{{ r.description }}</small></a>
+  <a class="tile" href="/admin/reports/{{ r.key }}">
+    {{ r.key.replace("-", " ")|capitalize }}
+    <small>{{ r.description }}</small>
+  </a>
   {% endfor %}
 </div>
 {% endfor %}
-<p class="muted">Every report downloads as CSV (opens in Excel with names intact) or XLSX. Each download is recorded in the audit trail.</p>
 {% else %}
-<h1>{{ report.title }}</h1>
-{% if report.note %}<p class="muted">{{ report.note }}</p>{% endif %}
-{% if report.totals %}<p>{% for k, v in report.totals.items() %}<b>{{ v }}</b> {{ k.replace("_", " ") }}{% if not loop.last %} &middot; {% endif %}{% endfor %}</p>{% endif %}
+<div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+  <h1>{{ report.title }}</h1>
+  <div class="export-actions">
+    <a href="/admin/api/reports/{{ report.key }}/export?format=csv&{{ query }}" class="button small" data-download>Download CSV</a>
+    <a href="/admin/api/reports/{{ report.key }}/export?format=xlsx&{{ query }}" class="button small" data-download>Download XLSX</a>
+  </div>
+</div>
+{% if report.note %}<p class="muted" style="margin-top: -0.2rem;">{{ report.note }}</p>{% endif %}
+{% if report.totals %}
+<div class="card" style="margin: 0.8rem 0; padding: 0.8rem 1.1rem; background: var(--gold-soft); border-color: var(--gold-light);">
+  <p style="margin: 0; font-weight: 500;">
+    {% for k, v in report.totals.items() %}<b style="color: var(--brand-dark); font-size: 1.1rem;">{{ v }}</b> {{ k.replace("_", " ") }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+  </p>
+</div>
+{% endif %}
 {% if report.key.startswith("activity-") %}
-<p><a href="/admin/reports/{{ report.key }}?status=all">All</a> &middot; <a href="/admin/reports/{{ report.key }}?status=completed">Completed</a> &middot;
-   <a href="/admin/reports/{{ report.key }}?status=not_completed">Not completed</a></p>{% endif %}
-<p><a href="/admin/api/reports/{{ report.key }}/export?format=csv&{{ query }}" data-download>Download CSV</a> &middot;
-   <a href="/admin/api/reports/{{ report.key }}/export?format=xlsx&{{ query }}" data-download>Download XLSX</a></p>
-<table>
+<p style="margin: 0.8rem 0; font-weight: 600;">
+  Filter:
+  <a href="/admin/reports/{{ report.key }}?status=all" style="margin: 0 0.3rem;">All</a> &middot;
+  <a href="/admin/reports/{{ report.key }}?status=completed" style="margin: 0 0.3rem;">Completed</a> &middot;
+  <a href="/admin/reports/{{ report.key }}?status=not_completed" style="margin: 0 0.3rem;">Not completed</a>
+</p>
+{% endif %}
+<table class="spaced">
   <tr>{% for key, label in report.columns %}<th>{{ label }}</th>{% endfor %}</tr>
-  {% for row in preview_rows %}<tr>{% for key, label in report.columns %}<td>{{ row.get(key, "") }}</td>{% endfor %}</tr>{% endfor %}
+  {% for row in preview_rows %}
+  <tr>{% for key, label in report.columns %}<td>{{ row.get(key, "") }}</td>{% endfor %}</tr>
+  {% endfor %}
   {% if not preview_rows %}<tr><td colspan="{{ report.columns|length }}" class="muted">Nothing to show.</td></tr>{% endif %}
 </table>
-{% if report.rows|length > 500 %}<p class="muted">Showing the first 500 of {{ report.rows|length }}. The download has them all.</p>{% endif %}
+{% if report.rows|length > 500 %}<p class="muted" style="margin-top: 0.8rem;">Showing first 500 of {{ report.rows|length }} rows. The exported file contains the full dataset.</p>{% endif %}
 {% endif %}
 {% endblock %}

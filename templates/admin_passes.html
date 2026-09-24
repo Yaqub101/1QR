@@ -1,30 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Passes and QR{% endblock %}
 {% block body %}
-<p><a href="/admin">&larr; Admin</a></p>
-<h1>Passes and QR</h1>
+<a href="/admin" class="back-link">&larr; Admin Console</a>
+<h1>Convocation Passes &amp; QR Tokens</h1>
 
-<div class="card">
+<div class="card" style="border-left: 4px solid var(--gold); margin-bottom: 1.5rem;">
+  <h2 style="margin-top: 0; font-size: 1.2rem;">Generate Missing Tokens</h2>
   <form method="post" action="/admin/passes/generate" data-busy="Generating…">
-    <p class="muted">Creates a QR only for students who do not have one yet. Existing QR codes are never changed, so it is safe to press again after importing more students.</p>
+    <p class="muted">Creates a unique QR token only for students who do not have one yet. Existing QR codes are never altered or invalidated, so this is safe to run after importing supplementary student batches.</p>
     <button class="big" type="submit">Generate missing tokens</button>
   </form>
 </div>
 
 <h2>Passes List</h2>
 
-<div class="card">
-  <a href="/admin/passes/download_all" class="button" data-download data-busy="Preparing all passes…">Download all passes (PDF)</a>
-  <p class="muted">A large list makes a large PDF: this can take a minute or two.</p>
+<div class="card" style="margin-bottom: 1.5rem;">
+  <div>
+    <a href="/admin/passes/download_all" class="button" data-download data-busy="Preparing all passes…">Download all passes (PDF)</a>
+  </div>
+  <p class="muted">A large cohort generates a multi-page PDF archive. Please allow a minute or two for generation.</p>
 </div>
 
 <table class="spaced">
   <tr><th>PRN</th><th>Name</th><th>Token Status</th><th>Action</th></tr>
   {% for s in students %}
   <tr>
-      <td>{{ s.prn }}</td>
-      <td>{{ s.name }}</td>
-      <td>{% if s.token %}Yes{% else %}No{% endif %}</td>
+      <td><code style="font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-subtle); padding: 0.15rem 0.35rem; border-radius: 3px;">{{ s.prn }}</code></td>
+      <td><b>{{ s.name }}</b></td>
+      <td>
+        {% if s.token %}
+        <span class="role-badge" style="background: var(--ok); color: var(--okink); border-color: var(--okborder);">Yes</span>
+        {% else %}
+        <span class="role-badge" style="background: var(--cream); color: var(--muted); border-color: var(--line);">No</span>
+        {% endif %}
+      </td>
       <td>
         {% if s.token %}
         <a href="/admin/passes/download/{{ s.id }}" class="button small" data-download>Download pass</a>
@@ -35,14 +44,14 @@
 </table>
 
 {% if pages > 1 %}
-<div class="pagination card narrow" style="display: flex; gap: 1rem; align-items: center; justify-content: center;">
+<div class="pagination card narrow" style="display: flex; gap: 1rem; align-items: center; justify-content: center; margin-top: 1.5rem;">
   {% if page > 1 %}
   <a href="?page={{ page - 1 }}">&larr; Previous</a>
   {% else %}
   <span class="muted">&larr; Previous</span>
   {% endif %}
   
-  <span>Page {{ page }} of {{ pages }}</span>
+  <span style="font-weight: 600;">Page {{ page }} of {{ pages }}</span>
   
   {% if page < pages %}
   <a href="?page={{ page + 1 }}">Next &rarr;</a>

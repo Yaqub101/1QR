@@ -1,16 +1,48 @@
 {% extends "base.html" %}
-{% block title %}Admin{% endblock %}
+{% block title %}Administration{% endblock %}
 {% block body %}
-<h1>Admin</h1>
+<div class="admin-header-lead" style="margin-bottom: 1.5rem;">
+  <h1>Administration Console</h1>
+  <p class="muted" style="margin-top: -0.2rem; font-size: 0.95rem;">
+    MGM University Convocation Event Operations, Reporting &amp; Audit Controls
+  </p>
+</div>
 <div class="grid">
-  <a class="tile primary" href="/admin/dashboard">Dashboard</a>
-  <a class="tile" href="/admin/import">Import Students<small>Upload the university's list, check it, then import</small></a>
-  <a class="tile" href="/admin/students">Find a student<small>Journey and corrections</small></a>
-  <a class="tile" href="/admin/passes">Passes and QR<small>Generate, print, reissue</small></a>
-  <a class="tile" href="/admin/exceptions">Exceptions</a>
-  <a class="tile" href="/admin/audit">Audit trail</a>
-  <a class="tile" href="/admin/reports">Reports and exports</a>
-  <a class="tile" href="/admin/users">Users</a>
-  <a class="tile" href="/admin/system">System<small>Reset all data for a new event</small></a>
+  <a class="tile primary" href="/admin/dashboard">
+    Live Dashboard
+    <small>Real-time funnel, attendance &amp; stage monitoring</small>
+  </a>
+  <a class="tile" href="/admin/import">
+    Import Students
+    <small>Upload university master list &amp; photo archives</small>
+  </a>
+  <a class="tile" href="/admin/students">
+    Find a Student
+    <small>Student journey timeline, status &amp; corrections</small>
+  </a>
+  <a class="tile" href="/admin/passes">
+    Passes &amp; QR
+    <small>Generate tokens, print &amp; reissue entry passes</small>
+  </a>
+  <a class="tile" href="/admin/exceptions">
+    Exceptions
+    <small>Resolve operational flags &amp; unrecognised entries</small>
+  </a>
+  <a class="tile" href="/admin/audit">
+    Audit Trail
+    <small>Immutable append-only record of all actions</small>
+  </a>
+  <a class="tile" href="/admin/reports">
+    Reports &amp; Exports
+    <small>Download official lists in CSV or Excel format</small>
+  </a>
+  <a class="tile" href="/admin/users">
+    User Accounts
+    <small>Manage station operators &amp; credentials</small>
+  </a>
+  <a class="tile" href="/admin/system">
+    System &amp; Event Reset
+    <small>Data lifecycle management &amp; pre-event reset</small>
+  </a>
 </div>
 {% endblock %}

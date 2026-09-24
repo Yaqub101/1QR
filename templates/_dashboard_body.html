@@ -1,66 +1,79 @@
 {# The live part of the Admin dashboard. Rendered on its own for the 3-second refresh. #}
-<p class="muted">Figures as of {{ d.as_of }}</p>
+<p class="muted" style="font-size: 0.88rem; margin-top: -0.2rem;">Live data snapshot as of <b>{{ d.as_of }}</b></p>
 
-<h2>Reporting</h2>
+<h2>Reporting &amp; Attendance Cohort</h2>
 <div class="grid stats">
-  <div class="stat"><b id="n-registered">{{ d.counts.registered }}</b><span>Registered (master list)</span></div>
-  <div class="stat"><b id="n-reported">{{ d.counts.reported }}</b><span>Reported</span></div>
-  <div class="stat"><b id="n-yet">{{ d.counts.yet_to_report }}</b><span>Yet to report</span></div>
-  <div class="stat"><b id="n-pct">{{ d.counts.reporting_percent }}%</b><span>Reporting</span></div>
-  <div class="stat"><b id="n-not-attended">{{ d.counts.not_attended }}</b><span>Not attended (never reported)</span></div>
+  <div class="stat" style="border-top: 3px solid var(--gold);"><b id="n-registered">{{ d.counts.registered }}</b><span>Registered (Master List)</span></div>
+  <div class="stat" style="border-top: 3px solid var(--okink);"><b id="n-reported">{{ d.counts.reported }}</b><span>Reported at Registry</span></div>
+  <div class="stat" style="border-top: 3px solid var(--amberink);"><b id="n-yet">{{ d.counts.yet_to_report }}</b><span>Yet to Report</span></div>
+  <div class="stat" style="border-top: 3px solid var(--gold);"><b id="n-pct">{{ d.counts.reporting_percent }}%</b><span>Reporting Rate</span></div>
+  <div class="stat" style="border-top: 3px solid var(--muted);"><b id="n-not-attended">{{ d.counts.not_attended }}</b><span>Not Attended (Absent)</span></div>
 </div>
-{% if d.counts.registration_reversed %}<p class="muted">{{ d.counts.registration_reversed }} of the yet-to-report students had their reporting reversed by an Admin.</p>{% endif %}
+{% if d.counts.registration_reversed %}<p class="muted" style="font-size: 0.85rem;">{{ d.counts.registration_reversed }} yet-to-report students had their reporting reversed by an Admin.</p>{% endif %}
 
-<h2>Journey funnel</h2>
-<table class="funnel">
+<h2>Convocation Journey Funnel</h2>
+<table class="funnel spaced">
   {% for f in d.funnel %}
-  <tr><td>{{ f.label }}</td><td class="num">{{ f.count }}</td>
-      <td class="barcell"><div class="bar-fill" style="width: {{ f.percent_of_reported }}%"></div></td>
-      <td class="muted">{{ f.percent_of_reported }}%{% if f.of_which_waived %} &middot; {{ f.of_which_waived }} waived / lost{% endif %}</td></tr>
+  <tr>
+    <td style="font-weight: 600; width: 25%;">{{ f.label }}</td>
+    <td class="num" style="font-weight: 700; width: 10%;">{{ f.count }}</td>
+    <td class="barcell"><div class="bar-fill" style="width: {{ f.percent_of_reported }}%"></div></td>
+    <td class="muted" style="font-size: 0.88rem; width: 25%;">{{ f.percent_of_reported }}%{% if f.of_which_waived %} &middot; {{ f.of_which_waived }} waived / lost{% endif %}</td>
+  </tr>
   {% endfor %}
 </table>
 
-<h2>Stage</h2>
-<div class="card">
-  <div>On stage: <b>{{ d.stage.current.name if d.stage.current else "nobody" }}</b>
-    {% if d.stage.current %}({{ d.stage.current.prn }}){% endif %}</div>
-  <div>Public LED: <b>{{ d.stage.led_name if d.stage.led_name else "holding screen" }}</b></div>
-  <div>Waiting in the queue: <b>{{ d.stage.waiting }}</b>
-    {% if d.stage.next %}&middot; next: {% for n in d.stage.next %}{{ n.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>
+<h2>Stage Status</h2>
+<div class="card" style="border-left: 4px solid var(--gold); padding: 1.1rem 1.3rem;">
+  <div>Current graduate on stage: <b>{{ d.stage.current.name if d.stage.current else "nobody" }}</b>
+    {% if d.stage.current %}<code style="font-family: var(--font-mono); font-size: 0.9em; margin-left: 0.3rem;">({{ d.stage.current.prn }})</code>{% endif %}</div>
+  <div>Public LED audience display: <b>{{ d.stage.led_name if d.stage.led_name else "holding screen" }}</b></div>
+  <div>Graduates waiting in queue: <b>{{ d.stage.waiting }}</b>
+    {% if d.stage.next %}&middot; next: {% for n in d.stage.next %}<b>{{ n.name }}</b>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>
 </div>
 
 <h2>Outstanding robes: <span id="n-outstanding">{{ d.outstanding_thobes.count }}</span></h2>
 {% if d.outstanding_thobes.students %}
-<table>
-  <tr><th>Name</th><th>PRN</th><th>School</th><th>Allocated</th><th>Stage done</th></tr>
+<table class="spaced">
+  <tr><th>Name</th><th>PRN</th><th>School</th><th>Allocated At</th><th>Stage Completed</th></tr>
   {% for s in d.outstanding_thobes.students %}
-  <tr><td><a href="/admin/students/{{ s.student_id }}">{{ s.name }}</a></td><td>{{ s.prn }}</td><td>{{ s.school }}</td>
-      <td>{{ s.allocated_at }}</td><td>{{ "Yes" if s.stage_complete else "No" }}</td></tr>
+  <tr><td><a href="/admin/students/{{ s.student_id }}"><b>{{ s.name }}</b></a></td>
+      <td><code style="font-family: var(--font-mono);">{{ s.prn }}</code></td>
+      <td>{{ s.school }}</td>
+      <td>{{ s.allocated_at }}</td>
+      <td>
+        {% if s.stage_complete %}
+        <span class="role-badge" style="background: var(--ok); color: var(--okink); border-color: var(--okborder); font-size: 0.72rem;">Yes</span>
+        {% else %}
+        <span class="role-badge" style="background: var(--amber); color: var(--amberink); border-color: var(--amberborder); font-size: 0.72rem;">No</span>
+        {% endif %}
+      </td></tr>
   {% endfor %}
 </table>
 {% if d.outstanding_thobes.count > d.outstanding_thobes.students|length %}
-<p class="muted">Showing the first {{ d.outstanding_thobes.students|length }}. <a href="/admin/reports/outstanding-robes">Full list</a></p>{% endif %}
+<p class="muted" style="font-size: 0.85rem; margin-top: 0.6rem;">Showing the first {{ d.outstanding_thobes.students|length }}. <a href="/admin/reports/outstanding-robes">Full list</a></p>{% endif %}
 {% endif %}
 
-<h2>Needs attention</h2>
+<h2>Exceptions &amp; Verification Flags</h2>
 <div class="grid stats">
-  <a class="stat" href="/admin/exceptions"><b id="n-open-exceptions">{{ d.exceptions.open }}</b><span>Open exceptions</span></a>
-  <a class="stat" href="/admin/reports/manual"><b>{{ d.exceptions.manual_entries }}</b><span>Manual entries</span></a>
-  <div class="stat"><b>{{ d.exceptions.duplicate_attempts }}</b><span>Duplicate attempts</span></div>
-  <div class="stat"><b>{{ d.exceptions.blocked_attempts }}</b><span>Out-of-order attempts</span></div>
-  <a class="stat" href="/admin/reports/corrections"><b>{{ d.exceptions.corrections }}</b><span>Admin corrections</span></a>
+  <a class="stat" href="/admin/exceptions"><b id="n-open-exceptions">{{ d.exceptions.open }}</b><span>Open Exceptions</span></a>
+  <a class="stat" href="/admin/reports/manual"><b>{{ d.exceptions.manual_entries }}</b><span>Manual PRN Entries</span></a>
+  <div class="stat"><b>{{ d.exceptions.duplicate_attempts }}</b><span>Duplicate Scans</span></div>
+  <div class="stat"><b>{{ d.exceptions.blocked_attempts }}</b><span>Out-of-Order Scans</span></div>
+  <a class="stat" href="/admin/reports/corrections"><b>{{ d.exceptions.corrections }}</b><span>Admin Corrections</span></a>
 </div>
 
-<h2>School-wise reporting</h2>
-<table>
-  <tr><th>School</th><th class="num">Registered</th><th class="num">Reported</th><th class="num">Yet to report</th><th class="num">%</th></tr>
+<h2>Faculty &amp; School-wise Attendance</h2>
+<table class="spaced">
+  <tr><th>School / Faculty</th><th class="num">Registered</th><th class="num">Reported</th><th class="num">Yet to Report</th><th class="num">Reporting %</th></tr>
   {% for s in d.school_wise %}
-  <tr><td>{{ s.school }}</td><td class="num">{{ s.registered }}</td><td class="num">{{ s.reported }}</td>
-      <td class="num">{{ s.yet_to_report }}</td><td class="num">{{ s.reporting_percent }}</td></tr>
+  <tr><td><b>{{ s.school }}</b></td><td class="num">{{ s.registered }}</td><td class="num">{{ s.reported }}</td>
+      <td class="num">{{ s.yet_to_report }}</td><td class="num"><b>{{ s.reporting_percent }}%</b></td></tr>
   {% endfor %}
 </table>
 
-<h2>Server health</h2>
-<div class="card" id="server-health">
-  <div>Database: <b>{{ d.health.database }}</b>{% if d.health.last_backup_at %} &middot; Last backup: {{ d.health.last_backup_at }}{% endif %}</div>
+<h2>System Diagnostics</h2>
+<div class="card" id="server-health" style="padding: 1rem 1.3rem;">
+  <div>Database connectivity: <span class="role-badge" style="background: var(--ok); color: var(--okink); border-color: var(--okborder); font-size: 0.72rem;">{{ d.health.database }}</span>
+    {% if d.health.last_backup_at %} &middot; <span class="muted">Last automated snapshot: {{ d.health.last_backup_at }}</span>{% endif %}</div>
 </div>

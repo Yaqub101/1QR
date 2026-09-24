@@ -120,6 +120,15 @@ def api_waive(request: Request, body: WaiveBody, principal: Principal = Depends(
         raise _fail(exc)
 
 
+@router.post("/api/corrections/waive-money")
+def api_waive_money(request: Request, body: WaiveBody, principal: Principal = Depends(require_admin)):
+    try:
+        return corrections.waive_money(request.app.state.engine, principal=principal,
+                                       student_id=body.student_id, reason=body.reason)
+    except CorrectionError as exc:
+        raise _fail(exc)
+
+
 # ---- QR tokens and passes (Phase 4). A pass carries a LIVE token, so every route here is Admin-only and every
 # download is logged. The audit log records ids and counts, never a token.
 def _token_fail(exc: qr_tokens.TokenError):
@@ -438,6 +447,17 @@ def waive_form(request: Request, student_id: str, reason: str = Form(""), princi
     try:
         result = corrections.waive_return(request.app.state.engine, principal=principal,
                                           student_id=student_id, reason=reason)
+    except CorrectionError as exc:
+        return redirect(f"/admin/students/{student_id}", error=exc.message)
+    return redirect(f"/admin/students/{student_id}", msg=result["message"])
+
+
+@router.post("/students/{student_id}/waive-money")
+def waive_money_form(request: Request, student_id: str, reason: str = Form(""),
+                     principal: Principal = Depends(require_admin)):
+    try:
+        result = corrections.waive_money(request.app.state.engine, principal=principal,
+                                         student_id=student_id, reason=reason)
     except CorrectionError as exc:
         return redirect(f"/admin/students/{student_id}", error=exc.message)
     return redirect(f"/admin/students/{student_id}", msg=result["message"])

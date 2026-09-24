@@ -1,3 +1,39 @@
+## [0.23.0] - Phase R4: the Registry desk's tick boxes (robe and money), and money as its own record
+
+### Added
+- **Two new activities**, `MONEY_RECEIVED` and `MONEY_RETURNED` (migration `0017_money_deposit`): a plain yes/no
+  deposit tick next to the robe, no amount stored. Each has its own append-only event and per-activity unique
+  constraint. The Admin's waiver now also covers the money ("Money kept", `POST /admin/api/corrections/waive-money`
+  and a button on the student page), flagged CORRECTED, reason required, with a `MONEY_KEPT` exception.
+- **The Registry desk shows where the student is and two tick boxes** (`backend/engine/registry.py`):
+  - Entry: "Robe allotted" and "Money received". The first confirm always records Reporting, with or without a
+    box ticked; after that a confirm must tick at least one. Scanning again shows the same two boxes, the done ones
+    ticked and locked with their time, until both are recorded.
+  - Both recorded, degree not yet: "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY".
+  - After the degree: "Robe returned" and "Money returned", ticked separately.
+  - Both returned (or waived): "ROBE AND MONEY ALREADY RETURNED — time".
+  - A stale screen (another desk ticked a box a moment ago) writes nothing and shows the fresh card.
+  Everything one confirm records is ONE transaction; camera scan and PRN fallback as before.
+- **Rules**: the Queue needs the robe AND the money; Lunch needs both returns.
+
+### Changed
+- **Status labels** (the `student_status` view, rewritten so robe and money are tracked separately):
+  `REPORTED / ROBE AND MONEY PENDING`, `REPORTED / MONEY PENDING`, `REPORTED / ROBE PENDING`,
+  `ROBE AND MONEY RECEIVED / NOT QUEUED`, `SEATED / NOT QUEUED`, `DEGREE NOT RECEIVED`,
+  `ROBE AND MONEY NOT RETURNED`, `MONEY NOT RETURNED`, `ROBE NOT RETURNED`, `LUNCH ELIGIBLE`, `EXITED`.
+- The Admin screens read the status text from that view (the separate `STATUS_LABEL` copy in
+  `backend/admin/queries.py`, which still said "Not seated", is gone). The "Incomplete journey" report no longer
+  lists optional Seating as not done. Funnel, per-activity reports and paper fallback sheets include the money.
+- Lunch eligibility on the Lunch card shows both parts, e.g. "Robe returned 9:30 PM · Money returned 9:31 PM".
+
+### Fixed
+- The school/programme summaries mapped their columns to activities by POSITION, so adding activities shifted
+  every column ("seated" counted the money). Columns now name their activity; money columns added.
+
+### Tests
+- `tests/test_registry.py` rewritten for the tick boxes (37); 8 new JS tests in `tests/js/station.test.js`; the
+  activity tables, status labels and journeys in the other suites updated for the two money activities.
+
 ## [0.23.0] - Production Performance Optimization for 26 September Event
 
 ### Added

@@ -12,20 +12,24 @@ from __future__ import annotations
 ACTIVITIES = (
     "REGISTRATION",
     "THOBE_ALLOCATION",
+    "MONEY_RECEIVED",
     "SEATING",
     "QUEUE",
     "STAGE",
     "THOBE_RETURN",
+    "MONEY_RETURNED",
     "LUNCH",
 )
 
 ACTIVITY_LABEL = {
     "REGISTRATION": "Reporting",
     "THOBE_ALLOCATION": "Robe Allocation",
+    "MONEY_RECEIVED": "Money Received",
     "SEATING": "Seating",
     "QUEUE": "Queue",
     "STAGE": "Stage",
     "THOBE_RETURN": "Robe Return",
+    "MONEY_RETURNED": "Money Returned",
     "LUNCH": "Lunch",
 }
 

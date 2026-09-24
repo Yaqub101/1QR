@@ -46,7 +46,8 @@ PASSWORD = "Test-Pass-2026!"  # test-only constant, never a real credential
 SESSION_COOKIE = "session"
 
 ACTIVITIES = [
-    "REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH",
+    "REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN",
+    "MONEY_RETURNED", "LUNCH",
 ]
 
 # key -> role. The approved role/flow redesign: ONE merged Registry operator role covers Reporting,
@@ -73,16 +74,18 @@ RETIRED_ROLES = ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN")  # merged i
 OPERATOR_ROLE_FOR = {
     "REGISTRATION": "REGISTRY",
     "THOBE_ALLOCATION": "REGISTRY",
+    "MONEY_RECEIVED": "REGISTRY",
     "SEATING": "SEATING",
     "QUEUE": "QUEUE",
     "STAGE": "STAGE",
     "THOBE_RETURN": "REGISTRY",
+    "MONEY_RETURNED": "REGISTRY",
     "LUNCH": "LUNCH",
 }
 
 # "Can do" per role, written out by hand from the redesign.
 SPEC_ACTIVITY_PAGES = {
-    "REGISTRY": {"REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"},
+    "REGISTRY": {"REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "THOBE_RETURN", "MONEY_RETURNED"},
     "SEATING": {"SEATING"},
     "QUEUE": {"QUEUE"},
     "STAGE": {"STAGE"},
@@ -503,7 +506,7 @@ class TestRoleMatrix:
         client = signed_in(apps, world, "registry")
         assert client.get("/station/registry").status_code == 200
         for activity in ACTIVITIES:
-            expected = 200 if activity in {"REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"} else 403
+            expected = 200 if activity in SPEC_ACTIVITY_PAGES["REGISTRY"] else 403
             assert client.get(f"/station/{slug(activity)}").status_code == expected, activity
         for _, path in ADMIN_ENDPOINTS:
             assert client.get(path).status_code in (403, 405)

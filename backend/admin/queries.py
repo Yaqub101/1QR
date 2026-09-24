@@ -31,15 +31,17 @@ NEVER_REGISTERED = """
 NOT EXISTS (SELECT 1 FROM activity_events e WHERE e.student_id = s.id AND e.activity = 'REGISTRATION')"""
 
 FUNNEL_LABELS = {
-    "REGISTRATION": "Reported", "THOBE_ALLOCATION": "Robe received", "SEATING": "Seated", "QUEUE": "Queued",
-    "STAGE": "Stage complete", "THOBE_RETURN": "Robe returned", "LUNCH": "Lunch / Exited",
+    "REGISTRATION": "Reported", "THOBE_ALLOCATION": "Robe received", "MONEY_RECEIVED": "Money received",
+    "SEATING": "Seated (optional)", "QUEUE": "Queued", "STAGE": "Stage complete", "THOBE_RETURN": "Robe returned",
+    "MONEY_RETURNED": "Money returned", "LUNCH": "Lunch / Exited",
 }
 assert tuple(FUNNEL_LABELS) == ACTIVITIES
 
-STATUS_LABEL = {
-    0: "Registered / not reported", 1: "Reported / robe not received", 2: "Not seated", 3: "Not queued",
-    4: "Degree not received", 5: "Robe not returned", 6: "Lunch eligible", 7: "Exited",
-}
+
+def journey_status(label: str) -> str:
+    """The student_status view's label ("REPORTED / MONEY PENDING") as the Admin screens show it. The view is the
+    ONE place the labels are defined; this only changes the capitals."""
+    return label.capitalize() if label else ""
 
 
 def event_clock(offset_minutes: int) -> timezone:

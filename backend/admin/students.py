@@ -7,7 +7,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from backend.admin.queries import STATUS_LABEL, iso_local
+from backend.admin.queries import iso_local, journey_status
 from backend.security import ownership
 
 SEARCH_LIMIT = 25
@@ -34,7 +34,7 @@ def search(conn: Connection, query: str = "", limit: int = SEARCH_LIMIT, offset:
     total = conn.execute(text(f"SELECT count(*) FROM students s {where_clause}"), params).scalar()
     
     rows = conn.execute(text(f"""
-        SELECT s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.status, s.photo_path, v.step 
+        SELECT s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.status, s.photo_path, v.step, v.status AS journey 
         FROM students s JOIN student_status v ON v.student_id = s.id 
         {where_clause}
         ORDER BY s.sequence_no NULLS LAST, s.name LIMIT :n OFFSET :off"""), params).mappings()
@@ -42,7 +42,7 @@ def search(conn: Connection, query: str = "", limit: int = SEARCH_LIMIT, offset:
     students = [{"student_id": str(r["id"]), "prn": r["prn"], "name": r["name"], "programme": r["programme"],
              "school": r["school"], "sequence_no": r["sequence_no"], "master_status": r["status"],
              "photo_path": r.get("photo_path"),
-             "journey_status": STATUS_LABEL[r["step"]]} for r in rows]
+             "journey_status": journey_status(r["journey"])} for r in rows]
              
     return {"total": total, "students": students}
 
@@ -58,7 +58,7 @@ def journey(conn: Connection, student_id, settings) -> Optional[dict]:
     student = conn.execute(text(
         "SELECT s.id, s.prn, s.name, s.programme, s.school, s.awards, s.photo_path, s.sequence_no, s.seat_no, s.status, "
         "s.email, s.mobile, "
-        "v.step, EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS frozen "
+        "v.step, v.status AS journey, EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS frozen "
         "FROM students s JOIN student_status v ON v.student_id = s.id WHERE s.id = :s"), {"s": sid}).mappings().one_or_none()
     if student is None:
         return None
@@ -93,6 +93,7 @@ def journey(conn: Connection, student_id, settings) -> Optional[dict]:
         "WHERE student_id = :s AND result NOT IN ('SUCCESS', 'READY') "
         "ORDER BY occurred_at DESC, id DESC LIMIT 50"), {"s": sid}).mappings().all()
     returned = any(t["activity"] == "THOBE_RETURN" and t["state"] == "ACTIVE" for t in timeline)
+    money_settled = any(t["activity"] == "MONEY_RETURNED" and t["state"] == "ACTIVE" for t in timeline)
     return {
         # `frozen` says whether "Freeze display data" has been run for this student. Once it has, the
         # master fields below are changed only by a logged master patch (backend/master_patch.py).
@@ -104,9 +105,10 @@ def journey(conn: Connection, student_id, settings) -> Optional[dict]:
                     "seat_no": student["seat_no"], "master_status": student["status"],
                     "email": student["email"], "mobile": student["mobile"],
                     "frozen": bool(student["frozen"]),
-                    "journey_status": STATUS_LABEL[student["step"]]},
+                    "journey_status": journey_status(student["journey"])},
         "events": timeline,
         "attempts": [{"time": iso_local(a["occurred_at"], off), "activity": a["activity"],
                       "result": a["result"], "message": a["message"]} for a in attempts],
         "can_waive_return": not returned,
+        "can_waive_money": not money_settled,
     }

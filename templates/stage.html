@@ -1,17 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Stage{% endblock %}
 {% block body %}
-<div id="stage-root">
-  <h1>Stage</h1>
+<div id="stage-root" class="stage-container">
+  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
+    <h1>Stage</h1>
+    <span class="station-badge" style="font-size: 0.85rem; font-weight: 700; color: var(--brand); background: var(--cream); border: 1px solid var(--line); padding: 0.25rem 0.65rem; border-radius: 999px; text-transform: uppercase;">
+      Auditorium / Dias
+    </span>
+  </div>
 
   <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Connecting…</span></div>
   <p id="led" class="led-status">Audience screen: holding screen</p>
   <button id="take-over" class="takeover" type="button" hidden>TAKE OVER</button>
 
   <div class="stage-main">
-    <section class="slot slot-current">
+    <section class="slot slot-current" aria-label="Current Student on Stage">
       <h2>CURRENT</h2>
-      <img id="current-photo" alt="">
+      <img id="current-photo" alt="" onerror="this.onerror=null;this.src='/static/placeholder.svg';">
       <p id="current-name" class="slot-name"></p>
       <p id="current-programme" class="muted"></p>
     </section>
@@ -24,12 +29,12 @@
     </div>
   </div>
 
-  <section class="waiting">
-    <h2>WAITING <span id="depth" class="muted"></span></h2>
+  <section class="waiting card" style="margin: 1.5rem 0; padding: 1.2rem;">
+    <h2>WAITING <span id="depth" class="muted" style="font-size: 0.95rem; font-family: var(--font-sans); font-weight: 600;"></span></h2>
     <ol id="waiting" class="waiting-list"></ol>
   </section>
 
-  <div class="stage-tools">
+  <div class="stage-tools card" style="padding: 1.2rem;">
     <div class="tool">
       <input id="skip-reason" type="text" placeholder="Reason for skipping" autocomplete="off" aria-label="Reason for skipping">
       <button id="skip" type="button">SKIP</button>

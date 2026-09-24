@@ -1,23 +1,35 @@
 {% extends "base.html" %}
 {% block title %}{{ title or activity_label[activity] }}{% endblock %}
 {% block body %}
-<div id="station-root" data-activity="{{ activity }}">
-  <h1>{{ title or activity_label[activity] }}</h1>
+<div id="station-root" data-activity="{{ activity }}" class="station-container">
+  <div class="station-header-bar" style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
+    <h1>{{ title or activity_label[activity] }}</h1>
+    <span class="station-badge" style="font-size: 0.85rem; font-weight: 700; color: var(--brand); background: var(--cream); border: 1px solid var(--line); padding: 0.25rem 0.65rem; border-radius: 999px; text-transform: uppercase;">
+      Active Station
+    </span>
+  </div>
 
   <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Scan a QR to begin.</span></div>
 
-  <input id="scan" class="scan-box" type="text" autofocus autocomplete="off" autocapitalize="off"
-         autocorrect="off" spellcheck="false" placeholder="Scan QR here" aria-label="Scan the student's QR code">
+  <div class="scan-wrapper" style="margin: 1.2rem 0;">
+    <input id="scan" class="scan-box" type="text" autofocus autocomplete="off" autocapitalize="off"
+           autocorrect="off" spellcheck="false" placeholder="Scan QR here or press Enter" aria-label="Scan the student's QR code">
+  </div>
 
   <div id="card" class="student" hidden>
-    <img id="card-photo" alt="Student photo">
+    <img id="card-photo" alt="Student photo" onerror="this.onerror=null;this.src='/static/placeholder.svg';">
     <div class="student-info">
       <h2 id="card-name"></h2>
+      <p id="card-state" class="card-state"></p>
       <dl id="card-fields"></dl>
     </div>
   </div>
 
-  <button id="confirm" class="confirm" type="button" hidden>{{ config.confirm_label }}</button>
+  <div id="markers" class="markers" role="group" aria-label="Tick what the student hands over or takes back" hidden></div>
+
+  <div class="confirm-wrapper" style="margin: 1.2rem 0;">
+    <button id="confirm" class="confirm" type="button" hidden>{{ config.confirm_label }}</button>
+  </div>
 
   <details class="camera-scan" id="camera-details">
     <summary>Scan with camera</summary>
@@ -29,13 +41,13 @@
   </details>
 
   <details class="manual">
-    <summary>QR damaged? Search by PRN</summary>
+    <summary>QR damaged or unreadable? Search by PRN</summary>
     <div class="manual-row">
       <input id="search-prn" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
-             placeholder="PRN" aria-label="Student PRN">
-      <button id="search-btn" type="button">Search</button>
+             placeholder="Enter Student PRN" aria-label="Student PRN">
+      <button id="search-btn" type="button">Search Student</button>
     </div>
-    <p class="muted">Check the photo against the student before you confirm.</p>
+    <p class="muted">Check the photo against the student before confirming the activity.</p>
   </details>
 </div>
 <script src="{{ asset_url('jsqr.min.js') }}"></script>

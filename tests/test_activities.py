@@ -186,7 +186,7 @@ class TestQueue:
 
     def test_not_blocked_without_seating(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION"])  # robe given, never seated
+        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED"])  # robe + money, never seated
         client = operator(apps, world, "QUEUE")
         assert confirm(client, "QUEUE", token=s.token).json()["result"] == "CONFIRMED"
         assert q(engine, "SELECT count(*) AS n FROM queue WHERE student_id = :s", s=s.id)[0]["n"] == 1
@@ -321,7 +321,7 @@ class TestLunch:
     def test_blocked_without_a_return_or_waiver_and_allowed_with_either(self, apps, world, engine):
         client = operator(apps, world, "LUNCH")
         none = make_student(engine)
-        seed_events(engine, none, ACTIVITIES[:5])  # everything but the return
+        seed_events(engine, none, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")])  # everything through Stage; nothing returned
         before = totals(engine)
         for body in (scan(client, "LUNCH", none.token).json(), confirm(client, "LUNCH", token=none.token).json()):
             assert body["result"] == "REJECTED" and body["message"] == "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"
@@ -329,15 +329,16 @@ class TestLunch:
         returned = ready_student(engine, "LUNCH")
         assert scan(client, "LUNCH", returned.token).json()["result"] == "READY"
         waived = make_student(engine)
-        seed_events(engine, waived, ACTIVITIES[:5])
+        seed_events(engine, waived, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")] + ["MONEY_RETURNED"])  # the money came back normally
         seed_at(engine, waived, "THOBE_RETURN", kind="WAIVER", hours_ago=1)  # an EXISTING Admin waiver record
         ready = scan(client, "LUNCH", waived.token).json()
-        assert ready["result"] == "READY" and field(ready["student"], "eligibility") == "Return waived by Admin"
+        assert ready["result"] == "READY" and field(ready["student"], "eligibility").startswith(
+            "Robe waived by Admin · Money returned ")
         assert confirm(client, "LUNCH", token=waived.token).json()["result"] == "CONFIRMED"
 
     def test_a_reversed_waiver_no_longer_unlocks_lunch(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, ACTIVITIES[:5])
+        seed_events(engine, s, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")] + ["MONEY_RETURNED"])
         waiver = seed_at(engine, s, "THOBE_RETURN", kind="WAIVER", hours_ago=2)
         assert scan(operator(apps, world, "LUNCH"), "LUNCH", s.token).json()["result"] == "READY"
         seed_at(engine, s, "THOBE_RETURN", kind="REVERSAL", corrects=waiver.event_id, hours_ago=1)
@@ -380,9 +381,9 @@ class TestFullJourney:
     def test_registration_to_lunch_ends_exited(self, apps, world, engine):
         s, seen = self._walk(apps, world, engine, waive_return=False)
         assert seen == STATUS_AFTER_STEP[1:] and seen[-1] == "EXITED"
-        assert len(events_of(engine, s)) == 7
-        # Each of the seven steps: the scan the operator was shown, then the confirm. No false duplicate anywhere.
-        assert [r["result"] for r in log_of(engine, s)] == ["READY", "SUCCESS"] * 7
+        assert len(events_of(engine, s)) == len(ACTIVITIES) == 9
+        # Each of the nine steps: the scan the operator was shown, then the confirm. No false duplicate anywhere.
+        assert [r["result"] for r in log_of(engine, s)] == ["READY", "SUCCESS"] * 9
 
     def test_the_same_journey_with_an_admin_waived_return_also_ends_exited(self, apps, world, engine):
         s, seen = self._walk(apps, world, engine, waive_return=True)

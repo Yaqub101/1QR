@@ -1,35 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Import Students{% endblock %}
 {% block body %}
-<p><a href="/admin">&larr; Admin</a></p>
-<h1>Import Students</h1>
-<p class="muted">The university's list, as a CSV or an Excel file. You will see exactly what will happen
-before anything is written, and you can run the same file again later when the rest of the list arrives:
-students already on the list are left exactly as they are.</p>
+<a href="/admin" class="back-link">&larr; Admin Console</a>
+<h1>Import Student Master List</h1>
+<p class="muted">Upload the official university student roster (CSV, XLSX or XLS format) and optional photo ZIP archive. You will see a complete dry-run validation preview before any record is committed.</p>
 
 <form method="post" action="/admin/import/upload" enctype="multipart/form-data" class="card narrow"
       data-busy="Uploading and checking…"
-      data-busy-note="Uploading the file. With a photo ZIP this may take several minutes. Please keep this page open.">
-  <label>Student list <input type="file" name="file" accept=".csv,.xlsx,.xls" required></label>
-  <label>Photo ZIP <small class="muted">(optional)</small>
+      data-busy-note="Uploading the file. With a photo ZIP this may take several minutes. Please keep this page open."
+      style="margin: 1.5rem auto;">
+  <label>Student Master List File <input type="file" name="file" accept=".csv,.xlsx,.xls" required></label>
+  <label>Photo ZIP Archive <small class="muted">(optional)</small>
     <input type="file" name="photos_zip" accept=".zip,application/zip"></label>
-  <p class="muted">The university's photo ZIP (for example <code>Student Profile Image.zip</code>). Each photo is
-    matched to its student by the PRN or Enrollment / Roll number in its file name. Photos are added after the
-    students, and students already on the list keep the photo they have.</p>
+  <p class="muted" style="font-size: 0.85rem;">The university's photo ZIP (for example <code>Student Profile Image.zip</code>). Each photo is
+    matched to its student by the PRN or Enrollment / Roll number in its file name. Supplementary uploads will not overwrite existing photos.</p>
   <details>
-    <summary class="muted">Or: a photo folder on this server</summary>
-    <label>Photo folder <input type="text" name="photo_dir" placeholder="/data/photos" autocomplete="off"></label>
-    <p class="muted">Photos named <code>&lt;PRN&gt;.jpg</code>. Give a ZIP or a folder, not both.</p>
+    <summary class="muted">Or: local photo folder on this server</summary>
+    <label style="margin-top: 0.5rem;">Photo folder path <input type="text" name="photo_dir" placeholder="/data/photos" autocomplete="off"></label>
+    <p class="muted" style="font-size: 0.85rem;">Photos named <code>&lt;PRN&gt;.jpg</code>. Specify either a ZIP or a folder, not both.</p>
   </details>
-  <p class="muted">Leave both empty to import the list now and attach photos later.</p>
-  <button class="big" type="submit">Upload and check</button>
+  <p class="muted" style="font-size: 0.85rem;">Leave both photo options empty to import student details first and attach photos at a later stage.</p>
+  <button class="big" type="submit" style="margin-top: 0.5rem;">Upload &amp; Validate File</button>
 </form>
 
-<h2>What happens next</h2>
-<ol class="steps">
-  <li><b>Match the columns.</b> Recognised headings are matched for you; anything unusual you set yourself.</li>
-  <li><b>Read the check.</b> Missing fields, repeated PRNs, overlong names, missing photos, rows marked
-      inactive and students already on the list — all before anything is written.</li>
-  <li><b>Import.</b> The whole file goes in together, or none of it does.</li>
-</ol>
+<h2>Import Workflow Stages</h2>
+<div class="card" style="padding: 1.2rem;">
+  <ol class="steps" style="margin: 0; padding-left: 1.2rem; display: grid; gap: 0.6rem;">
+    <li><b>1. Column Alignment:</b> Standard headings are auto-mapped; custom or localized headings can be mapped manually.</li>
+    <li><b>2. Verification &amp; Dry-Run:</b> Missing fields, repeated PRNs, overlong names, and duplicate entries are flagged without touching database state.</li>
+    <li><b>3. Atomic Commit:</b> The entire cohort is committed in a single transaction, or fully rolled back if validation fails.</li>
+  </ol>
+</div>
 {% endblock %}

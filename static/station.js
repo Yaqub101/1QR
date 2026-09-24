@@ -25,7 +25,8 @@
     const resetMs = deps.resetMs != null ? deps.resetMs : 2500;
     const debouncer = Logic.createDebouncer({ windowMs: deps.debounceMs != null ? deps.debounceMs : 1500, now });
 
-    let pending = null; // what /confirm will send: { kind: "token" | "student", value, step }
+    let pending = null; // what /confirm will send: { kind: "token" | "student", value, step, needsTick }
+    const TICK_ONE = "Tick at least one box, then confirm.";
     let resetTimer = null;
     let readyAt = -Infinity;
 
@@ -41,9 +42,40 @@
       els.message.textContent = message;
     }
 
+    // The Registry desk's tick boxes: one per marker the server sends; done ones are ticked and locked.
+    function renderMarkers(markers) {
+      if (!els.markers) return;
+      const list = Array.isArray(markers) ? markers : [];
+      els.markers.replaceChildren(...list.map((m) => {
+        const row = doc.createElement("label");
+        row.className = "marker" + (m.done ? " done" : "");
+        const box = doc.createElement("input");
+        box.type = "checkbox";
+        box.value = m.key;
+        box.checked = !!m.done;
+        box.disabled = !!m.done;
+        const text = doc.createElement("span");
+        text.textContent = m.done && m.time ? `${m.label} — done ${m.time}` : m.label;
+        row.appendChild(box);
+        row.appendChild(text);
+        return row;
+      }));
+      els.markers.hidden = list.length === 0;
+    }
+
+    function tickedMarks() {
+      if (!els.markers) return [];
+      return Array.from(els.markers.children)  // a real page gives an HTMLCollection, not an array
+        .map((row) => row.children[0])
+        .filter((box) => box && box.checked && !box.disabled)
+        .map((box) => box.value);
+    }
+
     function clearCard() {
       els.card.hidden = true;
       els.confirmBtn.hidden = true;
+      if (els.cardState) els.cardState.textContent = "";
+      renderMarkers([]);
       els.cardName.textContent = "";
       els.cardFields.replaceChildren();
       pending = null;
@@ -83,13 +115,15 @@
       playSound(view.sound);
       if (reply.student) renderCard(reply.student);
       else clearCard();
+      if (reply.student && els.cardState) els.cardState.textContent = reply.state || "";
+      if (reply.student && reply.markers) renderMarkers(reply.markers);
 
       if (reply.result === "READY" && reply.student) {
         pending = reply.manual
           ? { kind: "student", value: reply.student.student_id }
           : { kind: "token", value: tokenForPending };
         // The Registry desk works out the step (entry / robe return) and names it; other screens send none.
-        if (reply.step) pending.step = reply.step;
+        if (reply.step) { pending.step = reply.step; pending.needsTick = !!reply.needs_tick; }
         if (reply.confirm_label) els.confirmBtn.textContent = reply.confirm_label;
         els.confirmBtn.hidden = false;
         readyAt = now();
@@ -129,7 +163,16 @@
       const body = pending.kind === "token"
         ? { token: pending.value, activity: deps.activity }
         : { student_id: pending.value, activity: deps.activity };
-      if (pending.step) body.step = pending.step;
+      if (pending.step) {
+        body.step = pending.step;
+        body.marks = tickedMarks();
+        if (pending.needsTick && body.marks.length === 0) {  // say it here; no request, the card stays up
+          showBanner("red", TICK_ONE);
+          playSound("rejected");
+          focusScan();
+          return;
+        }
+      }
       els.confirmBtn.disabled = true;
       try {
         await run(() => post("/confirm", body), null);
@@ -182,6 +225,7 @@
     scan: byId("scan"), banner: byId("banner"), message: byId("message"), card: byId("card"),
     cardName: byId("card-name"), cardPhoto: byId("card-photo"), cardFields: byId("card-fields"),
     confirmBtn: byId("confirm"), searchInput: byId("search-prn"), searchBtn: byId("search-btn"),
+    markers: byId("markers"), cardState: byId("card-state"),
   };
 
   async function post(url, body) {

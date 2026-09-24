@@ -168,21 +168,44 @@ def _reverse(conn: Connection, *, principal, event_id, reason: str) -> dict:
             "later_activities_still_recorded": sorted(later)}
 
 
-# ------------------------------------------------------------------ waive a lost / unreturned robe
+# ------------------------------------------------------------------ waive a return: lost robe / money kept
+# The two returns an Admin may settle without the item coming back. Each counts as done for Lunch, is flagged
+# CORRECTED, needs a reason, and opens an exception for the Admin's review list.
+_WAIVERS = {
+    "THOBE_RETURN": {"given": "THOBE_ALLOCATION", "other": "MONEY_RETURNED", "action": "RETURN_WAIVED",
+                     "already": ("ALREADY_RETURNED", "That robe is already recorded as returned or waived."),
+                     "done": "Return waived.", "other_name": "money"},
+    "MONEY_RETURNED": {"given": "MONEY_RECEIVED", "other": "THOBE_RETURN", "action": "MONEY_KEPT",
+                       "already": ("ALREADY_SETTLED", "That money is already recorded as returned or kept."),
+                       "done": "Money kept.", "other_name": "robe"},
+}
+
+
 def waive_return(engine, *, principal, student_id, reason) -> dict:
     """Admin "Return Waived / Lost": counts as the Robe Return for Lunch, flagged CORRECTED, reason mandatory."""
+    return _waive_in_transaction(engine, "THOBE_RETURN", principal=principal, student_id=student_id, reason=reason)
+
+
+def waive_money(engine, *, principal, student_id, reason) -> dict:
+    """Admin "Money kept" (e.g. for a lost or damaged robe): counts as the Money Return for Lunch, flagged
+    CORRECTED, reason mandatory."""
+    return _waive_in_transaction(engine, "MONEY_RETURNED", principal=principal, student_id=student_id, reason=reason)
+
+
+def _waive_in_transaction(engine, activity: str, *, principal, student_id, reason) -> dict:
     _require_admin(principal)
     reason = clean_reason(reason)
+    rule = _WAIVERS[activity]
     try:
         with engine.begin() as conn:
-            result = _waive(conn, principal=principal, student_id=student_id, reason=reason)
+            result = _waive(conn, activity, principal=principal, student_id=student_id, reason=reason)
         return result
     except CorrectionError:
         raise
     except IntegrityError as exc:
         constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
         if constraint == "activity_events_one_completion":
-            raise CorrectionError(409, "ALREADY_RETURNED", "That robe is already recorded as returned or waived.") from exc
+            raise CorrectionError(409, *rule["already"]) from exc
         logger.exception("waiver failed on a database rule: student_id=%s", student_id)
         raise CorrectionError(503, "TEMPORARY", "One moment, please try again.") from exc
     except Exception as exc:
@@ -190,8 +213,8 @@ def waive_return(engine, *, principal, student_id, reason) -> dict:
         raise CorrectionError(503, "TEMPORARY", "One moment, please try again.") from exc
 
 
-def _waive(conn: Connection, *, principal, student_id, reason: str) -> dict:
-    activity = "THOBE_RETURN"
+def _waive(conn: Connection, activity: str, *, principal, student_id, reason: str) -> dict:
+    rule = _WAIVERS[activity]
     student = None
     if _is_uuid(student_id):
         student = conn.execute(text("SELECT id, prn, name FROM students WHERE id = CAST(:s AS uuid)"),
@@ -199,25 +222,28 @@ def _waive(conn: Connection, *, principal, student_id, reason: str) -> dict:
     if student is None:
         raise CorrectionError(404, "STUDENT_NOT_FOUND", "That student does not exist.")
     if active_completion(conn, student["id"], activity) is not None:
-        raise CorrectionError(409, "ALREADY_RETURNED", "That robe is already recorded as returned or waived.")
-    allocation = active_completion(conn, student["id"], "THOBE_ALLOCATION")
-    details = {"reason": reason, "thobe_allocation_event_id": str(allocation["event_id"]) if allocation else None,
-               "thobe_allocation_on_record": allocation is not None}
+        raise CorrectionError(409, *rule["already"])
+    given = active_completion(conn, student["id"], rule["given"])
+    on_record = rule["given"].lower() + "_on_record"
+    details = {"reason": reason, rule["given"].lower() + "_event_id": str(given["event_id"]) if given else None,
+               on_record: given is not None}
     cycle = next_completion_cycle(conn, student["id"], activity)
     event = insert_correction_event(conn, student_id=student["id"], activity=activity, kind="WAIVER",
                                     operator_id=principal.user_id, cycle=cycle, details=details)
     # A WAIVER row cannot carry corrects_event_id (that column is reserved for reversals by a CHECK), so the
-    # audit row links it to the robe allocation it writes off.
-    insert_audit(conn, action="RETURN_WAIVED", principal=principal, student_id=student["id"], activity=activity,
-                 event=event, reason=reason, details=details, corrects_event_id=allocation["event_id"] if allocation else None)
+    # audit row links it to the robe allocation / money receipt it writes off.
+    insert_audit(conn, action=rule["action"], principal=principal, student_id=student["id"], activity=activity,
+                 event=event, reason=reason, details=details, corrects_event_id=given["event_id"] if given else None)
     conn.execute(
-        text("INSERT INTO exceptions (type, student_id, event_id, details) VALUES ('RETURN_WAIVED', :s, :e, "
-             "CAST(:d AS jsonb))"),
-        {"s": student["id"], "e": event["event_id"],
+        text("INSERT INTO exceptions (type, student_id, event_id, details) VALUES (:t, :s, :e, CAST(:d AS jsonb))"),
+        {"t": rule["action"], "s": student["id"], "e": event["event_id"],
          "d": json.dumps({"reason": reason, "waived_by": str(principal.user_id), "prn": student["prn"]}, default=str)},
     )
-    return {"ok": True, "message": "Return waived. The student can now go to Lunch.", "correction_event_id": str(event["event_id"]),
-            "activity": activity, "kind": "WAIVER", "thobe_allocation_on_record": allocation is not None}
+    other_settled = active_completion(conn, student["id"], rule["other"]) is not None
+    message = rule["done"] + (" The student can now go to Lunch." if other_settled
+                              else " The student can go to Lunch once the " + rule["other_name"] + " is settled too.")
+    return {"ok": True, "message": message, "correction_event_id": str(event["event_id"]),
+            "activity": activity, "kind": "WAIVER", on_record: given is not None}
 
 
 def _is_uuid(value) -> bool:

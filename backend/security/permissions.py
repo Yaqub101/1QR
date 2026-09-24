@@ -18,7 +18,7 @@ ADMIN_ROLES = ("ADMIN", "DEPUTY_ADMIN")
 
 # operator role -> the activities it may perform
 OPERATOR_ROLE_ACTIVITIES: dict[str, tuple[str, ...]] = {
-    "REGISTRY": ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"),
+    "REGISTRY": ("REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "THOBE_RETURN", "MONEY_RETURNED"),
     "SEATING": ("SEATING",),
     "QUEUE": ("QUEUE",),
     "STAGE": ("STAGE",),

@@ -3,24 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{{ settings.event_name }}{% endblock %}</title>
+  <title>{% block title %}{{ settings.event_name }}{% endblock %} — MGM University</title>
   <link rel="stylesheet" href="{{ asset_url('app.css') }}">
   <script src="{{ asset_url('busy.js') }}" defer></script>
 </head>
 <body>
-<header class="bar">
-  <span class="brand">{{ settings.event_name }}</span>
+<header class="bar app-header">
+  <div class="brand brand-group">
+    <img src="{{ asset_url('mgm_logo.svg') }}" alt="MGM University" class="header-logo">
+  </div>
   {% if principal %}
-  <span class="who">
-    {{ principal.full_name or principal.username }} &middot; {{ role_label[principal.role] }}
-  </span>
-  <form method="post" action="/logout"><button class="link" type="submit">Sign out</button></form>
+  <div class="user-group">
+    <span class="role-badge">{{ role_label[principal.role] }}</span>
+    <span class="who">{{ principal.full_name or principal.username }}</span>
+    <form method="post" action="/logout"><button class="link" type="submit">Sign out</button></form>
+  </div>
   {% endif %}
 </header>
 <main>
-  {% if msg %}<p class="flash ok">{{ msg }}</p>{% endif %}
-  {% if error %}<p class="flash bad">{{ error }}</p>{% endif %}
+  {% if msg %}<p class="flash ok" role="status">{{ msg }}</p>{% endif %}
+  {% if error %}<p class="flash bad" role="alert">{{ error }}</p>{% endif %}
   {% block body %}{% endblock %}
 </main>
+<footer class="app-footer">
+  <div class="footer-content">
+    <p class="footer-brand">MGM University &middot; Chhatrapati Sambhajinagar</p>
+    <p class="footer-system">Convocation Management System &middot; &copy; MGM University</p>
+  </div>
+</footer>
 </body>
 </html>

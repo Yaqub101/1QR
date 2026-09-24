@@ -20,7 +20,7 @@ from sqlalchemy.engine import Connection
 from backend.admin import audit_view, students as students_svc
 from backend.admin import dashboard
 from backend.admin import exceptions as exceptions_svc
-from backend.admin.queries import ACTIVE_CTE, NEVER_REGISTERED, STATUS_LABEL, iso_local
+from backend.admin.queries import ACTIVE_CTE, NEVER_REGISTERED, iso_local, journey_status
 from backend.security.ownership import ACTIVITIES, ACTIVITY_LABEL
 
 
@@ -110,19 +110,19 @@ def activity_report(activity: str) -> Callable:
 def incomplete_journey(conn, settings, params) -> Report:
     raw = conn.execute(text(f"""
         WITH {ACTIVE_CTE}
-        SELECT s.prn, s.name, s.school, s.programme, s.sequence_no,
+        SELECT s.prn, s.name, s.school, s.programme, s.sequence_no, v.status AS journey,
                coalesce(array_agg(CAST(a.activity AS text)) FILTER (WHERE a.activity IS NOT NULL), '{{}}') AS done
-        FROM students s LEFT JOIN active a ON a.student_id = s.id
-        GROUP BY s.id
+        FROM students s JOIN student_status v ON v.student_id = s.id LEFT JOIN active a ON a.student_id = s.id
+        GROUP BY s.id, v.status
         HAVING coalesce(bool_or(a.activity = 'REGISTRATION'), false) AND NOT coalesce(bool_or(a.activity = 'LUNCH'), false)
         ORDER BY s.sequence_no NULLS LAST, s.name""")).mappings().all()
     rows = []
     for r in raw:
         done = set(r["done"])
-        step = max((ACTIVITIES.index(a) + 1 for a in done), default=0)
         rows.append({"prn": r["prn"], "name": r["name"], "school": r["school"], "programme": r["programme"],
-                     "sequence_no": r["sequence_no"], "journey_status": STATUS_LABEL[step],
-                     "not_yet_done": ", ".join(ACTIVITY_LABEL[a] for a in ACTIVITIES if a not in done)})
+                     "sequence_no": r["sequence_no"], "journey_status": journey_status(r["journey"]),
+                     # Seating is optional, so it is never listed as "not done".
+                     "not_yet_done": ", ".join(ACTIVITY_LABEL[a] for a in ACTIVITIES if a not in done and a != "SEATING")})
     return Report("incomplete-journey", "Incomplete journey (reported, not yet exited)",
                   STUDENT_COLS + [("journey_status", "Status"), ("not_yet_done", "Activities not done")], rows,
                   {"incomplete": len(rows)})
@@ -238,6 +238,15 @@ def exceptions_report(conn, settings, params) -> Report:
 
 
 # ------------------------------------------------------------------ summaries
+# Each summary column names its activity: never by position in ACTIVITIES, which grew in Phase R4 (money).
+SUMMARY_COLUMNS = [
+    ("thobe_received", "THOBE_ALLOCATION", "Robe received"), ("money_received", "MONEY_RECEIVED", "Money received"),
+    ("seated", "SEATING", "Seated (optional)"), ("queued", "QUEUE", "Queued"), ("stage_complete", "STAGE", "Stage complete"),
+    ("thobe_returned", "THOBE_RETURN", "Robe returned"), ("money_returned", "MONEY_RETURNED", "Money returned"),
+    ("exited", "LUNCH", "Lunch / exited"),
+]
+
+
 def summary(by_programme: bool) -> Callable:
     def build(conn, settings, params) -> Report:
         group = "s.school, s.programme" if by_programme else "s.school"
@@ -248,22 +257,21 @@ def summary(by_programme: bool) -> Callable:
                     FROM students s LEFT JOIN active a ON a.student_id = s.id GROUP BY s.id)
             SELECT {group.replace('s.', '')}, count(*) AS registered, count(*) FILTER (WHERE d0) AS reported,
                    count(*) FILTER (WHERE never) AS not_attended,
-                   {', '.join(f'count(*) FILTER (WHERE d{i}) AS a{i}' for i in range(1, 7))}
+                   {', '.join(f'count(*) FILTER (WHERE d{ACTIVITIES.index(a)}) AS {n}' for n, a, _ in SUMMARY_COLUMNS)}
             FROM per GROUP BY {group.replace('s.', '')} ORDER BY {group.replace('s.', '')}""")).mappings().all()
-        names = ["thobe_received", "seated", "queued", "stage_complete", "thobe_returned", "exited"]
+        names = [n for n, _, _ in SUMMARY_COLUMNS]
         rows = []
         for r in raw:
             row = {"school": r["school"], **({"programme": r["programme"]} if by_programme else {}),
                    "registered": int(r["registered"]), "reported": int(r["reported"]),
                    "yet_to_report": int(r["registered"]) - int(r["reported"]), "not_attended": int(r["not_attended"])}
-            row.update({n: int(r[f"a{i + 1}"]) for i, n in enumerate(names)})
+            row.update({n: int(r[n]) for n in names})
             rows.append(row)
         numeric = ["registered", "reported", "yet_to_report", "not_attended", *names]
         total = {k: sum(r[k] for r in rows) for k in numeric}
         cols = [("school", "School")] + ([("programme", "Programme")] if by_programme else []) + [
             ("registered", "Registered"), ("reported", "Reported"), ("yet_to_report", "Yet to report"), ("not_attended", "Not attended"),
-            ("thobe_received", "Robe received"), ("seated", "Seated"), ("queued", "Queued"), ("stage_complete", "Stage complete"),
-            ("thobe_returned", "Robe returned"), ("exited", "Lunch / exited")]
+            *((n, label) for n, _, label in SUMMARY_COLUMNS)]
         return Report("programme-summary" if by_programme else "school-summary",
                       "Programme-wise summary" if by_programme else "School-wise summary", cols, rows, total,
                       "Each figure is a count of students with that activity recorded (an Admin waiver counts as a return).")

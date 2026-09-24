@@ -1,38 +1,41 @@
 {% extends "base.html" %}
 {% block title %}{{ j.student.name }}{% endblock %}
 {% block body %}
-<p><a href="/admin/students">&larr; Students</a></p>
+<a href="/admin/students" class="back-link">&larr; Back to Students</a>
 <h1>{{ j.student.name }}</h1>
-<div class="card">
-  <div>PRN <b>{{ j.student.prn }}</b>{% if j.student.sequence_no %} &middot; Sequence {{ j.student.sequence_no }}{% endif %}</div>
-  <div>{{ j.student.programme }} &middot; {{ j.student.school }}</div>
-  <div>Status: <b>{{ j.student.journey_status }}</b>{% if j.student.master_status != "ACTIVE" %} &middot; <b>Not active on the master list</b>{% endif %}
+<div class="card" style="border-left: 4px solid var(--gold);">
+  <div style="font-size: 1.1rem;">PRN <b style="font-family: var(--font-mono);">{{ j.student.prn }}</b>{% if j.student.sequence_no %} &middot; Sequence {{ j.student.sequence_no }}{% endif %}</div>
+  <div style="color: var(--muted); font-weight: 500;">{{ j.student.programme }} &middot; {{ j.student.school }}</div>
+  <div>Status: <span class="role-badge" style="background: var(--cream); color: var(--brand-dark); border-color: var(--line);">{{ j.student.journey_status }}</span>
+       {% if j.student.master_status != "ACTIVE" %} &middot; <b style="color: var(--badink);">Not active on the master list</b>{% endif %}
        {% if j.student.frozen %} &middot; <span class="muted">Display data frozen</span>{% endif %}</div>
-  <div><a href="/admin/api/reports/student-history/export?format=csv&student_id={{ j.student.student_id }}" data-download>Download history (CSV)</a>
-       &middot; <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}" data-download>XLSX</a></div>
+  <div style="margin-top: 0.3rem;">
+    <a href="/admin/api/reports/student-history/export?format=csv&student_id={{ j.student.student_id }}" class="button small" data-download>Download history (CSV)</a>
+    &middot; <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}" class="button small" data-download>XLSX</a>
+  </div>
 </div>
 
-<h2>QR pass</h2>
+<h2>QR Pass Details</h2>
 <div class="card">
   {% if qr.has_active %}
-  <p>This student has an active QR{% if qr.reissued %} (reissued {{ qr.reissued }} time{{ "s" if qr.reissued != 1 }}){% endif %}.
-     <a href="/admin/api/students/{{ j.student.student_id }}/pass.pdf" data-download>Download pass (PDF)</a></p>
+  <p>This student has an active QR code{% if qr.reissued %} (reissued {{ qr.reissued }} time{{ "s" if qr.reissued != 1 }}){% endif %}.
+     <a href="/admin/api/students/{{ j.student.student_id }}/pass.pdf" class="button small" data-download style="margin-left: 0.5rem;">Download pass (PDF)</a></p>
   <p class="muted">Print at actual size (100%), not "fit to page".</p>
   {% else %}
   <p>{% if j.student.master_status == "ACTIVE" %}This student has no QR yet. Use <a href="/admin/passes">Passes and QR</a> to generate the missing ones.
      {% else %}This student is not active, so no QR is issued.{% endif %}</p>
   {% endif %}
   {% if j.student.master_status == "ACTIVE" %}
-  <form method="post" action="/admin/students/{{ j.student.student_id }}/reissue-qr" class="narrow" data-busy="Reissuing…">
-    <p class="muted">Lost, damaged or shared pass? Reissuing makes the old QR stop working and creates a new one. Print the new pass afterwards. This is logged.</p>
-    <label>Reason <input name="reason" placeholder="Reason (required)" required></label>
-    <button type="submit">Reissue QR</button>
+  <form method="post" action="/admin/students/{{ j.student.student_id }}/reissue-qr" class="narrow" data-busy="Reissuing…" style="margin-top: 0.8rem; border-top: 1px solid var(--line); padding-top: 0.8rem;">
+    <p class="muted">Lost, damaged or shared pass? Reissuing makes the old QR stop working and creates a new one. Print the new pass afterwards. This action is logged.</p>
+    <label>Reason for Reissue <input name="reason" placeholder="Reason (required)" required></label>
+    <button type="submit" style="margin-top: 0.4rem;">Reissue QR</button>
   </form>
   {% endif %}
 </div>
 
 {% if j.student.frozen %}
-<h2>Master patch</h2>
+<h2>Master Patch</h2>
 <form method="post" action="/admin/students/{{ j.student.student_id }}/master-patch" class="card" data-busy="Applying…">
   <p class="muted">The display data for this student has been frozen, so the LED, the printed pass and every
     station screen are built from what is below. Changing any of it is a logged action: give a reason, and
@@ -51,19 +54,20 @@
 </form>
 {% endif %}
 
-<h2>Journey</h2>
+<h2>Journey Timeline</h2>
 <table>
   <tr><th>Time</th><th>Activity</th><th>Record</th><th>State</th><th>By</th><th>Flags</th><th>Reason</th><th>Correct</th></tr>
   {% for e in j.events %}
   <tr class="{{ 'off' if e.state == 'REVERSED' else '' }}">
-    <td>{{ e.time }}</td><td>{{ e.activity_label }}</td><td>{{ e.kind }}</td><td>{{ e.state }}</td>
+    <td>{{ e.time }}</td><td><b>{{ e.activity_label }}</b></td><td>{{ e.kind }}</td>
+    <td><span class="role-badge" style="font-size: 0.72rem; {% if e.state == 'REVERSED' %}background: var(--bad); color: var(--badink); border-color: var(--badborder);{% else %}background: var(--ok); color: var(--okink); border-color: var(--okborder);{% endif %}">{{ e.state }}</span></td>
     <td>{{ e.operator or "" }}</td><td>{{ e.flags|join(", ") }}</td><td>{{ e.reason or "" }}</td>
     <td>
       {% if e.can_reverse %}
         <form method="post" action="/admin/students/{{ j.student.student_id }}/reverse" class="inline" data-busy="Reversing…">
           <input type="hidden" name="event_id" value="{{ e.event_id }}">
           <input name="reason" placeholder="Reason (required)" required>
-          <button type="submit">Reverse</button>
+          <button type="submit" class="danger">Reverse</button>
         </form>
       {% elif e.state == "REVERSED" %}<span class="muted">Reversed</span>{% endif %}
     </td>
@@ -81,11 +85,20 @@
 </form>
 {% endif %}
 
+{% if j.can_waive_money %}
+<h2>Money kept (not returned)</h2>
+<form method="post" action="/admin/students/{{ j.student.student_id }}/waive-money" class="card narrow" data-busy="Saving…">
+  <p class="muted">Counts as the money return so the student can go to Lunch, for example when the money is kept for a lost or damaged robe. It is flagged as an Admin correction and listed for review.</p>
+  <label>Reason <input name="reason" required></label>
+  <button class="big" type="submit">Money kept</button>
+</form>
+{% endif %}
+
 {% if j.attempts %}
 <h2>Refused and repeated scans</h2>
 <table>
   <tr><th>Time</th><th>Result</th><th>Message</th></tr>
-  {% for a in j.attempts %}<tr><td>{{ a.time }}</td><td>{{ a.result }}</td><td>{{ a.message or "" }}</td></tr>{% endfor %}
+  {% for a in j.attempts %}<tr><td>{{ a.time }}</td><td><b>{{ a.result }}</b></td><td>{{ a.message or "" }}</td></tr>{% endfor %}
 </table>
 {% endif %}
 {% endblock %}

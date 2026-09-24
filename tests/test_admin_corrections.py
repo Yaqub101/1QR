@@ -113,10 +113,10 @@ class TestReversalNeverMutatesHistory:
     def test_the_derived_status_changes_because_a_row_was_added_not_because_one_was_edited(self, apps, engine):
         s, ids = journey_upto(engine, "THOBE_RETURN")               # Reporting .. Stage done
         status = lambda: scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id)  # noqa: E731
-        assert status() == "ROBE NOT RETURNED"
+        assert status() == "ROBE AND MONEY NOT RETURNED"
         assert reverse(apps, "stadium", ids["STAGE"], "pressed COMPLETE by accident").status_code == 200
         assert status() == "DEGREE NOT RECEIVED"                    # status went BACK
-        assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s", s=s.id) == 6  # 5 originals + 1 reversal
+        assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s", s=s.id) == 7  # 6 originals + 1 reversal
 
     def test_reason_is_mandatory_and_checked_on_the_server(self, apps, engine):
         s, ids = journey_upto(engine, "QUEUE")
@@ -258,7 +258,8 @@ class TestReversalNeverMutatesHistory:
     def test_it_reports_later_activities_that_are_still_recorded(self, apps, engine):
         s, ids = journey_upto(engine, "LUNCH")
         r = reverse(apps, "stadium", ids["THOBE_ALLOCATION"], "issued to the wrong person").json()
-        assert r["later_activities_still_recorded"] == ["QUEUE", "SEATING", "STAGE", "THOBE_RETURN"]
+        # Money received sits at the same step as the robe, so it is not "later"; the money return is.
+        assert r["later_activities_still_recorded"] == ["MONEY_RETURNED", "QUEUE", "SEATING", "STAGE", "THOBE_RETURN"]
 
 
 class TestHistoryCannotBeChangedByAnyPath:
@@ -309,7 +310,7 @@ class TestReturnWaived:
     def make(self, engine):
         s = make_student(engine)
         from tests.test_station_engine import seed_events
-        seed_events(engine, s, ACTIVITIES[:5])                 # through Stage; never returned the robe
+        seed_events(engine, s, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")] + ["MONEY_RETURNED"])  # through Stage; money back, robe never returned
         return s
 
     def test_the_waiver_unlocks_lunch_is_flagged_and_fully_audited(self, apps, engine, world):
@@ -517,9 +518,10 @@ class TestSearchAndJourney:
         j = admin(apps, "stadium").get(f"/admin/api/students/{s.id}").json()
         assert j["student"]["prn"] == s.prn and j["student"]["journey_status"] == "Degree not received"
         by_activity = [(e["activity"], e["kind"], e["state"]) for e in j["events"]]
-        assert by_activity == [("REGISTRATION", "COMPLETE", "ACTIVE"), ("THOBE_ALLOCATION", "COMPLETE", "ACTIVE"), ("SEATING", "COMPLETE", "ACTIVE"),
+        assert by_activity == [("REGISTRATION", "COMPLETE", "ACTIVE"), ("THOBE_ALLOCATION", "COMPLETE", "ACTIVE"),
+                               ("MONEY_RECEIVED", "COMPLETE", "ACTIVE"), ("SEATING", "COMPLETE", "ACTIVE"),
                                ("QUEUE", "COMPLETE", "ACTIVE"), ("STAGE", "COMPLETE", "REVERSED"), ("STAGE", "REVERSAL", "CORRECTION")]
-        stage, correction = j["events"][4], j["events"][5]
+        stage, correction = j["events"][5], j["events"][6]
         assert stage["reversed_by_event_id"] == correction["event_id"] and correction["corrects_event_id"] == stage["event_id"]
         assert correction["reason"] == "pressed by accident" and correction["operator"] == "eng-admin"
         assert j["events"][0]["can_reverse"] and not stage["can_reverse"]

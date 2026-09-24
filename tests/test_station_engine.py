@@ -44,16 +44,20 @@ IST = timezone(timedelta(minutes=330))  # the default event clock (Settings.even
 PREREQ = {
     "REGISTRATION": [],
     "THOBE_ALLOCATION": ["REGISTRATION"],
+    "MONEY_RECEIVED": ["REGISTRATION"],
     "SEATING": ["THOBE_ALLOCATION"],
-    "QUEUE": ["THOBE_ALLOCATION"],  # redesign: Seating is optional, so the Queue needs the robe, not a seat
+    "QUEUE": ["THOBE_ALLOCATION", "MONEY_RECEIVED"],  # Seating is optional; the Queue needs the robe AND the money
     "STAGE": ["QUEUE"],
     "THOBE_RETURN": ["STAGE", "THOBE_ALLOCATION"],  # section 14: "NO ROBE WAS ISSUED" needs the allocation too
-    "LUNCH": ["THOBE_RETURN"],
+    "MONEY_RETURNED": ["STAGE", "MONEY_RECEIVED"],
+    "LUNCH": ["THOBE_RETURN", "MONEY_RETURNED"],
 }
 # Every prerequisite is a hard block now (docs/ARCHITECTURE_PIVOT.md): one shared server,
 # so the data behind any prerequisite is always local and current.
 HARD_BLOCK_MESSAGE = {
     "THOBE_ALLOCATION": "ROBE NOT AVAILABLE — REPORTING PENDING",
+    "MONEY_RECEIVED": "MONEY NOT AVAILABLE — REPORTING PENDING",
+    "MONEY_RETURNED": "MONEY RETURN NOT AVAILABLE — STAGE PENDING",
     "SEATING": "SEATING NOT AVAILABLE — ROBE NOT RECEIVED",
     "QUEUE": "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED",
     "STAGE": "STAGE NOT AVAILABLE — QUEUE PENDING",
@@ -64,6 +68,7 @@ CONFIRM_LABEL = {
     "REGISTRATION": "CONFIRM REPORTING", "THOBE_ALLOCATION": "CONFIRM ROBE GIVEN",
     "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE", "STAGE": "NEXT",
     "THOBE_RETURN": "CONFIRM RETURN", "LUNCH": "CONFIRM LUNCH",
+    "MONEY_RECEIVED": "CONFIRM MONEY RECEIVED", "MONEY_RETURNED": "CONFIRM MONEY RETURNED",
 }
 DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are always shown).
     # The university's real list has no Convocation Sequence Number and no Seat Number, so neither
@@ -71,10 +76,12 @@ DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are a
     # the Queue runs purely on the order confirmations happen in.
     "REGISTRATION": ["prn", "programme", "school"],
     "THOBE_ALLOCATION": ["prn", "programme", "school"],
+    "MONEY_RECEIVED": ["prn", "programme", "school"],
     "SEATING": ["prn", "programme", "school"],
     "QUEUE": ["prn", "queue_position"],
     "STAGE": ["programme", "school"],
     "THOBE_RETURN": ["prn", "thobe_issued"],
+    "MONEY_RETURNED": ["prn", "money_received"],
     "LUNCH": ["prn", "eligibility"],
 }
 UNKNOWN_QR = "QR NOT RECOGNISED — use PRN search or contact Admin"
@@ -86,6 +93,8 @@ def duplicate_message(activity, *, time, position=None):
     return {
         "REGISTRATION": f"ALREADY REPORTED — {time}",
         "THOBE_ALLOCATION": f"ROBE ALREADY ALLOCATED — {time}",
+        "MONEY_RECEIVED": f"MONEY ALREADY RECEIVED — {time}",
+        "MONEY_RETURNED": f"MONEY ALREADY RETURNED — {time}",
         "SEATING": f"SEATING ALREADY CONFIRMED — {time}",
         "QUEUE": f"ALREADY IN QUEUE — POSITION {position} — {time}",
         "STAGE": f"DEGREE ALREADY RECEIVED — {time}",
@@ -468,10 +477,10 @@ class TestJourney:
             assert confirm(client, activity, token=s.token).json()["result"] == "CONFIRMED", activity
             seen.append(q(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id)[0]["status"])
         assert seen == STATUS_AFTER_STEP[1:]
-        assert [e["activity"] for e in events_of(engine, s)] != [] and len(events_of(engine, s)) == 7
+        assert [e["activity"] for e in events_of(engine, s)] != [] and len(events_of(engine, s)) == len(ACTIVITIES) == 9
         assert sorted(e["activity"] for e in events_of(engine, s)) == sorted(ACTIVITIES)
         results = [r["result"] for r in log_of(engine, s)]
-        assert results == ["READY", "SUCCESS"] * 7 and "DUPLICATE" not in results   # each step: the scan, then the confirm
+        assert results == ["READY", "SUCCESS"] * 9 and "DUPLICATE" not in results   # each step: the scan, then the confirm
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_same_activity_twice_gives_one_success_and_one_duplicate_log_row(self, apps, world, engine, activity):
@@ -488,9 +497,10 @@ class TestJourney:
         assert confirm(operator(apps, world, "SEATING"), "SEATING", token=s.token).json()["result"] == "CONFIRMED"
         assert scan(operator(apps, world, "QUEUE"), "QUEUE", s.token).json()["result"] == "READY"
 
-    def test_an_admin_waiver_counts_as_the_return_for_lunch(self, apps, world, engine):
+    def test_admin_waivers_count_as_the_returns_for_lunch(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, ACTIVITIES[:5] + ["THOBE_RETURN"], kind_overrides={"THOBE_RETURN": "WAIVER"})
+        seed_events(engine, s, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")] + ["THOBE_RETURN", "MONEY_RETURNED"],
+                    kind_overrides={"THOBE_RETURN": "WAIVER", "MONEY_RETURNED": "WAIVER"})
         assert scan(operator(apps, world, "LUNCH"), "LUNCH", s.token).json()["result"] == "READY"
         again = scan(operator(apps, world, "THOBE_RETURN"), "THOBE_RETURN", s.token).json()
         assert again["result"] == "DUPLICATE" and again["message"].startswith("ALREADY RETURNED — ")

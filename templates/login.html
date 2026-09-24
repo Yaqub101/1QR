@@ -1,10 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Sign in{% endblock %}
 {% block body %}
-<h1>Sign in</h1>
-<form method="post" action="/login" class="card narrow">
-  <label>Username <input name="username" autocomplete="username" autofocus required></label>
-  <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-  <button class="big" type="submit">Sign in</button>
-</form>
+<div class="login-wrapper" style="max-width: 28rem; margin: 2rem auto; text-align: center;">
+  <div class="card" style="padding: 2.2rem 2rem; border-top: 4px solid var(--gold);">
+    <div style="margin-bottom: 1.2rem;">
+      <img src="{{ asset_url('mgm_logo.svg') }}" alt="MGM University" style="height: 60px; width: auto; max-width: 100%;">
+      <h2 style="font-family: var(--font-serif); font-size: 1.45rem; color: var(--brand-dark); margin: 0.8rem 0 0.2rem;">MGM UNIVERSITY</h2>
+      <p style="font-size: 0.88rem; color: var(--muted); margin: 0; font-weight: 500;">Convocation Management System</p>
+    </div>
+    <form method="post" action="/login" style="text-align: left; display: grid; gap: 1rem;">
+      <label>Username <input name="username" autocomplete="username" autofocus required placeholder="Enter your username"></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required placeholder="Enter your password"></label>
+      <button class="big" type="submit" style="width: 100%; margin-top: 0.5rem;">Sign In to Convocation</button>
+    </form>
+    <p class="muted" style="font-size: 0.82rem; margin-top: 1.4rem; border-top: 1px solid var(--line); padding-top: 0.8rem;">
+      Authorized university operators and administrators only.
+    </p>
+  </div>
+</div>
 {% endblock %}

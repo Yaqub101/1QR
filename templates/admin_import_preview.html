@@ -1,62 +1,74 @@
 {% extends "base.html" %}
 {% block title %}Import: check before importing{% endblock %}
 {% block body %}
-<p><a href="/admin/import/{{ batch.batch_id }}/columns">&larr; Match the columns</a></p>
-<h1>Check before importing</h1>
+<a href="/admin/import/{{ batch.batch_id }}/columns" class="back-link">&larr; Back to Column Mapping</a>
+<h1>Verification &amp; Dry-Run Preview</h1>
 <p class="muted"><b>{{ batch.filename }}</b> &middot; {{ row_count }} row{{ "s" if row_count != 1 }} read
   {%- if batch.photo_dir %} &middot; photos from {{ batch.photo_dir }}{% endif %}{%- if batch.photos_zip %} &middot; photo ZIP {{ batch.photos_zip.filename }} ({{ batch.photos_zip.photos }} photo file{{ "s" if batch.photos_zip.photos != 1 }}{%- if batch.photos_zip.malformed %}, {{ batch.photos_zip.malformed }} with an unrecognised name{% endif %}){% endif %}</p>
-<p class="muted">Nothing has been written yet.</p>
+<p class="muted">Validation results for the uploaded cohort. Nothing has been committed to the database yet.</p>
 
 <div class="grid counts">
-  <div class="card"><h2>Will be added</h2><p class="big-number" data-preview="to_create">{{ preview.to_create|length }}</p></div>
-  <div class="card"><h2>Already on the list</h2><p class="big-number" data-preview="to_skip">{{ preview.to_skip|length }}</p>
-    <p class="muted">Left exactly as they are. QR codes are not touched.</p></div>
-  <div class="card {{ 'bad' if preview.errors }}"><h2>Must be fixed</h2>
-    <p class="big-number" data-preview="errors">{{ preview.errors|length }}</p></div>
-  <div class="card"><h2>Worth a look</h2><p class="big-number" data-preview="warnings">{{ preview.warnings|length }}</p></div>
+  <div class="card" style="border-top: 3px solid var(--okink);">
+    <h2>Will be added</h2>
+    <p class="big-number" data-preview="to_create">{{ preview.to_create|length }}</p>
+  </div>
+  <div class="card" style="border-top: 3px solid var(--muted);">
+    <h2>Already on list</h2>
+    <p class="big-number" data-preview="to_skip">{{ preview.to_skip|length }}</p>
+    <p class="muted" style="font-size: 0.82rem;">Left unmodified; QR tokens preserved.</p>
+  </div>
+  <div class="card {{ 'bad' if preview.errors }}" style="border-top: 3px solid {% if preview.errors %}var(--badink){% else %}var(--line){% endif %};">
+    <h2>Must be fixed</h2>
+    <p class="big-number" data-preview="errors">{{ preview.errors|length }}</p>
+  </div>
+  <div class="card" style="border-top: 3px solid var(--gold);">
+    <h2>Advisory notes</h2>
+    <p class="big-number" data-preview="warnings">{{ preview.warnings|length }}</p>
+  </div>
 </div>
 
 {% if preview.errors %}
-<h2>Rows that have to be fixed</h2>
-<p class="flash bad">Nothing can be imported while any of these is unresolved. Correct the file and upload it again.</p>
+<h2>Rows Requiring Correction</h2>
+<p class="flash bad">Cannot commit cohort while validation errors exist. Please correct the source file and re-upload.</p>
 <table class="spaced">
-  <tr><th>Row</th><th>Column</th><th>What is wrong</th></tr>
-  {% for e in errors %}<tr><td>{{ e.row }}</td><td>{{ e.field }}</td><td>{{ e.message }}</td></tr>{% endfor %}
+  <tr><th>Row</th><th>Column</th><th>Error Description</th></tr>
+  {% for e in errors %}<tr><td>{{ e.row }}</td><td><b>{{ e.field }}</b></td><td>{{ e.message }}</td></tr>{% endfor %}
 </table>
-{% if more_errors %}<p class="muted">…and {{ more_errors }} more.</p>{% endif %}
+{% if more_errors %}<p class="muted">…and {{ more_errors }} more errors.</p>{% endif %}
 {% endif %}
 
 {% if preview.flagged_duplicates %}
-<h2>Repeated PRNs</h2>
+<h2>Repeated PRN Identifiers</h2>
 <table class="spaced">
-  <tr><th>Row</th><th>PRN</th><th>Where</th><th>What it means</th></tr>
+  <tr><th>Row</th><th>PRN</th><th>Location</th><th>Resolution</th></tr>
   {% for d in preview.flagged_duplicates %}
-  <tr><td>{{ d.row }}</td><td>{{ d.prn }}</td><td>{{ "In this file" if d.type == "in_file" else "Already on the list" }}</td>
+  <tr><td>{{ d.row }}</td><td><code style="font-family: var(--font-mono);">{{ d.prn }}</code></td><td>{{ "In this file" if d.type == "in_file" else "Already on the list" }}</td>
       <td>{{ d.message }}</td></tr>
   {% endfor %}
 </table>
 {% endif %}
 
 {% if notes %}
-<h2>Worth a look, but nothing is blocked</h2>
+<h2>Advisory Warnings (Non-Blocking)</h2>
 <table class="spaced">
   <tr><th>Row</th><th>PRN</th><th>Column</th><th>Note</th></tr>
-  {% for w in notes %}<tr><td>{{ w.row }}</td><td>{{ w.prn }}</td><td>{{ w.field }}</td><td>{{ w.message }}</td></tr>{% endfor %}
+  {% for w in notes %}<tr><td>{{ w.row }}</td><td><code style="font-family: var(--font-mono);">{{ w.prn }}</code></td><td>{{ w.field }}</td><td>{{ w.message }}</td></tr>{% endfor %}
 </table>
-{% if more_notes %}<p class="muted">…and {{ more_notes }} more.</p>{% endif %}
+{% if more_notes %}<p class="muted">…and {{ more_notes }} more advisory notes.</p>{% endif %}
 {% endif %}
 
 {% if preview.is_valid %}
-<h2>Import</h2>
+<h2>Confirm &amp; Commit Cohort</h2>
 <form method="post" action="/admin/import/{{ batch.batch_id }}/commit" class="card narrow" data-busy="Importing…"
-      data-busy-note="{{ 'Importing students & photos…' if batch.photos_zip else 'Importing students…' }} Please keep this page open. This may take several minutes.">
-  <p>{{ preview.to_create|length }} student{{ "s" if preview.to_create|length != 1 }} will be added.
-     {{ preview.to_skip|length }} already on the list will be left alone.</p>
-  <p class="muted">The whole file goes in together, or none of it does. The import is written to the audit log.</p>
-  <button class="big" type="submit">Import {{ preview.to_create|length }} student{{ "s" if preview.to_create|length != 1 }}</button>
+      data-busy-note="{{ 'Importing students & photos…' if batch.photos_zip else 'Importing students…' }} Please keep this page open. This may take several minutes."
+      style="margin: 1.5rem auto;">
+  <p><b style="font-size: 1.15rem; color: var(--okink);">{{ preview.to_create|length }} student{{ "s" if preview.to_create|length != 1 }}</b> will be added to the registry.
+     {{ preview.to_skip|length }} already recorded will remain untouched.</p>
+  <p class="muted" style="font-size: 0.86rem;">Atomic commit: all records commit together, or none do. This import operation will be recorded in the audit trail.</p>
+  <button class="big" type="submit">Commit Import of {{ preview.to_create|length }} Student{{ "s" if preview.to_create|length != 1 }}</button>
 </form>
 {% else %}
-<p class="flash bad">This file cannot be imported yet.</p>
-<p><a href="/admin/import">Upload a corrected file</a></p>
+<p class="flash bad" style="margin-top: 1.5rem;">This file cannot be imported until validation errors are resolved.</p>
+<p><a href="/admin/import" class="button small">Upload a corrected file</a></p>
 {% endif %}
 {% endblock %}

@@ -76,6 +76,11 @@ def error_code(response):
 # --------------------------------------------------------------------------- the constructed dataset (Phase 13 + 16)
 S1, S2, S3 = "School of Engineering", "School of Law", "School of Arts"
 ORDER = list(ACTIVITIES)
+# The journey in the stages this dataset is written in: `steps=n` completes the first n stages. The robe and the
+# money move together at the Registry desk, and so do their returns (Phase R4), so each is one stage here.
+STAGES = [["REGISTRATION"], ["THOBE_ALLOCATION", "MONEY_RECEIVED"], ["SEATING"], ["QUEUE"], ["STAGE"],
+          ["THOBE_RETURN", "MONEY_RETURNED"], ["LUNCH"]]
+assert sorted(a for stage in STAGES for a in stage) == sorted(ORDER)
 
 
 class Person(SimpleNamespace):
@@ -91,7 +96,7 @@ def build_dataset(engine):
     def person(label, school, name=None, steps=0, flags=None, then=()):
         s = add_student(engine, school=school, name=name)
         p = Person(label=label, s=s, school=school, active=set(), events={}, registration_event=False, prn=s.prn, name=s.name)
-        for activity in ORDER[:steps]:
+        for activity in (a for stage in STAGES[:steps] for a in stage):
             p.events[activity] = add_event(engine, s, activity, flags=(flags or {}).get(activity, ()))
             p.active.add(activity)
         p.registration_event = steps >= 1

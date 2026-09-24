@@ -1,32 +1,49 @@
 {% extends "base.html" %}
 {% block title %}Audit{% endblock %}
 {% block body %}
-<p><a href="/admin">&larr; Admin</a></p>
-<h1>Audit trail</h1>
-<p class="muted">Append-only: nothing here can be edited or deleted. Exports are logged.</p>
-<form method="get" action="/admin/audit" class="card filters">
-  <label>Student <input name="student" value="{{ filters.student or '' }}"></label>
-  <label>Action <select name="action"><option value="">Any</option>
+<a href="/admin" class="back-link">&larr; Admin Console</a>
+<h1>System Audit Trail</h1>
+<p class="muted">Append-only immutable record. Entries cannot be modified, deleted or truncated. All exports are recorded.</p>
+
+<form method="get" action="/admin/audit" class="card filters" style="margin-bottom: 1.5rem;">
+  <label>Student Search <input name="student" value="{{ filters.student or '' }}" placeholder="Name or PRN"></label>
+  <label>Action Type <select name="action"><option value="">Any Action</option>
     {% for a in actions %}<option value="{{ a }}" {{ "selected" if filters.action == a }}>{{ a }}</option>{% endfor %}</select></label>
-  <label>Activity <select name="activity"><option value="">Any</option>
+  <label>Station Activity <select name="activity"><option value="">Any Activity</option>
     {% for k, v in activity_label.items() %}<option value="{{ k }}" {{ "selected" if filters.activity == k }}>{{ v }}</option>{% endfor %}</select></label>
-  <label>Operator / Admin <input name="operator" value="{{ filters.operator or '' }}"></label>
-  <label>From <input name="since" value="{{ filters.since or '' }}" placeholder="2026-10-15T09:00"></label>
-  <label>To <input name="until" value="{{ filters.until or '' }}" placeholder="2026-10-15T18:00"></label>
-  <button class="big" type="submit">Filter</button>
+  <label>Operator / Admin <input name="operator" value="{{ filters.operator or '' }}" placeholder="Username"></label>
+  <label>From Timestamp <input name="since" value="{{ filters.since or '' }}" placeholder="2026-10-15T09:00"></label>
+  <label>To Timestamp <input name="until" value="{{ filters.until or '' }}" placeholder="2026-10-15T18:00"></label>
+  <button class="big" type="submit">Apply Filter</button>
 </form>
-<p>{{ data.total }} rows &middot;
-  <a href="/admin/api/audit/export?format=csv&{{ query }}" data-download data-busy="Preparing export…">Export CSV</a> &middot;
-  <a href="/admin/api/audit/export?format=xlsx&{{ query }}" data-download data-busy="Preparing export…">Export XLSX</a></p>
-<table>
-  <tr><th>Time</th><th>Action</th><th>Student</th><th>Activity</th><th>Who</th><th>Reason</th><th>Flags</th></tr>
+
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin: 1rem 0 0.5rem;">
+  <span style="font-weight: 700; color: var(--brand-dark);">{{ data.total }} Logged Events</span>
+  <div>
+    <a href="/admin/api/audit/export?format=csv&{{ query }}" class="button small" data-download data-busy="Preparing export…">Export CSV</a>
+    &middot;
+    <a href="/admin/api/audit/export?format=xlsx&{{ query }}" class="button small" data-download data-busy="Preparing export…">Export XLSX</a>
+  </div>
+</div>
+
+<table class="spaced">
+  <tr><th>Timestamp</th><th>Action</th><th>Student</th><th>Activity</th><th>Operator</th><th>Reason / Details</th><th>Flags</th></tr>
   {% for r in data.rows %}
-  <tr><td>{{ r.occurred_at }}</td><td>{{ r.action }}</td><td>{{ r.student or "" }} {{ r.prn or "" }}</td>
-      <td>{{ activity_label.get(r.activity, "") if r.activity else "" }}</td>
-      <td>{{ r.corrected_by or r.operator or "" }}</td><td>{{ r.reason or "" }}</td><td>{{ r.flags }}</td></tr>
+  <tr>
+    <td style="font-size: 0.88rem; font-variant-numeric: tabular-nums;">{{ r.occurred_at }}</td>
+    <td><code style="font-family: var(--font-mono); font-size: 0.88em; font-weight: 700; color: var(--brand);">{{ r.action }}</code></td>
+    <td><b>{{ r.student or "" }}</b> <span class="muted">{{ r.prn or "" }}</span></td>
+    <td>{{ activity_label.get(r.activity, "") if r.activity else "—" }}</td>
+    <td>{{ r.corrected_by or r.operator or "System" }}</td>
+    <td>{{ r.reason or "" }}</td>
+    <td>{% if r.flags %}<span class="role-badge" style="font-size: 0.72rem; background: var(--amber); color: var(--amberink); border-color: var(--amberborder);">{{ r.flags }}</span>{% endif %}</td>
+  </tr>
   {% endfor %}
 </table>
-<p>Page {{ page }} of {{ pages }}
-  {% if page > 1 %}<a href="/admin/audit?{{ query }}&page={{ page - 1 }}">Newer</a>{% endif %}
-  {% if page < pages %}<a href="/admin/audit?{{ query }}&page={{ page + 1 }}">Older</a>{% endif %}</p>
+
+<div class="pagination card narrow" style="display: flex; gap: 1rem; align-items: center; justify-content: center; margin-top: 1.5rem;">
+  <span>Page {{ page }} of {{ pages }}</span>
+  {% if page > 1 %}<a href="/admin/audit?{{ query }}&page={{ page - 1 }}">&larr; Newer</a>{% endif %}
+  {% if page < pages %}<a href="/admin/audit?{{ query }}&page={{ page + 1 }}">Older &rarr;</a>{% endif %}
+</div>
 {% endblock %}

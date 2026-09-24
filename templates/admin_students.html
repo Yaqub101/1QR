@@ -1,42 +1,45 @@
 {% extends "base.html" %}
 {% block title %}Students{% endblock %}
 {% block body %}
-<p><a href="/admin">&larr; Admin</a></p>
-<h1>Find a student</h1>
-<form method="get" action="/admin/students" class="card narrow">
-  <label>PRN or name <input name="q" value="{{ q }}" autofocus></label>
-  <button class="big" type="submit">Search</button>
+<a href="/admin" class="back-link">&larr; Admin Console</a>
+<h1>Find a Student</h1>
+<form method="get" action="/admin/students" class="card narrow" style="margin-bottom: 1.5rem;">
+  <label>PRN or Student Name <input name="q" value="{{ q }}" autofocus placeholder="e.g. 202401109008 or John Doe"></label>
+  <button class="big" type="submit">Search Student</button>
 </form>
 {% if found %}
 <table class="spaced">
   <tr><th>Photo</th><th>Name</th><th>PRN</th><th>Programme</th><th>School</th><th>Status</th></tr>
   {% for s in found %}
   <tr>
-      <td>
+      <td style="width: 56px; text-align: center;">
       {% if s.photo_path %}
-          <img src="/photo/{{ s.student_id }}" alt="Photo" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
-          {% else %}
-          <div style="width: 40px; height: 40px; border-radius: 50%; background: #ccc; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff;">No photo</div>
-          {% endif %}
+          <img src="/photo/{{ s.student_id }}" alt="Photo" class="student-avatar"
+               onerror="this.onerror=null;this.src='/static/placeholder.svg';"
+               style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--gold-light); vertical-align: middle;">
+      {% else %}
+          <img src="{{ asset_url('placeholder.svg') }}" alt="Placeholder" class="student-avatar"
+               style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--gold-light); vertical-align: middle;">
+      {% endif %}
       </td>
-      <td><a href="/admin/students/{{ s.student_id }}">{{ s.name }}</a></td>
-      <td>{{ s.prn }}</td>
+      <td><a href="/admin/students/{{ s.student_id }}" style="font-weight: 700;">{{ s.name }}</a></td>
+      <td><code style="font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-subtle); padding: 0.15rem 0.35rem; border-radius: 3px;">{{ s.prn }}</code></td>
       <td>{{ s.programme }}</td>
       <td>{{ s.school }}</td>
-      <td>{{ s.journey_status }}</td>
+      <td><span class="role-badge" style="background: var(--cream); color: var(--brand-dark); border-color: var(--line);">{{ s.journey_status }}</span></td>
   </tr>
   {% endfor %}
 </table>
 
 {% if pages > 1 %}
-<div class="pagination card narrow" style="display: flex; gap: 1rem; align-items: center; justify-content: center;">
+<div class="pagination card narrow" style="display: flex; gap: 1rem; align-items: center; justify-content: center; margin-top: 1.5rem;">
   {% if page > 1 %}
   <a href="?page={{ page - 1 }}{% if query %}&{{ query }}{% endif %}">&larr; Previous</a>
   {% else %}
   <span class="muted">&larr; Previous</span>
   {% endif %}
   
-  <span>Page {{ page }} of {{ pages }}</span>
+  <span style="font-weight: 600;">Page {{ page }} of {{ pages }}</span>
   
   {% if page < pages %}
   <a href="?page={{ page + 1 }}{% if query %}&{{ query }}{% endif %}">Next &rarr;</a>

@@ -80,7 +80,8 @@ class TestDashboardCounts:
         assert (c["registered"], c["reported"], c["yet_to_report"], c["not_attended"], c["registration_reversed"]) == (22, 17, 5, 4, 1)
         assert c["reporting_percent"] == 77.3  # 17 / 22
         funnel = {f["activity"]: f["count"] for f in dash(apps)["funnel"]}
-        assert funnel == {"REGISTRATION": 17, "THOBE_ALLOCATION": 14, "SEATING": 12, "QUEUE": 10, "STAGE": 7, "THOBE_RETURN": 4, "LUNCH": 2}
+        assert funnel == {"REGISTRATION": 17, "THOBE_ALLOCATION": 14, "MONEY_RECEIVED": 14, "SEATING": 12, "QUEUE": 10,
+                          "STAGE": 7, "THOBE_RETURN": 4, "MONEY_RETURNED": 4, "LUNCH": 2}
         assert dash(apps)["outstanding_thobes"]["count"] == 10
 
     def test_every_count_matches_a_direct_database_query(self, apps, engine, data):
@@ -231,7 +232,8 @@ class TestAttendanceAndJourneyReports:
         expected = {p.prn for p in data.all if "REGISTRATION" in p.active and "LUNCH" not in p.active}
         assert {r["prn"] for r in body["rows"]} == expected and body["totals"]["incomplete"] == len(expected) == 15
         by = {r["prn"]: r for r in body["rows"]}
-        assert by[data.people["C3"].prn]["not_yet_done"].startswith("Robe Allocation, Seating, Queue, Stage")
+        # Seating is optional, so it is never listed as not done (Phase R4)
+        assert by[data.people["C3"].prn]["not_yet_done"].startswith("Robe Allocation, Money Received, Queue, Stage")
         assert by[data.people["L"].prn]["journey_status"] == "Robe not returned"  # stage done, return reversed
         assert data.people["K1"].prn not in by and data.people["A1"].prn not in by and data.people["B"].prn not in by
 
@@ -285,8 +287,9 @@ class TestSummaries:
         body = report(apps, "school-summary")
         got = {r["school"]: r for r in body["rows"]}
         assert set(got) == {S1, S2, S3}
-        names = {"reported": "REGISTRATION", "thobe_received": "THOBE_ALLOCATION", "seated": "SEATING", "queued": "QUEUE",
-                 "stage_complete": "STAGE", "thobe_returned": "THOBE_RETURN", "exited": "LUNCH"}
+        names = {"reported": "REGISTRATION", "thobe_received": "THOBE_ALLOCATION", "money_received": "MONEY_RECEIVED",
+                 "seated": "SEATING", "queued": "QUEUE", "stage_complete": "STAGE", "thobe_returned": "THOBE_RETURN",
+                 "money_returned": "MONEY_RETURNED", "exited": "LUNCH"}
         for school in (S1, S2, S3):
             members = [p for p in data.all if p.school == school]
             assert got[school]["registered"] == len(members)

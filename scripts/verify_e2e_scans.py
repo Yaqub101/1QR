@@ -187,14 +187,15 @@ def main() -> None:
     status, body, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "QUEUE"}, token=login("QUEUE"))
     show("Queue before the Registry desk", status, body)
     assert body["result"] == "REJECTED" and body["message"] == "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"
-    status, entry, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "REGISTRY", "step": "ENTRY"},
+    status, entry, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "REGISTRY", "step": "ENTRY", "marks": ["THOBE_ALLOCATION", "MONEY_RECEIVED"]},
                                 token=login("REGISTRY"))
-    show("Registry entry (Reporting + Robe, one confirm)", status, entry)
-    assert entry["result"] == "CONFIRMED" and [e["activity"] for e in entry["events"]] == ["REGISTRATION", "THOBE_ALLOCATION"]
+    show("Registry entry (Reporting + both boxes ticked, one confirm)", status, entry)
+    assert entry["result"] == "CONFIRMED" and [e["activity"] for e in entry["events"]] == [
+        "REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED"]
     status, again, _ = http_req("/scan", "POST", {"token": a["token"], "activity": "REGISTRY"}, token=login("REGISTRY"))
     show("Registry scan again", status, again)
     assert again["result"] == "DUPLICATE" and again["colour"] == "amber"
-    assert again["message"] == f"ALREADY REPORTED AND ROBE GIVEN — {entry['event']['time']}"
+    assert again["message"] == "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY"
     status, body, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "QUEUE"}, token=login("QUEUE"))
     show("Queue with the robe and no seat", status, body)
     assert body["result"] == "CONFIRMED"
@@ -210,7 +211,7 @@ def main() -> None:
     b = fresh_student("Student B")
     print(f"  start: {status_of(b['id'])}")
     assert status_of(b["id"]) == "REGISTERED / NOT REPORTED"
-    steps = [("REGISTRY", {"activity": "REGISTRY", "step": "ENTRY"}, "ROBE RECEIVED / NOT QUEUED"),
+    steps = [("REGISTRY", {"activity": "REGISTRY", "step": "ENTRY", "marks": ["THOBE_ALLOCATION", "MONEY_RECEIVED"]}, "ROBE AND MONEY RECEIVED / NOT QUEUED"),
              ("QUEUE", {"activity": "QUEUE"}, "DEGREE NOT RECEIVED")]
     for role, body, expected in steps:
         status, reply, _ = http_req("/confirm", "POST", {"token": b["token"], **body}, token=login(role))
@@ -219,10 +220,11 @@ def main() -> None:
     advance_until(b["id"])
     status, reply, _ = http_req("/stage/next", "POST", {"expect_current": b["id"]}, token=login("STAGE"))
     print(f"  Stage NEXT -> HTTP {status} {reply['message']!r}; status now {status_of(b['id'])!r}")
-    assert status == 200 and status_of(b["id"]) == "ROBE NOT RETURNED"
+    assert status == 200 and status_of(b["id"]) == "ROBE AND MONEY NOT RETURNED"
     status, reply, _ = http_req("/scan", "POST", {"token": b["token"], "activity": "REGISTRY"}, token=login("REGISTRY"))
-    assert reply["step"] == "RETURN" and reply["confirm_label"] == "CONFIRM ROBE RETURN", reply
-    status, reply, _ = http_req("/confirm", "POST", {"token": b["token"], "activity": "REGISTRY", "step": "RETURN"},
+    assert reply["step"] == "RETURN" and [m["key"] for m in reply["markers"]] == ["THOBE_RETURN", "MONEY_RETURNED"], reply
+    status, reply, _ = http_req("/confirm", "POST", {"token": b["token"], "activity": "REGISTRY", "step": "RETURN",
+                                                     "marks": ["THOBE_RETURN", "MONEY_RETURNED"]},
                                 token=login("REGISTRY"))
     print(f"  REGISTRY return -> HTTP {status} {reply['result']}; status now {status_of(b['id'])!r}")
     assert reply["result"] == "CONFIRMED" and status_of(b["id"]) == "LUNCH ELIGIBLE"
@@ -233,7 +235,7 @@ def main() -> None:
     # --------------------------------------------------------------------------------------------- 6
     section("TASK 6: Stage / LED / Caller")
     c = fresh_student("Student C")
-    http_req("/confirm", "POST", {"token": c["token"], "activity": "REGISTRY", "step": "ENTRY"}, token=login("REGISTRY"))
+    http_req("/confirm", "POST", {"token": c["token"], "activity": "REGISTRY", "step": "ENTRY", "marks": ["THOBE_ALLOCATION", "MONEY_RECEIVED"]}, token=login("REGISTRY"))
     led_before = http_req("/led/state")[1]
     caller_before = http_req("/caller/state", token=login("CALLER"))[1]
     status, reply, _ = http_req("/confirm", "POST", {"token": c["token"], "activity": "QUEUE"}, token=login("QUEUE"))

@@ -274,48 +274,101 @@ test("focus returns to the scan box after every action", async () => {
   await step(() => scanValue(h, "b\n"));
 });
 
-// ---------------------------------------------------------------- the Registry desk (redesign Phase R1)
-const REGISTRY_READY = { ...READY, activity: "REGISTRY", step: "ENTRY", confirm_label: "CONFIRM REPORTING + ROBE" };
+// ---------------------------------------------------------------- the Registry desk (tick boxes, Phase R4)
+// The server sends the step, the student's state and the two boxes for this step; the screen shows them, the
+// operator ticks, and confirm sends the ticked, not-yet-done boxes back with the step.
+const ENTRY_MARKERS = [
+  { key: "THOBE_ALLOCATION", label: "Robe allotted", done: true, time: "9:12 AM" },
+  { key: "MONEY_RECEIVED", label: "Money received", done: false, time: null },
+];
+const REGISTRY_READY = { ...READY, activity: "REGISTRY", step: "ENTRY", confirm_label: "CONFIRM",
+  state: "REPORTED / MONEY PENDING", markers: ENTRY_MARKERS };
 
-test("the Registry desk shows the server's confirm label for the step it found", async () => {
+function registryHarness() {
   const h = harness({ activity: "REGISTRY" });
-  h.els.confirmBtn.textContent = "CONFIRM";
+  h.els.markers = fakeEl({ hidden: true });
+  h.els.cardState = fakeEl();
+  return h;
+}
+const boxes = (h) => h.els.markers.children.map((row) => row.children[0]);  // each row: [checkbox, label]
+
+test("the Registry desk shows the student's state and one box per marker, done ones ticked and locked", async () => {
+  const h = registryHarness();
   h.replies.push(REGISTRY_READY);
   scanValue(h, "tok-9\n");
   await flush();
-  assert.equal(h.els.confirmBtn.hidden, false);
-  assert.equal(h.els.confirmBtn.textContent, "CONFIRM REPORTING + ROBE");
-  h.replies.push({ ...REGISTRY_READY, step: "RETURN", confirm_label: "CONFIRM ROBE RETURN" });
-  h.advance(2000);
-  scanValue(h, "tok-10\n");
-  await flush();
-  assert.equal(h.els.confirmBtn.textContent, "CONFIRM ROBE RETURN");
+  assert.equal(h.els.cardState.textContent, "REPORTED / MONEY PENDING");
+  assert.equal(h.els.markers.hidden, false);
+  assert.deepEqual(boxes(h).map((b) => [b.value, b.checked, b.disabled]),
+    [["THOBE_ALLOCATION", true, true], ["MONEY_RECEIVED", false, false]]);
+  assert.equal(h.els.markers.children[0].children[1].textContent, "Robe allotted — done 9:12 AM");
+  assert.equal(h.els.markers.children[1].children[1].textContent, "Money received");
+  assert.equal(h.els.confirmBtn.textContent, "CONFIRM");
 });
 
-test("the Registry confirm sends back the step the operator was shown, with the scanned token", async () => {
-  const h = harness({ activity: "REGISTRY" });
+test("confirm sends the step and only the boxes the operator ticked now", async () => {
+  const h = registryHarness();
   h.replies.push(REGISTRY_READY);
+  scanValue(h, "tok-9\n");
+  await flush();
+  boxes(h)[1].checked = true;
+  h.replies.push(CONFIRMED);
+  h.els.confirmBtn.dispatch("click");
+  await flush();
+  assert.deepEqual(h.calls[1], { url: "/confirm",
+    body: { token: "tok-9", activity: "REGISTRY", step: "ENTRY", marks: ["MONEY_RECEIVED"] } });
+});
+
+test("confirming with nothing ticked still sends the confirm (it registers a new student)", async () => {
+  const h = registryHarness();
+  h.replies.push({ ...REGISTRY_READY, markers: ENTRY_MARKERS.map((m) => ({ ...m, done: false, time: null })) });
   scanValue(h, "tok-9\n");
   await flush();
   h.replies.push(CONFIRMED);
   h.els.confirmBtn.dispatch("click");
   await flush();
-  assert.deepEqual(h.calls[1], { url: "/confirm", body: { token: "tok-9", activity: "REGISTRY", step: "ENTRY" } });
+  assert.deepEqual(h.calls[1].body, { token: "tok-9", activity: "REGISTRY", step: "ENTRY", marks: [] });
 });
 
-test("a manual PRN search at the Registry desk confirms by student id and still sends the step", async () => {
-  const h = harness({ activity: "REGISTRY" });
+test("a manual PRN search at the Registry desk confirms by student id with the step and the ticks", async () => {
+  const h = registryHarness();
   h.replies.push({ ...REGISTRY_READY, manual: true });
   h.els.searchInput.value = "E1";
   h.els.searchBtn.dispatch("click");
   await flush();
+  boxes(h)[1].checked = true;
   h.replies.push(CONFIRMED);
   h.els.confirmBtn.dispatch("click");
   await flush();
-  assert.deepEqual(h.calls[1], { url: "/confirm", body: { student_id: "s-1", activity: "REGISTRY", step: "ENTRY" } });
+  assert.deepEqual(h.calls[1].body, { student_id: "s-1", activity: "REGISTRY", step: "ENTRY", marks: ["MONEY_RECEIVED"] });
 });
 
-test("an ordinary activity screen sends no step and keeps its own button label", async () => {
+test("an amber 'come back after the ceremony' still shows the state and the done boxes, with no confirm", async () => {
+  const h = registryHarness();
+  h.replies.push({ ...DUPLICATE, message: "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY", step: null,
+    state: "DEGREE NOT RECEIVED", markers: ENTRY_MARKERS.map((m) => ({ ...m, done: true, time: "9:12 AM" })) });
+  scanValue(h, "tok-9\n");
+  await flush();
+  assert.equal(h.els.confirmBtn.hidden, true);
+  assert.equal(h.els.cardState.textContent, "DEGREE NOT RECEIVED");
+  assert.deepEqual(boxes(h).map((b) => [b.checked, b.disabled]), [[true, true], [true, true]]);
+});
+
+test("the boxes are cleared when the screen resets for the next student", async () => {
+  const h = registryHarness();
+  h.replies.push(REGISTRY_READY);
+  scanValue(h, "tok-9\n");
+  await flush();
+  h.replies.push(CONFIRMED);
+  h.els.confirmBtn.dispatch("click");
+  await flush();
+  h.runTimers();
+  assert.equal(h.els.markers.hidden, true);
+  assert.equal(h.els.markers.children.length, 0);
+  assert.equal(h.els.cardState.textContent, "");
+});
+
+test("an ordinary activity screen shows no boxes, sends no step or marks and keeps its own button label", async () => {
   const h = harness();
   h.els.confirmBtn.textContent = "CONFIRM LUNCH";
   h.replies.push(READY);
@@ -326,4 +379,16 @@ test("an ordinary activity screen sends no step and keeps its own button label",
   h.els.confirmBtn.dispatch("click");
   await flush();
   assert.deepEqual(h.calls[1].body, { token: "tok-1", activity: "REGISTRATION" });
+});
+
+test("a registered student's confirm with no new box ticked is refused on the screen, with no request", async () => {
+  const h = registryHarness();
+  h.replies.push({ ...REGISTRY_READY, needs_tick: true });
+  scanValue(h, "tok-9\n");
+  await flush();
+  h.els.confirmBtn.dispatch("click");
+  await flush();
+  assert.equal(h.calls.length, 1);  // only the scan
+  assert.equal(h.els.message.textContent, "Tick at least one box, then confirm.");
+  assert.equal(h.els.confirmBtn.hidden, false);  // the card stays up so the operator can tick
 });

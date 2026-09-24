@@ -19,9 +19,9 @@ from tests.conftest import TEST_DB_URL
 from tests.test_schema import REPO_ROOT, engine  # noqa: F401  (engine is a pytest fixture: a fresh migrated schema)
 
 # One sheet per activity, in journey order (SYSTEM_SPEC section 2). Written out by hand.
-SHEETS = [
-    "1_REGISTRATION.html", "2_THOBE_ALLOCATION.html", "3_SEATING.html", "4_QUEUE.html",
-    "5_STAGE.html", "6_THOBE_RETURN.html", "7_LUNCH.html",
+SHEETS = [  # one paper sheet per recorded activity, including the two money ticks (Phase R4)
+    "1_REGISTRATION.html", "2_THOBE_ALLOCATION.html", "3_MONEY_RECEIVED.html", "4_SEATING.html", "5_QUEUE.html",
+    "6_STAGE.html", "7_THOBE_RETURN.html", "8_MONEY_RETURNED.html", "9_LUNCH.html",
 ]
 AWKWARD_NAME = 'Anil <i>&</i> "Kumar" O\'Brien'
 

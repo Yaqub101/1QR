@@ -1,21 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Confirm data reset{% endblock %}
 {% block body %}
-<p><a href="/admin/system">&larr; Cancel and go back</a></p>
+<a href="/admin/system" class="back-link">&larr; Cancel and Return to System</a>
 <h1>Final confirmation</h1>
-<div class="card danger-zone">
-  <h2>Delete all data now?</h2>
+<div class="card danger-zone" style="max-width: 36rem; margin: 1.5rem auto;">
+  <h2>Permanently Delete All Event Data?</h2>
   <p>This will permanently delete:</p>
   <ul>
     {% for label, n in counts %}<li>{{ label }}: <b>{{ n }}</b></li>{% endfor %}
     <li>Every student photo in photo storage ({{ storage }})</li>
   </ul>
-  <p><b>This cannot be undone.</b> Your name and the time are recorded in the audit trail.</p>
+  <p><b>This cannot be undone.</b> Your administrator identity and exact timestamp will be recorded in the audit trail.</p>
   <form method="post" action="/admin/system/reset/execute" data-busy="Deleting all data…"
         data-busy-note="Deleting all data and removing the photos from photo storage. Please keep this page open. This may take several minutes.">
     <input type="hidden" name="confirmation" value="{{ confirmation }}">
-    <button class="big danger" type="submit">Yes, delete all data</button>
+    <button class="big danger" type="submit" style="width: 100%;">Yes, delete all data</button>
   </form>
-  <p class="muted">This confirmation works once, for {{ ttl }} minutes. <a href="/admin/system">Cancel</a></p>
+  <p class="muted" style="margin-top: 1rem; font-size: 0.85rem;">This one-time token expires in {{ ttl }} minutes. <a href="/admin/system">Cancel and abort</a></p>
 </div>
 {% endblock %}

@@ -7,7 +7,7 @@ operator scanning the wrong student is not an HTTP error. HTTP errors are for wh
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -38,7 +38,8 @@ class ConfirmBody(BaseModel):
     activity: str
     token: Optional[str] = None       # confirm the student just scanned...
     student_id: Optional[str] = None  # ...or the one found by manual PRN search (always flagged MANUAL)
-    step: Optional[str] = None        # Registry desk only: the step the operator was shown (ENTRY / ROBE / RETURN)
+    step: Optional[str] = None        # Registry desk only: the step the operator was shown (ENTRY / RETURN)
+    marks: List[str] = []             # Registry desk only: the boxes the operator ticked
 
     @model_validator(mode="after")
     def exactly_one_way_to_identify(self):
@@ -81,7 +82,7 @@ def search(body: SearchBody, request: Request, principal: Principal = Depends(re
 def confirm(body: ConfirmBody, request: Request, principal: Principal = Depends(require_user)):
     if _is_registry(body.activity):
         return _call(request, principal, registry.confirm, token=body.token, student_id=body.student_id,
-                     step=body.step)
+                     step=body.step, marks=body.marks)
     return _call(request, principal, service.confirm, activity=body.activity, token=body.token,
                  student_id=body.student_id)
 
