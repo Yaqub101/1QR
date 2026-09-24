@@ -467,7 +467,8 @@ def waive_money_form(request: Request, student_id: str, reason: str = Form(""),
 def exceptions_page(request: Request, status: str = "OPEN", principal: Principal = Depends(require_admin)):
     with request.app.state.engine.connect() as conn:
         data = exceptions_svc.list_exceptions(conn, request.app.state.settings, status=None if status == "ALL" else status)
-    return render(request, "admin_exceptions.html", principal=principal, data=data, status=status)
+        reissued_count = int(conn.execute(text("SELECT count(*) FROM audit_log WHERE action = 'QR_REISSUED'")).scalar_one())
+    return render(request, "admin_exceptions.html", principal=principal, data=data, status=status, reissued_count=reissued_count)
 
 
 @router.post("/exceptions/{exception_id}/resolve")

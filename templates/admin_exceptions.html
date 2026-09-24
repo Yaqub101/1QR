@@ -16,7 +16,8 @@
     Status:
     <a href="/admin/exceptions?status=OPEN" style="margin: 0 0.35rem;">Open</a> &middot;
     <a href="/admin/exceptions?status=RESOLVED" style="margin: 0 0.35rem;">Resolved</a> &middot;
-    <a href="/admin/exceptions?status=ALL" style="margin: 0 0.35rem;">All</a>
+    <a href="/admin/exceptions?status=ALL" style="margin: 0 0.35rem;">All</a> &middot;
+    <a href="/admin/reports/reissued-qrs" style="margin: 0 0.35rem;">Reissued QRs ({{ reissued_count or 0 }})</a>
   </p>
   <div>
     <a href="/admin/api/reports/exceptions/export?format=csv" class="button small" data-download>Download CSV</a>

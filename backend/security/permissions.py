@@ -30,6 +30,8 @@ ALL_ROLES = ADMIN_ROLES + OPERATOR_ROLES
 
 ADMIN_PERMISSION = "admin"
 CALLER_VIEW_PERMISSION = "view:caller"
+PASS_MANAGEMENT_PERMISSION = "station:pass_management"
+
 # Screens a role may VIEW on top of its activities.
 _VIEW_PERMISSIONS: dict[str, frozenset[str]] = {
     "CALLER": frozenset({CALLER_VIEW_PERMISSION}),
@@ -41,7 +43,12 @@ def activity_permission(activity: str) -> str:
     return f"activity:{activity}"
 
 
-_ADMIN_PERMISSIONS = frozenset({ADMIN_PERMISSION, CALLER_VIEW_PERMISSION, *(activity_permission(a) for a in ACTIVITIES)})
+_ADMIN_PERMISSIONS = frozenset({
+    ADMIN_PERMISSION,
+    CALLER_VIEW_PERMISSION,
+    PASS_MANAGEMENT_PERMISSION,
+    *(activity_permission(a) for a in ACTIVITIES),
+})
 
 _PERMISSIONS: dict[str, frozenset[str]] = {role: _ADMIN_PERMISSIONS for role in ADMIN_ROLES}
 _PERMISSIONS.update({role: frozenset(activity_permission(a) for a in acts) | _VIEW_PERMISSIONS.get(role, frozenset())
@@ -56,6 +63,8 @@ def permissions_for(role: str) -> frozenset[str]:
 
 
 def has_permission(role: str, permission: str) -> bool:
+    if permission == PASS_MANAGEMENT_PERMISSION:
+        return role in ("REGISTRY", *ADMIN_ROLES)
     return permission in permissions_for(role)
 
 

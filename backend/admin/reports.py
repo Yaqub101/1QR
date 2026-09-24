@@ -302,6 +302,26 @@ def audit_report(conn, settings, params) -> Report:
     return Report("audit", "Audit log", audit_view.COLUMNS, rows, {"rows": len(rows)})
 
 
+def reissued_qrs(conn: Connection, settings, params: dict) -> Report:
+    sql = """
+        SELECT a.occurred_at, op.username AS operator, s.prn, s.name AS student, a.reason
+        FROM audit_log a
+        LEFT JOIN students s ON s.id = a.student_id
+        LEFT JOIN users op ON op.id = a.operator_id
+        WHERE a.action = 'QR_REISSUED'
+        ORDER BY a.occurred_at DESC, a.id DESC
+    """
+    rows = _rows(conn, sql, {}, settings.event_utc_offset_minutes)
+    return Report(
+        "reissued-qrs",
+        "Reissued QR passes",
+        [("occurred_at", "Time"), ("operator", "Operator"), ("prn", "PRN"), ("student", "Student"), ("reason", "Reason")],
+        rows,
+        {"rows": len(rows)},
+        "Audit trail of every QR pass reissued with operator, student, and mandatory reason.",
+    )
+
+
 # ------------------------------------------------------------------ the catalogue
 REPORTS: dict[str, tuple[str, str, Callable]] = {  # key -> (group, description, builder)
     "school-summary": ("Summaries", "Reporting and every stage of the journey, school by school.", summary(False)),
@@ -319,6 +339,7 @@ REPORTS: dict[str, tuple[str, str, Callable]] = {  # key -> (group, description,
     "manual": ("Flags", "Events entered by manual PRN search.", flagged("manual", "Manual entries", "MANUAL")),
     "corrections": ("Admin", "Every reversal and waiver, with the reason and the record it corrects.", corrections),
     "exceptions": ("Admin", "Every exception, open or resolved.", exceptions_report),
+    "reissued-qrs": ("Admin", "Every QR pass reissued, with operator, student, and reason.", reissued_qrs),
     "audit": ("Admin", "The full audit log (Admin only, and the export is itself logged).", audit_report),
     "student-history": ("Admin", "One student's complete history (needs a student).", student_history),
 }

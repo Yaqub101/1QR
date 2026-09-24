@@ -149,8 +149,8 @@ def station_screen(request: Request, access: ActivityAccess = Depends(require_ac
 @router.get("/station/api/pass/{student_id}")
 def station_download_pass(request: Request, student_id: str, principal: Principal = Depends(require_user)):
     """Allow Registry operators and Admins to download student passes directly at the station desk."""
-    if not (principal.is_admin or principal.role == "REGISTRY"):
-        raise http_error(403, "FORBIDDEN", "Only Registry operators and Admins can download passes here.")
+    if not permissions.has_permission(principal.role, permissions.PASS_MANAGEMENT_PERMISSION):
+        raise http_error(403, "FORBIDDEN", "Only Registry operators and Admins can download passes.")
     if not qr_tokens.is_student_id(student_id):
         raise http_error(404, "STUDENT_NOT_FOUND", "That student does not exist.")
     engine = request.app.state.engine
@@ -184,14 +184,10 @@ def station_download_pass(request: Request, student_id: str, principal: Principa
 @router.post("/station/api/reissue-pass")
 def station_reissue_pass(request: Request, body: StationReissueBody, principal: Principal = Depends(require_user)):
     """Allow Registry operators and Admins to reissue a QR pass with an audited reason."""
-    if not (principal.is_admin or principal.role == "REGISTRY"):
+    if not permissions.has_permission(principal.role, permissions.PASS_MANAGEMENT_PERMISSION):
         raise http_error(403, "FORBIDDEN", "Only Registry operators and Admins can reissue passes.")
-    from backend.admin.corrections import clean_reason, CorrectionError
     try:
-        reason = clean_reason(body.reason)
-    except CorrectionError as exc:
-        raise http_error(exc.status_code, exc.code, exc.message)
-    try:
+        reason = qr_tokens.clean_reason(body.reason)
         result = qr_tokens.reissue_token(
             request.app.state.engine,
             student_id=body.student_id,
@@ -199,7 +195,7 @@ def station_reissue_pass(request: Request, body: StationReissueBody, principal: 
             operator_id=principal.user_id,
         )
     except qr_tokens.TokenError as exc:
-        raise http_error(400, exc.code, exc.message)
+        raise http_error(exc.status_code, exc.code, exc.message)
     return {
         "ok": True,
         "student_id": body.student_id,

@@ -116,32 +116,58 @@
         </div>
 
         <!-- Operator Station Actions (Pass download, Reissue QR, Exception / Lost Robe) -->
-        <div id="operator-station-actions" class="station-candidate-actions" hidden>
-          <div class="station-actions-row">
-            <button id="download-pass-btn" type="button" class="button secondary small-action-btn" title="Download official PDF pass with QR code">
+        <div id="operator-station-actions" class="station-candidate-actions" hidden style="margin-top: 1rem; border-top: 1px solid var(--border, #e0e0e0); padding-top: 0.85rem;">
+          <div class="station-actions-row" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button id="download-pass-btn" type="button" class="button secondary small" title="Download official PDF pass with QR code">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               <span>Download Pass</span>
             </button>
-            <button id="reissue-pass-toggle-btn" type="button" class="button secondary small-action-btn" title="Reissue QR token for lost or damaged physical passes">
+            <button id="reissue-pass-toggle-btn" type="button" class="button secondary small" title="Reissue QR token for lost or damaged physical passes">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
               <span>Reissue QR</span>
             </button>
-            <button id="waive-robe-toggle-btn" type="button" class="button secondary warning small-action-btn" title="Record lost or damaged robe exception" hidden>
+            <button id="waive-robe-toggle-btn" type="button" class="button secondary warning small" title="Record lost or damaged robe exception" hidden>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               <span>Waive Lost Robe</span>
             </button>
           </div>
 
           <!-- Reissue QR Inline Form -->
-          <div id="reissue-pass-panel" class="station-subpanel" hidden>
-            <div class="subpanel-header">
-              <strong>Reissue Student QR Pass</strong>
-              <span class="muted" style="font-size: 0.8rem;">Previous QR token will be permanently revoked</span>
+          <div id="reissue-pass-panel" class="station-subpanel" hidden style="margin-top: 0.75rem; padding: 0.85rem; background: var(--cardbg, #fff); border: 1px solid var(--border, #ccc); border-radius: 6px;">
+            <div class="subpanel-header" style="margin-bottom: 0.5rem;">
+              <strong style="color: var(--badink, #c00); font-size: 0.95rem;">Reissue Student QR Pass</strong>
+              <div class="muted" style="font-size: 0.82rem; margin-top: 0.2rem;">
+                Cancelling existing QR: previous pass will be permanently revoked immediately.
+              </div>
             </div>
-            <div class="subpanel-form-row">
-              <input id="reissue-reason-input" type="text" placeholder="Reason (e.g. Lost physical pass at college)" aria-label="Reissue reason">
+
+            <!-- Student Preview inside confirmation panel -->
+            <div id="reissue-student-preview" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; margin-bottom: 0.75rem;">
+              <img id="reissue-student-photo" src="{{ asset_url('placeholder.svg') }}" alt="Student photo" style="width: 42px; height: 52px; object-fit: cover; border-radius: 3px; border: 1px solid #cbd5e1;">
+              <div>
+                <strong id="reissue-student-name" style="display: block; font-size: 0.95rem;"></strong>
+                <span id="reissue-student-prn" class="muted" style="font-size: 0.85rem;"></span>
+              </div>
+            </div>
+
+            <div class="subpanel-form-row" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <input id="reissue-reason-input" type="text" placeholder="Reason (e.g. Lost physical pass at college) — required" aria-label="Reissue reason" style="flex: 1; min-width: 200px;">
               <button id="reissue-confirm-btn" type="button" class="button small">Confirm Reissue</button>
               <button id="reissue-cancel-btn" type="button" class="button secondary small">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Reissue Success Alert Box (Manual download, no auto-trigger for mobile) -->
+          <div id="reissue-success-box" class="station-subpanel" hidden style="margin-top: 0.75rem; padding: 0.85rem; background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <strong style="color: #166534; display: block; font-size: 0.95rem;">✓ New QR pass issued. Previous QR invalidated.</strong>
+                <span style="color: #15803d; font-size: 0.82rem;">The previous QR code has been cancelled at all stations.</span>
+              </div>
+              <a id="download-new-pass-btn" href="#" class="button small" style="text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;" download>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Download New Pass</span>
+              </a>
             </div>
           </div>
 

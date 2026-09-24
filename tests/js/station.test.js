@@ -46,6 +46,18 @@ function harness(overrides = {}) {
     searchInput: fakeEl({ tagName: "INPUT", ownerDoc: doc }),
     searchBtn: fakeEl({ tagName: "BUTTON", ownerDoc: doc }),
     manualDetails: fakeEl({ tagName: "DETAILS", open: false, ownerDoc: doc }),
+    operatorStationActions: fakeEl({ hidden: true }),
+    downloadPassBtn: fakeEl({ tagName: "BUTTON", ownerDoc: doc }),
+    reissuePassToggleBtn: fakeEl({ tagName: "BUTTON", ownerDoc: doc }),
+    reissuePassPanel: fakeEl({ hidden: true }),
+    reissueStudentPhoto: fakeEl({ tagName: "IMG" }),
+    reissueStudentName: fakeEl(),
+    reissueStudentPrn: fakeEl(),
+    reissueReasonInput: fakeEl({ tagName: "INPUT", ownerDoc: doc }),
+    reissueConfirmBtn: fakeEl({ tagName: "BUTTON", ownerDoc: doc }),
+    reissueCancelBtn: fakeEl({ tagName: "BUTTON", ownerDoc: doc }),
+    reissueSuccessBox: fakeEl({ hidden: true }),
+    downloadNewPassBtn: fakeEl({ tagName: "A" }),
   };
   const calls = [];
   const sounds = [];
@@ -60,14 +72,16 @@ function harness(overrides = {}) {
     if (next instanceof Error) throw next;
     return next || { result: "INVALID", colour: "red", message: "QR NOT RECOGNISED — use PRN search or contact Admin", student: null };
   };
+  const downloads = [];
   const screen = createStationScreen({
     els, doc, post, sound: (name) => sounds.push(name), now: () => clock, resetMs: 2500, debounceMs: 1500,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => {},
+    triggerDownload: (url) => downloads.push(url),
     activity: "REGISTRATION", ...overrides,
   });
   screen.init();
   return {
-    els, doc, calls, sounds, timers, screen, replies,
+    els, doc, calls, sounds, timers, screen, replies, downloads,
     advance: (ms) => { clock += ms; },
     hold: () => { let release; gate = new Promise((r) => { release = r; }); return () => { gate = null; release(); }; },
     runTimers: () => { const due = timers.splice(0); due.forEach((t) => t.fn()); },
@@ -614,4 +628,125 @@ test("document.activeElement is never a text input after load, scan, confirm, or
   assert.equal(h.els.scan.focusCount, 0);
   assert.equal(h.els.searchInput.focusCount, 0);
 });
+
+test("Registry pass download button triggers download for scanned or searched student", async () => {
+  const h = harness();
+  h.replies.push({
+    result: "READY",
+    message: "Check the photo, then confirm.",
+    student: {
+      student_id: "11111111-2222-3333-4444-555555555555",
+      name: "Aaditya Patel",
+      photo_url: "/photo/11111111-2222-3333-4444-555555555555",
+      fields: [{ key: "prn", label: "PRN", value: "202401001" }],
+    },
+  });
+
+  await h.screen.submitScan("TOK123");
+  assert.equal(h.els.card.hidden, false);
+  assert.equal(h.els.operatorStationActions.hidden, false);
+
+  h.els.downloadPassBtn.dispatch("click");
+  assert.deepEqual(h.downloads, ["/station/api/pass/11111111-2222-3333-4444-555555555555"]);
+});
+
+test("Reissue QR toggle opens panel and shows candidate identity preview", async () => {
+  const h = harness();
+  h.replies.push({
+    result: "READY",
+    message: "Check the photo, then confirm.",
+    student: {
+      student_id: "22222222-3333-4444-5555-666666666666",
+      name: "Sneha Sharma",
+      photo_url: "/photo/22222222-3333-4444-5555-666666666666",
+      fields: [{ key: "prn", label: "PRN", value: "202401002" }],
+    },
+  });
+
+  await h.screen.submitScan("TOK456");
+  assert.equal(h.els.reissuePassPanel.hidden, true);
+
+  h.els.reissuePassToggleBtn.dispatch("click");
+  assert.equal(h.els.reissuePassPanel.hidden, false);
+  assert.equal(h.els.reissueStudentName.textContent, "Sneha Sharma");
+  assert.equal(h.els.reissueStudentPrn.textContent, "PRN: 202401002");
+  assert.equal(h.els.reissueStudentPhoto.attributes.src, "/photo/22222222-3333-4444-5555-666666666666");
+
+  // Cancel hides the panel
+  h.els.reissueCancelBtn.dispatch("click");
+  assert.equal(h.els.reissuePassPanel.hidden, true);
+});
+
+test("Reissue confirmation requires non-empty reason", async () => {
+  const h = harness();
+  h.replies.push({
+    result: "READY",
+    message: "Ready",
+    student: {
+      student_id: "33333333-4444-5555-6666-777777777777",
+      name: "Rahul Verma",
+      fields: [{ key: "prn", label: "PRN", value: "202401003" }],
+    },
+  });
+  await h.screen.submitScan("TOK789");
+
+  h.els.reissuePassToggleBtn.dispatch("click");
+  h.els.reissueReasonInput.value = "   "; // blank/whitespace
+  await h.els.reissueConfirmBtn.dispatch("click");
+
+  assert.equal(h.calls.length, 1); // Only the initial /scan call, no /reissue-pass call
+  assert.equal(h.els.message.textContent, "Please give a reason for reissuing this QR.");
+  assert.equal(h.sounds[h.sounds.length - 1], "rejected");
+});
+
+test("Successful reissue updates UI, shows download button and does NOT auto-download", async () => {
+  const h = harness();
+  h.replies.push({
+    result: "READY",
+    message: "Ready",
+    student: {
+      student_id: "44444444-5555-6666-7777-888888888888",
+      name: "Pooja Hegde",
+      fields: [{ key: "prn", label: "PRN", value: "202401004" }],
+    },
+  });
+  await h.screen.submitScan("TOK999");
+
+  let autoDownloaded = false;
+  h.screen.triggerDownload = () => { autoDownloaded = true; };
+
+  h.els.reissuePassToggleBtn.dispatch("click");
+  h.els.reissueReasonInput.value = "Card lost during bus transit";
+
+  h.replies.push({
+    ok: true,
+    student_id: "44444444-5555-6666-7777-888888888888",
+    message: "New QR pass issued. Previous QR invalidated.",
+    pass_url: "/station/api/pass/44444444-5555-6666-7777-888888888888",
+  });
+
+  await h.els.reissueConfirmBtn.dispatch("click");
+
+  // 1. Reissue endpoint was called with audited reason
+  const reissueCall = h.calls.find((c) => c.url === "/station/api/reissue-pass");
+  assert.ok(reissueCall);
+  assert.deepEqual(reissueCall.body, {
+    student_id: "44444444-5555-6666-7777-888888888888",
+    reason: "Card lost during bus transit",
+  });
+
+  // 2. Banner and sound updated
+  assert.equal(h.els.banner.className, "banner green");
+  assert.equal(h.els.message.textContent, "New QR pass issued. Previous QR invalidated.");
+  assert.equal(h.sounds[h.sounds.length - 1], "success");
+
+  // 3. Panel closed, success box visible with link
+  assert.equal(h.els.reissuePassPanel.hidden, true);
+  assert.equal(h.els.reissueSuccessBox.hidden, false);
+  assert.equal(h.els.downloadNewPassBtn.attributes.href, "/station/api/pass/44444444-5555-6666-7777-888888888888");
+
+  // 4. Must NOT have auto-triggered download
+  assert.equal(autoDownloaded, false);
+});
+
 

@@ -65,6 +65,7 @@
     const TICK_ONE = "Tick at least one box, then confirm.";
     let resetTimer = null;
     let readyAt = -Infinity;
+    let currentStudent = null;
 
     const scannerBuffer = Logic.createScannerBuffer({
       maxBurstGapMs: deps.maxBurstGapMs != null ? deps.maxBurstGapMs : 60,
@@ -115,6 +116,7 @@
     }
 
     function clearCard() {
+      currentStudent = null;
       if (els.manualDetails) els.manualDetails.open = false;
       if (els.searchInput) {
         els.searchInput.value = "";
@@ -129,10 +131,15 @@
       els.cardName.textContent = "";
       els.cardFields.replaceChildren();
       if (els.cardPhoto && els.cardPhoto.setAttribute) els.cardPhoto.setAttribute("src", "/static/placeholder.svg");
+      if (els.operatorStationActions) els.operatorStationActions.hidden = true;
+      if (els.reissuePassPanel) els.reissuePassPanel.hidden = true;
+      if (els.reissueSuccessBox) els.reissueSuccessBox.hidden = true;
+      if (els.reissueReasonInput) els.reissueReasonInput.value = "";
       pending = null;
     }
 
     function renderCard(student) {
+      currentStudent = student;
       els.cardName.textContent = student.name;
       els.cardPhoto.setAttribute("src", student.photo_url || "/static/placeholder.svg");
       els.cardFields.replaceChildren(
@@ -148,6 +155,10 @@
           return row;
         })
       );
+      if (els.operatorStationActions) els.operatorStationActions.hidden = false;
+      if (els.reissuePassPanel) els.reissuePassPanel.hidden = true;
+      if (els.reissueSuccessBox) els.reissueSuccessBox.hidden = true;
+      if (els.reissueReasonInput) els.reissueReasonInput.value = "";
       els.card.hidden = false;
     }
 
@@ -261,6 +272,92 @@
       await run(() => post("/search", { prn, activity: deps.activity }), null);
     }
 
+    const triggerDownload = deps.triggerDownload || function (url) {
+      if (typeof window !== "undefined") {
+        const a = doc.createElement("a");
+        a.href = url;
+        a.setAttribute("download", "");
+        if (doc.body && typeof doc.body.appendChild === "function") {
+          doc.body.appendChild(a);
+          a.click();
+          a.remove();
+        } else if (typeof window.location !== "undefined") {
+          window.location.href = url;
+        }
+      }
+    };
+
+    function handleDownloadPass() {
+      if (!currentStudent || !currentStudent.student_id) return;
+      triggerDownload(`/station/api/pass/${currentStudent.student_id}`);
+    }
+
+    function handleToggleReissue() {
+      if (!els.reissuePassPanel) return;
+      const willShow = els.reissuePassPanel.hidden;
+      els.reissuePassPanel.hidden = !willShow;
+      if (willShow && currentStudent) {
+        if (els.reissueStudentPhoto && els.reissueStudentPhoto.setAttribute) {
+          els.reissueStudentPhoto.setAttribute("src", currentStudent.photo_url || "/static/placeholder.svg");
+        }
+        if (els.reissueStudentName) {
+          els.reissueStudentName.textContent = currentStudent.name || "";
+        }
+        if (els.reissueStudentPrn) {
+          const prnField = (currentStudent.fields || []).find((f) => f.key === "prn");
+          els.reissueStudentPrn.textContent = prnField ? `PRN: ${prnField.value}` : "";
+        }
+        if (els.reissueReasonInput) {
+          els.reissueReasonInput.value = "";
+        }
+      }
+    }
+
+    function handleCancelReissue() {
+      if (els.reissuePassPanel) els.reissuePassPanel.hidden = true;
+      if (els.reissueReasonInput) els.reissueReasonInput.value = "";
+    }
+
+    async function handleConfirmReissue() {
+      if (!currentStudent || !currentStudent.student_id || debouncer.busy) return;
+      const reason = (els.reissueReasonInput ? els.reissueReasonInput.value : "").trim();
+      if (!reason) {
+        showBanner("red", "Please give a reason for reissuing this QR.");
+        playSound("rejected");
+        return;
+      }
+      if (els.reissueConfirmBtn) els.reissueConfirmBtn.disabled = true;
+      try {
+        const reply = await post("/station/api/reissue-pass", {
+          student_id: currentStudent.student_id,
+          reason,
+        });
+        if (reply && reply.ok) {
+          if (els.reissuePassPanel) els.reissuePassPanel.hidden = true;
+          if (els.reissueReasonInput) els.reissueReasonInput.value = "";
+          showBanner("green", "New QR pass issued. Previous QR invalidated.");
+          playSound("success");
+
+          if (els.reissueSuccessBox) {
+            const passUrl = reply.pass_url || `/station/api/pass/${currentStudent.student_id}`;
+            if (els.downloadNewPassBtn && els.downloadNewPassBtn.setAttribute) {
+              els.downloadNewPassBtn.setAttribute("href", passUrl);
+            }
+            els.reissueSuccessBox.hidden = false;
+          }
+        } else {
+          const errMsg = (reply && reply.message) || "Could not reissue QR pass.";
+          showBanner("red", errMsg);
+          playSound("rejected");
+        }
+      } catch (_) {
+        showBanner("red", TEMPORARY);
+        playSound("rejected");
+      } finally {
+        if (els.reissueConfirmBtn) els.reissueConfirmBtn.disabled = false;
+      }
+    }
+
     function init() {
       showBanner("blue", IDLE_MESSAGE);
       if (doc && typeof doc.addEventListener === "function") {
@@ -268,6 +365,25 @@
       }
       if (els.confirmBtn) els.confirmBtn.addEventListener("click", confirm);
       if (els.searchBtn) els.searchBtn.addEventListener("click", search);
+      if (els.downloadPassBtn) els.downloadPassBtn.addEventListener("click", handleDownloadPass);
+      if (els.reissuePassToggleBtn) els.reissuePassToggleBtn.addEventListener("click", handleToggleReissue);
+      if (els.reissueCancelBtn) els.reissueCancelBtn.addEventListener("click", handleCancelReissue);
+      if (els.reissueConfirmBtn) els.reissueConfirmBtn.addEventListener("click", handleConfirmReissue);
+      if (els.downloadNewPassBtn) {
+        els.downloadNewPassBtn.addEventListener("click", (evt) => {
+          if (currentStudent && currentStudent.student_id) {
+            triggerDownload(`/station/api/pass/${currentStudent.student_id}`);
+          }
+        });
+      }
+      if (els.reissueReasonInput) {
+        els.reissueReasonInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            handleConfirmReissue();
+          }
+        });
+      }
       if (els.searchInput) {
         els.searchInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") { event.preventDefault(); search(); }
@@ -286,7 +402,11 @@
       }
     }
 
-    return { init, submitScan, confirm, search, scannerBuffer };
+    return {
+      init, submitScan, confirm, search, scannerBuffer,
+      triggerDownload, handleDownloadPass, handleToggleReissue, handleCancelReissue, handleConfirmReissue,
+      get currentStudent() { return currentStudent; },
+    };
   }
 
   return { createStationScreen, extractErrorMessage, post };
@@ -305,6 +425,18 @@
     confirmBtn: byId("confirm"), searchInput: byId("search-prn"), searchBtn: byId("search-btn"),
     markers: byId("markers"), cardState: byId("card-state"),
     manualDetails: byId("manual-details"),
+    operatorStationActions: byId("operator-station-actions"),
+    downloadPassBtn: byId("download-pass-btn"),
+    reissuePassToggleBtn: byId("reissue-pass-toggle-btn"),
+    reissuePassPanel: byId("reissue-pass-panel"),
+    reissueStudentPhoto: byId("reissue-student-photo"),
+    reissueStudentName: byId("reissue-student-name"),
+    reissueStudentPrn: byId("reissue-student-prn"),
+    reissueReasonInput: byId("reissue-reason-input"),
+    reissueConfirmBtn: byId("reissue-confirm-btn"),
+    reissueCancelBtn: byId("reissue-cancel-btn"),
+    reissueSuccessBox: byId("reissue-success-box"),
+    downloadNewPassBtn: byId("download-new-pass-btn"),
     lastScanSection: byId("last-scan-section"), lastScanName: byId("last-scan-name"),
     lastScanPhoto: byId("last-scan-photo"), lastScanDetails: byId("last-scan-details"),
     lastScanBadge: byId("last-scan-badge"), lastScanTime: byId("last-scan-time"),
