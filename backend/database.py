@@ -26,6 +26,7 @@ REQUIRED_TABLES = (
     "audit_log",
     "settings",
     "stage_state",
+    "programme_faculty",
 )
 
 # What /health puts in "db".

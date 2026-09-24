@@ -11,6 +11,8 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from backend.faculty_map import get_faculty_palette
+
 WAITING_LIST_SIZE = 15  # how many waiting students the Stage screen lists (redesign Phase R2: "~10-15")
 
 _FIELDS = {
@@ -19,7 +21,8 @@ _FIELDS = {
 }
 
 CARD_SQL = """
-    SELECT s.id, s.name, s.prn, s.programme, s.school, q.queue_position, q.status,
+    SELECT s.id, s.name, s.prn, s.programme, s.school, s.faculty, q.queue_position, q.status,
+           q.called_at, q.staged_at,
            EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS has_display_data
     FROM students s LEFT JOIN queue q ON q.student_id = s.id
 """
@@ -52,10 +55,14 @@ def has_display_data(conn: Connection, student_id) -> bool:
 def private_card(row: Optional[dict]) -> Optional[dict]:
     if row is None:
         return None
+    fac = row.get("faculty") or "UNMAPPED"
     return {
         "student_id": str(row["id"]), "name": row["name"], "prn": row["prn"], "photo_url": f"/photo/{row['id']}",
-        "programme": row["programme"], "school": row["school"],
+        "programme": row["programme"], "school": row["school"], "faculty": fac,
+        "palette": get_faculty_palette(fac),
         "queue_position": row["queue_position"], "status": row["status"], "has_display_data": bool(row["has_display_data"]),
+        "called_at": row["called_at"].isoformat() if row.get("called_at") else None,
+        "staged_at": row["staged_at"].isoformat() if row.get("staged_at") else None,
     }
 
 
@@ -68,7 +75,7 @@ def card_for(conn: Connection, student_id) -> Optional[dict]:
 
 def waiting(conn: Connection, limit: int) -> list[dict]:
     rows = conn.execute(
-        text(CARD_SQL + " WHERE q.status = 'QUEUED' ORDER BY q.queue_position LIMIT :n"), {"n": limit}
+        text(CARD_SQL + " WHERE q.status = 'QUEUED' AND q.staged_at IS NULL ORDER BY q.queue_position LIMIT :n"), {"n": limit}
     ).mappings()
     return [private_card(dict(r)) for r in rows]
 
@@ -113,6 +120,6 @@ def private_state(conn: Connection, principal, settings) -> dict:
         "after_next": ahead[1] if len(ahead) > 1 else None,
         "waiting": ahead,
         "previous": card_for(conn, st["previous_student_id"]),
-        "queue_depth": conn.execute(text("SELECT count(*) FROM queue WHERE status = 'QUEUED'")).scalar_one(),
+        "queue_depth": conn.execute(text("SELECT count(*) FROM queue WHERE status = 'QUEUED' AND staged_at IS NULL")).scalar_one(),
         "display_snapshot_count": conn.execute(text("SELECT count(*) FROM display_snapshot")).scalar_one(),
     }

@@ -179,8 +179,8 @@ class TestOnlyApprovedFields:
             assert control not in page.text, control
         for secret in (students[0].prn, str(students[0].id), students[0].name):
             assert secret not in page.text  # everything arrives through the stream, never rendered into the page
-        # New IDs from the redesigned template
-        assert 'id="cq-led-name"' in page.text and 'id="cq-led-programme"' in page.text
+        # Queue IDs from the caller template
+        assert 'id="cq-list"' in page.text and 'id="cq-count"' in page.text
         assert "/static/caller.js" in page.text and "http://" not in page.text and "https://" not in page.text
         assert new_client(apps).get("/static/caller.js").status_code == 200
 

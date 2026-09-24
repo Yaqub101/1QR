@@ -142,9 +142,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(admin_console_router)  # dashboard, corrections, exceptions, audit, reports (Phases 13/16)
     app.include_router(import_router)         # the Admin import screen (Phase 3)
-    app.include_router(system_router)         # Admin → System: the full data reset
+    from backend.admin.faculties import router as faculties_router
+    app.include_router(faculties_router)
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
     app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
+    app.include_router(system_router)  # /admin/system data-reset screen
 
     # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
     # These two are the machine-facing face of the importer; the Admin screen in
@@ -178,6 +180,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 for e in preview.errors
             ],
             "is_valid": preview.is_valid,
+            "unmapped_programmes": preview.unmapped_programmes,
+            "unmapped_programmes_count": preview.unmapped_programmes_count,
         }
 
     @app.post("/admin/import/commit", dependencies=[Depends(require_admin)])
@@ -217,6 +221,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "updated": summary.updated,
             "skipped": summary.skipped,
             "errors": summary.errors,
+            "unmapped_programmes": summary.unmapped_programmes,
+            "unmapped_programmes_count": summary.unmapped_programmes_count,
         }
 
     # ── Admin: photos ─────────────────────────────────────────────────────────

@@ -2189,6 +2189,18 @@ a.is-busy {
   margin: 0;
 }
 
+.queue-faculty-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  margin-top: 0.25rem;
+  width: fit-content;
+}
+
 .queue-scroll-loader {
   display: flex;
   align-items: center;

@@ -78,7 +78,7 @@ CLEARED_TABLES = ("exceptions", "scan_log", "queue", "caller_dismissals", "activ
 # Emptied in part: see _delete_all.
 PARTLY_CLEARED_TABLES = ("audit_log", "stage_state")
 # Never touched.
-KEPT_TABLES = ("users", "sessions", "settings", "alembic_version")
+KEPT_TABLES = ("users", "sessions", "settings", "alembic_version", "programme_faculty")
 
 # The row-level guard triggers that refuse DELETE on the tables above. Only these are switched off, and only
 # inside the reset's own transaction.
