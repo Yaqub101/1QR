@@ -39,26 +39,22 @@ RESTRICT_VIOLATION = "23001"  # used by our append-only / immutability triggers
 ACTIVITIES = [
     "REGISTRATION",
     "THOBE_ALLOCATION",
-    "MONEY_RECEIVED",
     "SEATING",
     "QUEUE",
     "STAGE",
     "THOBE_RETURN",
-    "MONEY_RETURNED",
     "LUNCH",
 ]
 
 # SYSTEM_SPEC section 5: label after completing the first n activities of ACTIVITIES (index 0 = nothing done).
-# Seating is optional (no label says a seat is owed); robe and money are tracked separately at the Registry desk.
+# Seating is optional (no label says a seat is owed).
 STATUS_AFTER_STEP = [
     "REGISTERED / NOT REPORTED",
-    "REPORTED / ROBE AND MONEY PENDING",
-    "REPORTED / MONEY PENDING",
-    "ROBE AND MONEY RECEIVED / NOT QUEUED",
+    "REPORTED / ROBE PENDING",
+    "ROBE RECEIVED / NOT QUEUED",
     "SEATED / NOT QUEUED",
     "DEGREE NOT RECEIVED",
-    "ROBE AND MONEY NOT RETURNED",
-    "MONEY NOT RETURNED",
+    "ROBE NOT RETURNED",
     "LUNCH ELIGIBLE",
     "EXITED",
 ]
@@ -758,7 +754,7 @@ class TestStudentStatus:
         row = conn.execute(text("SELECT step, status FROM student_status WHERE student_id=:s"), {"s": s}).one()
         assert (row.step, row.status) == (0, STATUS_AFTER_STEP[0])
 
-    @pytest.mark.parametrize("n_done", range(10), ids=[f"after_{n}_steps" for n in range(10)])
+    @pytest.mark.parametrize("n_done", range(8), ids=[f"after_{n}_steps" for n in range(8)])
     def test_label_at_every_stage_of_the_journey(self, conn, n_done):
         s = new_student(conn)
         complete_steps(conn, s, n_done)
@@ -776,19 +772,13 @@ class TestStudentStatus:
         s = new_student(conn)
         assert status_of(conn, s) == "REGISTERED / NOT REPORTED"
         add_event(conn, s, "REGISTRATION")
-        assert status_of(conn, s) == "REPORTED / ROBE AND MONEY PENDING"
+        assert status_of(conn, s) == "REPORTED / ROBE PENDING"
 
-    def test_robe_and_money_each_say_what_is_still_pending(self, conn):
-        robe_first, money_first = new_student(conn), new_student(conn)
-        for s in (robe_first, money_first):
-            add_event(conn, s, "REGISTRATION")
-        add_event(conn, robe_first, "THOBE_ALLOCATION")
-        add_event(conn, money_first, "MONEY_RECEIVED")
-        assert status_of(conn, robe_first) == "REPORTED / MONEY PENDING"
-        assert status_of(conn, money_first) == "REPORTED / ROBE PENDING"
-        add_event(conn, robe_first, "MONEY_RECEIVED")
-        add_event(conn, money_first, "THOBE_ALLOCATION")
-        assert status_of(conn, robe_first) == status_of(conn, money_first) == "ROBE AND MONEY RECEIVED / NOT QUEUED"
+    def test_robe_makes_robe_received_not_queued(self, conn):
+        s = new_student(conn)
+        add_event(conn, s, "REGISTRATION")
+        add_event(conn, s, "THOBE_ALLOCATION")
+        assert status_of(conn, s) == "ROBE RECEIVED / NOT QUEUED"
 
     def test_seating_moves_to_seated_not_queued(self, conn):
         s = new_student(conn)
@@ -798,7 +788,7 @@ class TestStudentStatus:
 
     def test_no_status_label_says_a_seat_is_still_owed(self, conn):
         view = conn.execute(text("SELECT pg_get_viewdef('student_status'::regclass)")).scalar_one()
-        assert "NOT SEATED" not in view and "ROBE AND MONEY RECEIVED / NOT QUEUED" in view
+        assert "NOT SEATED" not in view and "ROBE RECEIVED / NOT QUEUED" in view
 
     def test_queue_moves_to_degree_not_received(self, conn):
         s = new_student(conn)
@@ -806,23 +796,17 @@ class TestStudentStatus:
         add_event(conn, s, "QUEUE")
         assert status_of(conn, s) == "DEGREE NOT RECEIVED"
 
-    def test_stage_complete_moves_to_robe_and_money_not_returned(self, conn):
+    def test_stage_complete_moves_to_robe_not_returned(self, conn):
         s = new_student(conn)
         complete_before(conn, s, "STAGE")
         add_event(conn, s, "STAGE")
-        assert status_of(conn, s) == "ROBE AND MONEY NOT RETURNED"
+        assert status_of(conn, s) == "ROBE NOT RETURNED"
 
-    def test_the_two_returns_each_say_what_is_still_pending_and_both_make_lunch_eligible(self, conn):
-        robe_back, money_back = new_student(conn), new_student(conn)
-        for s in (robe_back, money_back):
-            complete_before(conn, s, "THOBE_RETURN")
-        add_event(conn, robe_back, "THOBE_RETURN")
-        add_event(conn, money_back, "MONEY_RETURNED")
-        assert status_of(conn, robe_back) == "MONEY NOT RETURNED"
-        assert status_of(conn, money_back) == "ROBE NOT RETURNED"
-        add_event(conn, robe_back, "MONEY_RETURNED")
-        add_event(conn, money_back, "THOBE_RETURN")
-        assert status_of(conn, robe_back) == status_of(conn, money_back) == "LUNCH ELIGIBLE"
+    def test_robe_return_makes_lunch_eligible(self, conn):
+        s = new_student(conn)
+        complete_before(conn, s, "THOBE_RETURN")
+        add_event(conn, s, "THOBE_RETURN")
+        assert status_of(conn, s) == "LUNCH ELIGIBLE"
 
     def test_lunch_moves_to_exited(self, conn):
         s = new_student(conn)
@@ -840,19 +824,17 @@ class TestStudentStatus:
         s = new_student(conn)
         complete_before(conn, s, "THOBE_RETURN")
         add_event(conn, s, "THOBE_RETURN", kind="WAIVER")
-        assert status_of(conn, s) == "MONEY NOT RETURNED"
-        add_event(conn, s, "MONEY_RETURNED", kind="WAIVER")
         assert status_of(conn, s) == "LUNCH ELIGIBLE"
 
     def test_reversal_steps_the_status_back_and_recompletion_restores_it(self, conn):
         s = new_student(conn)
         complete_before(conn, s, "STAGE")
         stage = add_event(conn, s, "STAGE")
-        assert status_of(conn, s) == "ROBE AND MONEY NOT RETURNED"
+        assert status_of(conn, s) == "ROBE NOT RETURNED"
         add_event(conn, s, "STAGE", kind="REVERSAL", corrects=stage, cycle=1)
         assert status_of(conn, s) == "DEGREE NOT RECEIVED"
         add_event(conn, s, "STAGE", cycle=2)
-        assert status_of(conn, s) == "ROBE AND MONEY NOT RETURNED"
+        assert status_of(conn, s) == "ROBE NOT RETURNED"
 
     def test_status_is_identical_whatever_order_events_arrive_in(self, conn):
         rng = random.Random(20261015)

@@ -166,7 +166,7 @@ class TestNext:
         assert "MANUAL" not in event[0]["flags"]  # the controller identified them; nobody typed a PRN
         assert events_of(engine, second, "STAGE") == [] and events_of(engine, waiting, "STAGE") == []
         assert [stage_stat(engine, s) for s in (first, second, waiting)] == ["DONE", "DISPLAYED", "QUEUED"]
-        assert q(engine, "SELECT status FROM student_status WHERE student_id = :s", s=first.id)[0]["status"] == "ROBE AND MONEY NOT RETURNED"
+        assert q(engine, "SELECT status FROM student_status WHERE student_id = :s", s=first.id)[0]["status"] == "ROBE NOT RETURNED"
         assert led(apps).json()["student"]["name"] == second.name
         state = response.json()["state"]
         assert state["current"]["name"] == second.name and state["previous"]["name"] == first.name

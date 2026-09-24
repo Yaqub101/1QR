@@ -402,14 +402,14 @@ class TestMidJourneyReissue:
         initial_token = s.token
         reg_client = operator(apps, world, "REGISTRATION")
 
-        # 1. Registry desk: complete ENTRY (Registration + Robe + Money)
+        # 1. Registry desk: complete ENTRY (Registration + Robe)
         scan_res = reg_client.post("/scan", json={"activity": "REGISTRY", "token": initial_token}).json()
         assert scan_res["result"] == "READY"
         conf_res = reg_client.post("/confirm", json={
             "activity": "REGISTRY",
             "token": initial_token,
             "step": "ENTRY",
-            "marks": ["THOBE_ALLOCATION", "MONEY_RECEIVED"],
+            "marks": ["THOBE_ALLOCATION"],
         }).json()
         assert conf_res["result"] == "CONFIRMED"
 
@@ -461,12 +461,12 @@ class TestMidJourneyReissue:
         assert return_scan_new["result"] == "READY"
         assert return_scan_new["step"] == "RETURN"
 
-        # Confirm robe return & money returned
+        # Confirm robe return
         return_conf = reg_client.post("/confirm", json={
             "activity": "REGISTRY",
             "token": new_token,
             "step": "RETURN",
-            "marks": ["THOBE_RETURN", "MONEY_RETURNED"],
+            "marks": ["THOBE_RETURN"],
         }).json()
         assert return_conf["result"] == "CONFIRMED"
 
@@ -485,7 +485,7 @@ class TestMidJourneyReissue:
 
         # All events completed for student
         completed_activities = [e["activity"] for e in events_of(engine, s)]
-        for act_name in ("REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "QUEUE", "STAGE", "THOBE_RETURN", "MONEY_RETURNED", "LUNCH"):
+        for act_name in ("REGISTRATION", "THOBE_ALLOCATION", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH"):
             assert act_name in completed_activities
 
 

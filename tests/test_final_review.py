@@ -268,7 +268,7 @@ def assert_history_untouched(before, after):
 def student_journey(engine, apps, world, student_pool, i=1):
     """Student i: Reporting seeded, then robe, seating, queue and stage through the REAL API. Returns event ids."""
     raw_event(engine, student_pool, i, "REGISTRATION")
-    for activity in ("THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING", "QUEUE"):
+    for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE"):
         op = operator(apps, world, activity)
         assert confirm(op, activity, token=s_token(student_pool, i)).json()["result"] == "CONFIRMED", activity
     stage = operator(apps, world, "STAGE")
@@ -289,7 +289,7 @@ class TestCorrectionsAtTheDatabase:
     def test_every_reversal_writes_one_new_row_and_leaves_every_old_row_physically_untouched(self, engine, apps, world, student_pool):
         ids = student_journey(engine, apps, world, student_pool, 1)
         adm = admin(apps)
-        assert set(ids) == {"REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING", "QUEUE", "STAGE"}
+        assert set(ids) == {"REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE"}
         for activity in ("SEATING", "QUEUE", "STAGE"):
             before, count = snapshot(engine), scalar_db(engine, "SELECT count(*) FROM activity_events")
             response = self.reverse(adm, ids[activity])
@@ -307,7 +307,7 @@ class TestCorrectionsAtTheDatabase:
 
     def test_a_waiver_and_the_reversal_of_a_waiver_are_new_rows_too(self, engine, apps, world, student_pool):
         raw_event(engine, student_pool, 2, "REGISTRATION")
-        for activity in ("THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING", "QUEUE", "STAGE"):
+        for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE"):
             raw_event(engine, student_pool, 2, activity)
         adm = admin(apps)
         before = snapshot(engine)
