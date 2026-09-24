@@ -83,6 +83,14 @@ STAGE_VERSION_SQL = (
     "SELECT (SELECT version FROM stage_state WHERE id = 1)::text || ':' || count(*)::text || ':' "
     "|| coalesce(max(queue_position), 0)::text FROM queue WHERE status = 'QUEUED'"
 )
+# The Caller queue list stream watches the QUEUED count AND the dismissal counter, so both a new queue
+# scan and a new dismiss push a nudge to every open caller page. It is deliberately separate from
+# LED_VERSION_SQL: the caller queue updates on queue activity, not on stage/LED activity.
+CALLER_QUEUE_VERSION_SQL = (
+    "SELECT count(q.student_id)::text || ':' "
+    "|| (SELECT coalesce(value, 0) FROM counters WHERE name = 'caller_dismissals_v')::text "
+    "FROM queue q WHERE q.status = 'QUEUED'"
+)
 
 
 def iter_events(engine, build_payload: Callable[[Connection], dict], *, poll_seconds: float = 0.25,
@@ -129,3 +137,18 @@ def iter_caller_events(engine, settings, **kwargs) -> Iterator[str]:
 def iter_stage_events(engine, build_payload: Callable[[Connection], dict], **kwargs) -> Iterator[str]:
     """The Stage screen's private stream: also pushes when the waiting queue changes."""
     return iter_events(engine, build_payload, version_sql=STAGE_VERSION_SQL, **kwargs)
+
+
+def _caller_queue_nudge(conn: Connection) -> dict:
+    """Minimal payload for the caller queue SSE: just a version token. The client re-fetches the
+    full list via GET /caller/queue when it receives this nudge."""
+    version = conn.execute(
+        text(CALLER_QUEUE_VERSION_SQL)
+    ).scalar_one()
+    return {"version": version}
+
+
+def iter_caller_queue_events(engine, settings, **kwargs) -> Iterator[str]:
+    """SSE stream for the caller queue list page: fires when a student is queued or dismissed.
+    The payload is a tiny nudge (version string only); the browser re-fetches the full list."""
+    return iter_events(engine, _caller_queue_nudge, version_sql=CALLER_QUEUE_VERSION_SQL, **kwargs)

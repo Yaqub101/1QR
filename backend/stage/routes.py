@@ -5,6 +5,7 @@ audience screen loads) and serves only the approved LED payload.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
@@ -178,6 +179,115 @@ def caller_state(request: Request, principal: Principal = Depends(require_user))
 def caller_events(request: Request, principal: Principal = Depends(require_user)):
     _caller_viewer(principal)
     return caller_events_response(request.app)
+
+
+# --------------------------------------------------------------------------- caller queue list
+CALLER_QUEUE_SQL_BASE = """
+    SELECT s.id, s.name, s.prn, s.programme, s.school, q.queue_position
+    FROM queue q
+    JOIN students s ON s.id = q.student_id
+    WHERE q.status = 'QUEUED'
+      AND NOT EXISTS (
+          SELECT 1 FROM caller_dismissals cd WHERE cd.student_id = q.student_id
+      )
+"""
+
+
+def _can_dismiss(principal: Principal) -> bool:
+    """Only CALLER and ADMIN/DEPUTY_ADMIN may write to caller_dismissals. STAGE may view, not dismiss."""
+    return principal.role in ("CALLER", "ADMIN", "DEPUTY_ADMIN")
+
+
+@router.get("/caller/queue")
+def caller_queue(request: Request, after: int = 0, principal: Principal = Depends(require_user)):
+    """The caller's live queue list: all QUEUED students not yet dismissed by any caller, in
+    queue_position order.  `after` is the last queue_position the client already has, for
+    incremental tail-loading.  The SSE nudge at /caller/queue-events tells the browser when to call."""
+    _caller_viewer(principal)
+    with request.app.state.engine.connect() as conn:
+        if after:
+            sql = CALLER_QUEUE_SQL_BASE + "      AND q.queue_position > :after\n    ORDER BY q.queue_position"
+            params = {"after": after}
+        else:
+            sql = CALLER_QUEUE_SQL_BASE + "    ORDER BY q.queue_position"
+            params = {}
+        rows = conn.execute(text(sql), params).mappings().all()
+        total = conn.execute(
+            text("SELECT count(*) FROM queue WHERE status = 'QUEUED' "
+                 "AND NOT EXISTS (SELECT 1 FROM caller_dismissals cd WHERE cd.student_id = queue.student_id)")
+        ).scalar_one()
+    students = [
+        {
+            "student_id": str(r["id"]),
+            "name": r["name"],
+            "prn": r["prn"],
+            "programme": r["programme"],
+            "school": r["school"],
+            "photo_url": f"/photo/{r['id']}",
+            "queue_position": r["queue_position"],
+        }
+        for r in rows
+    ]
+    return {"students": students, "total": total}
+
+
+@router.post("/caller/dismiss/{student_id}")
+def caller_dismiss(student_id: str, request: Request, principal: Principal = Depends(require_user)):
+    """Mark a student as handled by this caller (idempotent). Writes only to caller_dismissals;
+    never touches queue.status or stage_state. Audit-logged. Increments the dismissal version
+    counter so all open caller queue SSE streams receive a nudge."""
+    _caller_viewer(principal)
+    if not _can_dismiss(principal):
+        raise http_error(403, "FORBIDDEN", "That action is not part of your role.")
+    try:
+        sid = uuid.UUID(student_id)
+    except ValueError:
+        raise http_error(404, "NOT_FOUND", "Student not found.")
+    app = request.app
+    from backend.audit import write_audit
+    from fastapi import HTTPException
+    try:
+        with app.state.engine.begin() as conn:
+            # Verify the student exists
+            exists = conn.execute(
+                text("SELECT 1 FROM students WHERE id = :s"), {"s": sid}
+            ).scalar()
+            if not exists:
+                raise http_error(404, "NOT_FOUND", "Student not found.")
+            # Idempotent upsert
+            conn.execute(
+                text(
+                    "INSERT INTO caller_dismissals (student_id, dismissed_by) "
+                    "VALUES (:s, :u) "
+                    "ON CONFLICT (student_id) DO UPDATE "
+                    "SET dismissed_by = EXCLUDED.dismissed_by, dismissed_at = now()"
+                ),
+                {"s": sid, "u": principal.user_id},
+            )
+            # Bump the version counter so SSE clients get a push
+            conn.execute(
+                text("UPDATE counters SET value = value + 1 WHERE name = 'caller_dismissals_v'")
+            )
+            write_audit(conn, "CALLER_DISMISS", operator_id=principal.user_id, student_id=sid,
+                        details={"role": principal.role})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import logging
+        logging.getLogger("backend.engine").exception("caller dismiss failed: student=%s", student_id)
+        raise http_error(503, "TEMPORARY", "One moment, please try again.") from exc
+    return {"ok": True}
+
+
+@router.get("/caller/queue-events")
+def caller_queue_events(request: Request, principal: Principal = Depends(require_user)):
+    """SSE for the caller queue list: fires when any student is queued or when any dismiss happens.
+    The payload is a minimal nudge; the browser re-fetches /caller/queue."""
+    _caller_viewer(principal)
+    app = request.app
+    return StreamingResponse(
+        led.iter_caller_queue_events(app.state.engine, app.state.settings),
+        media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 # --------------------------------------------------------------------------- the public LED

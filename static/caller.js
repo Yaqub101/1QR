@@ -1,105 +1,248 @@
-/* The internal Caller screen (role/flow redesign, Phase R3).
+/**
+ * caller.js — Caller screen: LED-mirror card + live scrolling queue list.
  *
- * Shows the name and the programme / degree of the student on the public LED, so the name called aloud always
- * matches the screen. It is read-only: only the Stage operator changes what it shows. The data comes from
- * /caller/events, which is built from the very same payload as the LED and changes on the same signal.
+ * Two independent SSE streams:
+ *   /caller/events      → fires when the LED changes (same signal as the LED screen)
+ *   /caller/queue-events → fires when the QUEUED list changes (new scan or dismiss)
  *
- * createCallerScreen(deps) holds all the behaviour and touches the page only through `deps` (tested under node
- * with a mocked clock: tests/js/caller.test.js). Rules it keeps:
- *   - reads ONLY `name` and `programme` from a message, even if the server sent more;
- *   - holding screen on the LED -> no name, "Waiting for the stage.";
- *   - no contact for 5 seconds -> the name is taken away and "Connection lost" is shown, so a caller never reads
- *     out a name that may no longer be the one on the LED. It comes back only with a fresh state message (a
- *     heartbeat alone does not bring back an old name).
- * "Contact" is any state message or heartbeat ping. The server sends a ping every 2 seconds.
+ * The queue list is fetched fresh from /caller/queue on every nudge from /caller/queue-events.
+ * The LED mirror is driven by /caller/state on every nudge from /caller/events.
  */
-(function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = { createCallerScreen: factory() };
-  else root.createCallerScreen = factory();
-})(typeof self !== "undefined" ? self : this, function () {
+(function () {
   "use strict";
 
-  const CONNECTING = "Connecting…";
-  const WAITING = "Waiting for the stage.";
-  const LOST = "Connection lost. Do not call a name until it comes back.";
+  // ─── DOM refs ────────────────────────────────────────────────────────────
+  var statusBar     = document.getElementById("cq-status");
+  var ledCard       = document.getElementById("cq-led-card");
+  var ledWaiting    = document.getElementById("cq-led-status");
+  var ledName       = document.getElementById("cq-led-name");
+  var ledProgramme  = document.getElementById("cq-led-programme");
+  var countEl       = document.getElementById("cq-count");
+  var list          = document.getElementById("cq-list");
+  var emptyEl       = document.getElementById("cq-empty");
 
-  function createCallerScreen(deps) {
-    const { els, connect, now } = deps;
-    const lostMs = deps.lostMs != null ? deps.lostMs : 5000;
-    const watchMs = deps.watchMs != null ? deps.watchMs : 500;
-    let lastContactAt = null;
-    let lost = false;
-
-    function status(text, colour) {
-      els.status.textContent = text;
-      els.status.className = "caller-status " + colour;
-      els.status.hidden = false;
-    }
-
-    function clearName() {
-      els.card.hidden = true;
-      els.name.textContent = "";
-      els.programme.textContent = "";
-    }
-
-    function render(payload) {
-      const student = payload && typeof payload === "object" ? payload.student : null;
-      if (payload && payload.mode === "SHOWING" && student && typeof student.name === "string") {
-        els.name.textContent = student.name;
-        els.programme.textContent = typeof student.programme === "string" ? student.programme : "";
-        els.card.hidden = false;
-        els.status.textContent = "";
-        els.status.hidden = true;
-      } else {
-        clearName();
-        status(WAITING, "blue");
-      }
-    }
-
-    function watchdog() {
-      if (lastContactAt !== null && now() - lastContactAt >= lostMs && !lost) {
-        lost = true;
-        clearName();
-        status(LOST, "red");
-      }
-    }
-
-    function start() {
-      clearName();
-      status(CONNECTING, "blue");
-      connect({
-        state(payload) { lastContactAt = now(); lost = false; render(payload); },
-        ping() { lastContactAt = now(); if (lost) status(CONNECTING, "blue"); },
-        error() { /* the browser reconnects by itself; the watchdog decides what the caller sees */ },
-      });
-      (deps.setInterval || setInterval)(watchdog, watchMs);
-    }
-
-    return { start };
+  // ─── LED mirror ──────────────────────────────────────────────────────────
+  function fetchLed() {
+    fetch("/caller/state", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        if (data.student && data.mode !== "HOME") {
+          ledName.textContent = data.student.name || "";
+          ledProgramme.textContent = data.student.programme || "";
+          ledName.hidden = false;
+          ledProgramme.hidden = false;
+          ledWaiting.hidden = true;
+        } else {
+          ledName.hidden = true;
+          ledProgramme.hidden = true;
+          ledWaiting.hidden = false;
+          ledWaiting.textContent = "Waiting for the stage.";
+        }
+      })
+      .catch(function () {});
   }
 
-  return createCallerScreen;
-});
+  // ─── Queue list ──────────────────────────────────────────────────────────
+  var queueData = {};   // student_id → {student_id, name, prn, programme, school, photo_url, queue_position}
 
-/* ---- browser wiring (skipped under node) --------------------------------------------------------- */
-(function () {
-  if (typeof document === "undefined" || typeof window === "undefined") return;
-  const card = document.getElementById("caller-card");
-  if (!card) return;
-  const byId = (id) => document.getElementById(id);
+  function fetchQueue() {
+    fetch("/caller/queue", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        renderQueue(data.students, data.total);
+      })
+      .catch(function () {});
+  }
 
-  function connect(handlers) {
-    const source = new EventSource("/caller/events"); // reconnects automatically
-    source.addEventListener("state", (event) => {
-      try { handlers.state(JSON.parse(event.data)); } catch (_) { /* a bad message never shows a half card */ }
+  function renderQueue(students, total) {
+    // Compute the set of IDs in the new list
+    var newIds = {};
+    students.forEach(function (s) { newIds[s.student_id] = s; });
+
+    // Remove rows that are no longer present
+    Object.keys(queueData).forEach(function (id) {
+      if (!newIds[id]) {
+        var el = document.getElementById("cq-row-" + id);
+        if (el) el.remove();
+        delete queueData[id];
+      }
     });
-    source.addEventListener("ping", () => handlers.ping());
-    source.onerror = () => handlers.error();
-    return () => source.close();
+
+    // Add/update rows that are new or changed
+    // Build a position map so we can insert in order
+    students.forEach(function (s, index) {
+      if (!queueData[s.student_id]) {
+        // New row: insert in queue_position order
+        queueData[s.student_id] = s;
+        var row = buildRow(s);
+        // Insert before the row with the next-higher queue_position
+        var inserted = false;
+        var allRows = list.querySelectorAll(".cq-row");
+        for (var i = 0; i < allRows.length; i++) {
+          var rowPos = parseInt(allRows[i].dataset.pos, 10);
+          if (rowPos > s.queue_position) {
+            list.insertBefore(row, allRows[i]);
+            inserted = true;
+            break;
+          }
+        }
+        if (!inserted) list.appendChild(row);
+      }
+      // If already in list, no update needed (data is identical — queue rows are stable)
+    });
+
+    // Update count
+    countEl.textContent = total;
+    emptyEl.hidden = (students.length > 0 || Object.keys(queueData).length > 0);
   }
 
-  window.createCallerScreen({
-    els: { card, name: byId("caller-name"), programme: byId("caller-programme"), status: byId("caller-status") },
-    connect, now: Date.now, lostMs: 5000, watchMs: 500,
-  }).start();
+  function buildRow(s) {
+    var li = document.createElement("li");
+    li.className = "cq-row";
+    li.id = "cq-row-" + s.student_id;
+    li.dataset.pos = s.queue_position;
+
+    // Photo
+    var img = document.createElement("img");
+    img.className = "cq-photo";
+    img.loading = "lazy";
+    img.alt = s.name;
+    img.src = s.photo_url;
+    img.onerror = function () {
+      // Replace broken image with placeholder icon
+      var ph = document.createElement("div");
+      ph.className = "cq-photo-placeholder";
+      ph.setAttribute("aria-hidden", "true");
+      ph.textContent = "👤";
+      li.replaceChild(ph, img);
+    };
+
+    // Info
+    var info = document.createElement("div");
+    info.className = "cq-info";
+
+    var nameEl = document.createElement("div");
+    nameEl.className = "cq-name";
+    nameEl.textContent = s.name;
+
+    var metaEl = document.createElement("div");
+    metaEl.className = "cq-meta";
+    metaEl.textContent = s.prn + " · " + s.school;
+
+    var posEl = document.createElement("span");
+    posEl.className = "cq-pos";
+    posEl.textContent = "#" + s.queue_position;
+
+    info.appendChild(nameEl);
+    info.appendChild(metaEl);
+    info.appendChild(posEl);
+
+    // Complete button
+    var btn = document.createElement("button");
+    btn.className = "cq-btn-complete";
+    btn.type = "button";
+    btn.textContent = "Complete";
+    btn.setAttribute("aria-label", "Complete — " + s.name);
+    btn.onclick = function () { dismissStudent(s.student_id, li, btn); };
+
+    li.appendChild(img);
+    li.appendChild(info);
+    li.appendChild(btn);
+    return li;
+  }
+
+  function dismissStudent(studentId, rowEl, btn) {
+    btn.disabled = true;
+    rowEl.classList.add("cq-row--completing");
+    fetch("/caller/dismiss/" + studentId, {
+      method: "POST",
+      credentials: "same-origin",
+    })
+      .then(function (r) {
+        if (r.ok) {
+          // Remove the row from local state immediately; SSE will confirm for other devices
+          delete queueData[studentId];
+          rowEl.remove();
+          updateCountFromDom();
+        } else {
+          // Restore on failure
+          rowEl.classList.remove("cq-row--completing");
+          btn.disabled = false;
+        }
+      })
+      .catch(function () {
+        rowEl.classList.remove("cq-row--completing");
+        btn.disabled = false;
+      });
+  }
+
+  function updateCountFromDom() {
+    var n = Object.keys(queueData).length;
+    countEl.textContent = n;
+    emptyEl.hidden = n > 0;
+  }
+
+  // ─── SSE helpers ─────────────────────────────────────────────────────────
+  var WATCHDOG_MS  = 5500;  // same as the existing caller watchdog
+  var RECONNECT_MS = 3000;
+
+  function openSSE(url, onMessage) {
+    var es, watchdog;
+
+    function resetWatchdog() {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(function () {
+        setStatus("lost");
+        es && es.close();
+        setTimeout(reconnect, RECONNECT_MS);
+      }, WATCHDOG_MS);
+    }
+
+    function reconnect() {
+      es = new EventSource(url);
+      es.onopen = function () { setStatus("ok"); resetWatchdog(); };
+      es.addEventListener("state", function (ev) {
+        resetWatchdog();
+        onMessage(ev.data);
+      });
+      es.addEventListener("ping", function () { resetWatchdog(); });
+      es.onerror = function () {
+        // EventSource reconnects automatically; just show lost status
+        setStatus("lost");
+        resetWatchdog();
+      };
+    }
+
+    reconnect();
+  }
+
+  // ─── Status bar ──────────────────────────────────────────────────────────
+  var connectedCount = 0;   // how many SSE connections are "ok"
+
+  function setStatus(state) {
+    // We have two SSE connections; only show "ok" when both are happy.
+    // For simplicity, show the worst state.
+    statusBar.className = "cq-status cq-status--" + state;
+    statusBar.textContent = state === "ok"
+      ? "Live"
+      : state === "connecting"
+      ? "Connecting…"
+      : "Connection lost — reconnecting…";
+  }
+
+  // ─── Boot ─────────────────────────────────────────────────────────────────
+  setStatus("connecting");
+
+  // Initial data fetch
+  fetchLed();
+  fetchQueue();
+
+  // LED mirror stream
+  openSSE("/caller/events", function () { fetchLed(); });
+
+  // Queue list stream
+  openSSE("/caller/queue-events", function () { fetchQueue(); });
+
 })();

@@ -1,13 +1,10 @@
-"""The Caller screen (role/flow redesign, Phase R3).
+"""The Caller screen (role/flow redesign, Phase R3, extended with live queue list in Feature: caller queue list).
 
-An internal, read-only screen for the person who calls each graduate's name aloud. It always shows the SAME
-student as the public LED, because it is built from the very same data: the approved display_snapshot row
-the LED reads, through the same payload function, on the same change signal (the stage state's version).
-Only the Stage operator's NEXT / SEND / HOME / SHOW AGAIN changes either screen; a queue scan changes
-neither. The Caller sees the name and the programme / degree, nothing else: no PRN, phone, email, photo
-or internal id. The Caller has no controls.
+The existing tests cover the LED-mirror half of the screen: the Caller always shows the same student as the
+public LED (driven by the same display_snapshot row), no PRN / phone / email / photo / internal id ever reaches
+the stream, and only the Stage operator's NEXT / SEND / HOME / SHOW AGAIN changes either screen.
 
-Access: a new read-only CALLER role, plus the Stage operator and the Admins.
+The new queue list (GET /caller/queue, POST /caller/dismiss) is covered in tests/test_caller_queue.py.
 """
 import json
 import re
@@ -171,17 +168,19 @@ class TestOnlyApprovedFields:
         assert_caller_clean(response.text, students)
         assert_caller_clean(next(caller_stream(engine, apps.state.settings)).split("data: ", 1)[1], students)
 
-    def test_the_page_has_no_controls_and_no_student_data_baked_in(self, apps, world, engine, stage, caller):
+    def test_the_page_has_no_static_controls_and_no_student_data_baked_in(self, apps, world, engine, stage, caller):
         students = queued(engine, apps, world, 2)
         claim(stage)
         nxt(stage.main)
         page = caller.get("/caller")
         assert page.status_code == 200
-        for control in ("<form", "<button", "<input", "<select", "<textarea"):
+        # No static HTML controls (the Complete buttons are injected by JS, not server-rendered).
+        for control in ("<form", "<input", "<select", "<textarea"):
             assert control not in page.text, control
         for secret in (students[0].prn, str(students[0].id), students[0].name):
             assert secret not in page.text  # everything arrives through the stream, never rendered into the page
-        assert 'id="caller-name"' in page.text and 'id="caller-programme"' in page.text
+        # New IDs from the redesigned template
+        assert 'id="cq-led-name"' in page.text and 'id="cq-led-programme"' in page.text
         assert "/static/caller.js" in page.text and "http://" not in page.text and "https://" not in page.text
         assert new_client(apps).get("/static/caller.js").status_code == 200
 

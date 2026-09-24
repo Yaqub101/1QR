@@ -14,12 +14,29 @@
     </div>
     <span class="who">{{ principal.username }}</span>
   </header>
-  <p id="caller-status" class="caller-status blue" role="status" aria-live="polite">Connecting…</p>
-  <main id="caller-card" class="caller-card" hidden aria-live="assertive">
-    <div class="caller-badge">NOW PRESENTING ON STAGE</div>
-    <h1 id="caller-name"></h1>
-    <p id="caller-programme"></p>
-  </main>
+
+  <!-- Connection status bar (shown when disconnected; hidden while connected) -->
+  <div id="cq-status" class="cq-status cq-status--connecting" role="status" aria-live="polite">
+    Connecting…
+  </div>
+
+  <!-- ─── LED mirror card: who is on stage RIGHT NOW ─────────────────────── -->
+  <section class="cq-led-card" id="cq-led-card" aria-label="Now on stage">
+    <div class="cq-led-badge">NOW PRESENTING ON STAGE</div>
+    <p id="cq-led-status" class="cq-led-waiting">Waiting for the stage.</p>
+    <h1 id="cq-led-name" hidden></h1>
+    <p id="cq-led-programme" class="cq-led-programme" hidden></p>
+  </section>
+
+  <!-- ─── Queue list ─────────────────────────────────────────────────────── -->
+  <section class="cq-section" aria-label="Students in the queue">
+    <div class="cq-section-header">
+      <h2 class="cq-section-title">QUEUE — <span id="cq-count">…</span> students</h2>
+    </div>
+    <ul id="cq-list" class="cq-list" aria-label="Queued students"></ul>
+    <p id="cq-empty" class="cq-empty" hidden>No students in the queue.</p>
+  </section>
+
   <script src="{{ asset_url('caller.js') }}"></script>
 </body>
 </html>

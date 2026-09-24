@@ -1,131 +1,220 @@
-/* The internal Caller screen: the name to call, as large as the screen allows.
-   Styled in MGM University Convocation identity. */
+/* caller.css — Convocation Podium Caller screen (MGM University identity)
+   Two sections:
+     1. LED-mirror card at the top (who is on stage right now)
+     2. Queue list below (all queued students not yet dismissed) */
+
+/* ─── tokens ─────────────────────────────────────────────────────────────── */
 :root {
-  --brand: #5A321F;
+  --brand:      #5A321F;
   --brand-dark: #3F2418;
-  --gold: #C99545;
+  --gold:       #C99545;
   --gold-light: #E4C58F;
-  --ink: #30251F;
-  --muted: #756B63;
-  --bg: #FBF7F0;
-  --card: #FFFFFF;
-  --red: #991B1B;
-  --red-bg: #FEEAEA;
-  --blue: #1E40AF;
-  --blue-bg: #EFF6FF;
+  --ink:        #30251F;
+  --muted:      #756B63;
+  --bg:         #FBF7F0;
+  --card:       #FFFFFF;
+  --red:        #991B1B;
+  --red-bg:     #FEEAEA;
+  --blue:       #1E40AF;
+  --blue-bg:    #EFF6FF;
+  --green:      #166534;
+  --green-bg:   #F0FDF4;
+  --radius-sm:  6px;
+  --radius:     10px;
+  --radius-lg:  14px;
+  --shadow-sm:  0 1px 4px rgba(90,50,31,.06);
+  --shadow:     0 4px 14px rgba(90,50,31,.09);
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ─── page shell ─────────────────────────────────────────────────────────── */
 body.caller {
-  margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--ink);
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
 
+/* ─── top bar ────────────────────────────────────────────────────────────── */
 .caller-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.8rem 1.4rem;
+  padding: .75rem 1.25rem;
   background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 100%);
-  color: #FFFFFF;
-  border-bottom: 2px solid var(--gold);
+  color: #fff;
+  border-bottom: 2.5px solid var(--gold);
+  flex-shrink: 0;
 }
-
-.caller-brand {
-  display: flex;
-  flex-direction: column;
-}
-
+.caller-brand { display: flex; flex-direction: column; gap: .05rem; }
 .caller-inst {
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--gold-light);
-  font-weight: 700;
+  font-size: .68rem; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--gold-light); font-weight: 700;
 }
-
 .caller-title {
   font-family: Georgia, "Times New Roman", serif;
-  font-weight: 700;
-  font-size: 1.15rem;
-  letter-spacing: 0.02em;
-  color: #FFFFFF;
+  font-weight: 700; font-size: 1.05rem; color: #fff;
 }
+.caller-bar .who { font-size: .85rem; color: var(--gold-light); font-weight: 500; }
 
-.caller-bar .who {
-  font-family: system-ui, sans-serif;
-  font-weight: 500;
-  font-size: 0.95rem;
-  color: var(--gold-light);
-}
-
-.caller-badge {
-  display: inline-block;
-  font-size: 0.85rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--brand);
-  background: var(--bg);
-  border: 1px solid var(--gold-light);
-  padding: 0.35rem 0.9rem;
-  border-radius: 999px;
-  margin-bottom: 1.5rem;
-}
-
-.caller-status {
-  margin: 1.2rem;
-  padding: 0.9rem 1.2rem;
-  border-radius: 8px;
-  font-size: 1.35rem;
-  font-weight: 700;
+/* ─── connection status bar ──────────────────────────────────────────────── */
+.cq-status {
   text-align: center;
+  padding: .45rem 1rem;
+  font-size: .82rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+  transition: background .3s, color .3s;
 }
+.cq-status--ok         { background: var(--green-bg); color: var(--green); display: none; }
+.cq-status--connecting { background: #fef9c3; color: #713f12; }
+.cq-status--lost       { background: var(--red-bg); color: var(--red); }
 
-.caller-status.blue {
-  background: var(--blue-bg);
-  color: var(--blue);
-  border: 1px solid #BFDBFE;
-}
-
-.caller-status.red {
-  background: var(--red-bg);
-  color: var(--red);
-  border: 1px solid #F8B4B4;
-}
-
-.caller-card {
-  margin: 1.5rem auto;
-  padding: 3rem 2rem;
-  text-align: center;
+/* ─── LED mirror card ────────────────────────────────────────────────────── */
+.cq-led-card {
+  margin: 1rem 1rem .5rem;
+  padding: 1rem 1.25rem;
   background: var(--card);
   border: 2px solid var(--gold-light);
-  border-radius: 12px;
-  max-width: 90vw;
-  box-shadow: 0 6px 20px rgba(90, 50, 31, 0.08);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  text-align: center;
 }
-
-.caller-card h1 {
-  font-family: Georgia, "Times New Roman", Garamond, serif;
-  font-size: clamp(2.8rem, 8.5vw, 6.5rem);
-  line-height: 1.08;
+.cq-led-badge {
+  display: inline-block;
+  font-size: .72rem; font-weight: 800;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--brand); background: var(--bg);
+  border: 1px solid var(--gold-light);
+  padding: .25rem .75rem; border-radius: 999px;
+  margin-bottom: .65rem;
+}
+.cq-led-waiting { font-size: 1rem; color: var(--muted); font-style: italic; }
+#cq-led-name {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.6rem, 5vw, 2.8rem);
+  line-height: 1.1;
   color: var(--brand-dark);
-  margin: 0 0 1.2rem;
+  overflow-wrap: anywhere;
+  margin-bottom: .3rem;
+}
+.cq-led-programme {
+  font-size: clamp(.95rem, 2.5vw, 1.3rem);
+  color: var(--muted); font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.caller-card p {
-  font-size: clamp(1.4rem, 3.8vw, 2.8rem);
+/* ─── queue section ──────────────────────────────────────────────────────── */
+.cq-section { padding: .25rem 1rem 2rem; flex: 1; }
+.cq-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: .5rem 0 .5rem;
+}
+.cq-section-title {
+  font-size: .78rem; font-weight: 800;
+  letter-spacing: .1em; text-transform: uppercase;
   color: var(--muted);
-  font-weight: 600;
-  margin: 0;
-  overflow-wrap: anywhere;
+}
+
+/* ─── queue list ─────────────────────────────────────────────────────────── */
+.cq-list { list-style: none; display: flex; flex-direction: column; gap: .55rem; }
+
+.cq-row {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: center;
+  gap: .75rem;
+  background: var(--card);
+  border: 1px solid #EDE3DA;
+  border-radius: var(--radius);
+  padding: .65rem .9rem;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .18s, opacity .3s;
+}
+.cq-row:hover { box-shadow: var(--shadow); }
+.cq-row.cq-row--completing {
+  opacity: .4;
+  pointer-events: none;
+}
+
+/* photo thumbnail */
+.cq-photo {
+  width: 52px; height: 64px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: #EDE3DA;
+  display: block;
+}
+.cq-photo-placeholder {
+  width: 52px; height: 64px;
+  border-radius: var(--radius-sm);
+  background: #EDE3DA;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* student info */
+.cq-info { min-width: 0; }
+.cq-name {
+  font-weight: 700;
+  font-size: .97rem;
+  line-height: 1.2;
+  color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cq-meta {
+  font-size: .78rem; color: var(--muted);
+  margin-top: .18rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cq-pos {
+  display: inline-block;
+  font-size: .7rem; font-weight: 700;
+  background: var(--bg); color: var(--brand);
+  border: 1px solid var(--gold-light);
+  border-radius: 999px;
+  padding: .1rem .45rem;
+  margin-top: .2rem;
+}
+
+/* complete button */
+.cq-btn-complete {
+  flex-shrink: 0;
+  min-width: 76px;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: .55rem .8rem;
+  font-size: .82rem; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s, transform .1s;
+}
+.cq-btn-complete:active {
+  background: var(--brand-dark);
+  transform: scale(.97);
+}
+
+/* empty state */
+.cq-empty {
+  text-align: center; color: var(--muted);
+  padding: 2rem; font-style: italic;
+}
+
+/* ─── responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 400px) {
+  .cq-row { grid-template-columns: 44px 1fr auto; }
+  .cq-photo, .cq-photo-placeholder { width: 44px; height: 54px; }
 }
