@@ -110,5 +110,5 @@ def journey(conn: Connection, student_id, settings) -> Optional[dict]:
         "attempts": [{"time": iso_local(a["occurred_at"], off), "activity": a["activity"],
                       "result": a["result"], "message": a["message"]} for a in attempts],
         "can_waive_return": not returned,
-        "can_waive_money": not money_settled,
+        "can_waive_money": False,
     }

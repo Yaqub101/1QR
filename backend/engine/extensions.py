@@ -62,16 +62,13 @@ def _money_received(conn, student, ctx):
 
 
 def _eligibility(conn, student, ctx):
-    """Lunch needs the robe AND the money back (or an Admin waiver for either)."""
-    def part(activity, thing, waived):
-        done = active_completion(conn, student["id"], activity)
-        if done is None:
-            return f"{thing} return pending"
-        if done["kind"] == "WAIVER":
-            return waived
-        return f"{thing} returned {clock_text(done['server_time'], ctx.settings.event_utc_offset_minutes)}"
-    return " · ".join((part("THOBE_RETURN", "Robe", "Robe waived by Admin"),
-                       part("MONEY_RETURNED", "Money", "Money kept by Admin")))
+    """Lunch needs the robe back (or an Admin waiver)."""
+    done = active_completion(conn, student["id"], "THOBE_RETURN")
+    if done is None:
+        return "Robe return pending"
+    if done["kind"] == "WAIVER":
+        return "Robe waived by Admin"
+    return f"Robe returned {clock_text(done['server_time'], ctx.settings.event_utc_offset_minutes)}"
 
 
 DISPLAY_FIELDS: dict[str, DisplayField] = {
@@ -80,7 +77,6 @@ DISPLAY_FIELDS: dict[str, DisplayField] = {
     "school": DisplayField("School", _school),
     "queue_position": DisplayField("Queue position", _queue_position),
     "thobe_issued": DisplayField("Robe issued", _thobe_issued),
-    "money_received": DisplayField("Money received", _money_received),
     "eligibility": DisplayField("Eligibility", _eligibility),
 }
 

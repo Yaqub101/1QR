@@ -41,7 +41,7 @@ templates.env.globals["role_label"] = {
     "REGISTRY": "Registry operator (Reporting, Robe, Robe Return)",
     "CALLER": "Caller (read-only Caller screen)",
     **{a: f"{label} operator" for a, label in ownership.ACTIVITY_LABEL.items()
-       if a not in ("REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "THOBE_RETURN", "MONEY_RETURNED")},
+       if a not in ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN")},
 }
 
 

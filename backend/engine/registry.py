@@ -43,16 +43,16 @@ from backend.security import permissions
 logger = logging.getLogger("backend.engine")
 
 STATION = "REGISTRY"
-ACTIVITIES = ("REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "THOBE_RETURN", "MONEY_RETURNED")
+ACTIVITIES = ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN")
 MARKERS = {
-    "ENTRY": (("THOBE_ALLOCATION", "Robe allotted"), ("MONEY_RECEIVED", "Money received")),
-    "RETURN": (("THOBE_RETURN", "Robe returned"), ("MONEY_RETURNED", "Money returned")),
+    "ENTRY": (("THOBE_ALLOCATION", "Robe allotted"),),
+    "RETURN": (("THOBE_RETURN", "Robe returned"),),
 }
 CONFIRM_LABEL = "CONFIRM"
 READY_ENTRY = "Check the photo, tick what you hand over, then confirm."
 READY_RETURN = "Check the photo, tick what you take back, then confirm."
-RECEIVED_WAIT = "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY"
-ALL_RETURNED = "ROBE AND MONEY ALREADY RETURNED — {time}"
+RECEIVED_WAIT = "ROBE ALLOTTED — COME BACK AFTER THE CEREMONY"
+ALL_RETURNED = "ROBE ALREADY RETURNED — {time}"
 TICK_ONE = "Tick at least one box, then confirm."
 CHANGED = "The record has just changed; check the boxes and confirm again."
 NOT_HERE = "Only the boxes shown on the screen can be ticked."
@@ -120,30 +120,28 @@ def decide(conn: Connection, settings, principal, student: dict) -> Decision:
         ctx = _ctx(settings, principal, "REGISTRATION")
         return Decision(None, pipeline.evaluate(conn, ctx, student), ctx, done, state)
 
-    if done["THOBE_ALLOCATION"] is None or done["MONEY_RECEIVED"] is None or done["REGISTRATION"] is None:
+    if done["THOBE_ALLOCATION"] is None or done["REGISTRATION"] is None:
         # Logged under Reporting until the student is registered, then under the first box still pending.
-        activity = "REGISTRATION" if done["REGISTRATION"] is None else next(
-            a for a, _ in MARKERS["ENTRY"] if done[a] is None)
+        activity = "REGISTRATION" if done["REGISTRATION"] is None else "THOBE_ALLOCATION"
         return Decision("ENTRY", Outcome("READY", READY_ENTRY, None, student=student),
                         _ctx(settings, principal, activity), done, state)
 
     if done["STAGE"] is None:
-        latest = max((done["THOBE_ALLOCATION"], done["MONEY_RECEIVED"]), key=lambda c: c["server_time"])
+        latest = done["THOBE_ALLOCATION"]
         return Decision(None, Outcome("DUPLICATE", RECEIVED_WAIT, "DUPLICATE", student=student,
                                       earlier=_earlier(latest, settings), rule="already_completed",
-                                      detail="robe and money received; degree not yet recorded"),
+                                      detail="robe received; degree not yet recorded"),
                         _ctx(settings, principal, "REGISTRATION"), done, state)
 
-    pending = [a for a, _ in MARKERS["RETURN"] if done[a] is None]
-    if pending:
+    if done["THOBE_RETURN"] is None:
         return Decision("RETURN", Outcome("READY", READY_RETURN, None, student=student),
-                        _ctx(settings, principal, pending[0]), done, state)
+                        _ctx(settings, principal, "THOBE_RETURN"), done, state)
 
-    latest = max((done["THOBE_RETURN"], done["MONEY_RETURNED"]), key=lambda c: c["server_time"])
+    latest = done["THOBE_RETURN"]
     message = ALL_RETURNED.format(time=clock_text(latest["server_time"], settings.event_utc_offset_minutes))
     return Decision(None, Outcome("DUPLICATE", message, "DUPLICATE", student=student,
                                   earlier=_earlier(latest, settings), rule="already_completed",
-                                  detail="robe and money returned"),
+                                  detail="robe returned"),
                     _ctx(settings, principal, "THOBE_RETURN"), done, state)
 
 
@@ -159,9 +157,6 @@ def _markers(decision: Decision, settings) -> list:
         return []
     out = []
     for activity, label in pair:
-        # Temporary workaround: hide MONEY_RECEIVED and MONEY_RETURNED from UI
-        if activity in ("MONEY_RECEIVED", "MONEY_RETURNED"):
-            continue
         completion = decision.done.get(activity)
         out.append({"key": activity, "label": label, "done": completion is not None,
                     "time": clock_text(completion["server_time"], settings.event_utc_offset_minutes) if completion else None})

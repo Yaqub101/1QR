@@ -240,9 +240,11 @@ def exceptions_report(conn, settings, params) -> Report:
 # ------------------------------------------------------------------ summaries
 # Each summary column names its activity: never by position in ACTIVITIES, which grew in Phase R4 (money).
 SUMMARY_COLUMNS = [
-    ("thobe_received", "THOBE_ALLOCATION", "Robe received"), ("money_received", "MONEY_RECEIVED", "Money received"),
-    ("seated", "SEATING", "Seated (optional)"), ("queued", "QUEUE", "Queued"), ("stage_complete", "STAGE", "Stage complete"),
-    ("thobe_returned", "THOBE_RETURN", "Robe returned"), ("money_returned", "MONEY_RETURNED", "Money returned"),
+    ("thobe_received", "THOBE_ALLOCATION", "Robe received"),
+    ("seated", "SEATING", "Seated (optional)"),
+    ("queued", "QUEUE", "Queued"),
+    ("stage_complete", "STAGE", "Stage complete"),
+    ("thobe_returned", "THOBE_RETURN", "Robe returned"),
     ("exited", "LUNCH", "Lunch / exited"),
 ]
 
