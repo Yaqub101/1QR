@@ -1,49 +1,92 @@
 {% extends "base.html" %}
-{% block title %}Stage{% endblock %}
+{% block title %}Stage Controller{% endblock %}
 {% block body %}
 <div id="stage-root" class="stage-container">
-  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
-    <h1>Stage</h1>
-    <span class="station-badge" style="font-size: 0.85rem; font-weight: 700; color: var(--brand); background: var(--cream); border: 1px solid var(--line); padding: 0.25rem 0.65rem; border-radius: 999px; text-transform: uppercase;">
-      Auditorium / Dias
-    </span>
-  </div>
-
-  <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Connecting…</span></div>
-  <p id="led" class="led-status">Audience screen: holding screen</p>
-  <button id="take-over" class="takeover" type="button" hidden>TAKE OVER</button>
-
-  <div class="stage-main">
-    <section class="slot slot-current" aria-label="Current Student on Stage">
-      <h2>CURRENT</h2>
-      <img id="current-photo" alt="" onerror="this.onerror=null;this.src='/static/placeholder.svg';">
-      <p id="current-name" class="slot-name"></p>
-      <p id="current-programme" class="muted"></p>
-    </section>
-
-    <div class="stage-buttons">
-      <button id="next" class="big-action go" type="button">NEXT <small>(degree given · Page Down)</small></button>
-      <button id="show-again" class="big-action" type="button">SHOW AGAIN</button>
-      <button id="home" class="big-action home" type="button">HOME <small>(Esc)</small></button>
-      <button id="previous" class="big-action" type="button">PREVIOUS</button>
+  <div class="station-identity-banner stage-banner">
+    <div class="station-identity-meta">
+      <span class="station-institution-label">MGM UNIVERSITY &middot; CONVOCATION 2026</span>
+      <h1 class="station-display-title">Stage Controller &amp; Dias Manager</h1>
+    </div>
+    <div class="stage-header-actions">
+      <p id="led" class="led-status-pill">Audience screen: holding screen</p>
+      <button id="take-over" class="button takeover-btn" type="button" hidden>TAKE OVER</button>
     </div>
   </div>
 
-  <section class="waiting card" style="margin: 1.5rem 0; padding: 1.2rem;">
-    <h2>WAITING <span id="depth" class="muted" style="font-size: 0.95rem; font-family: var(--font-sans); font-weight: 600;"></span></h2>
-    <ol id="waiting" class="waiting-list"></ol>
-  </section>
+  <div id="banner" class="banner blue" role="status" aria-live="assertive">
+    <span id="message">Connecting…</span>
+  </div>
 
-  <div class="stage-tools card" style="padding: 1.2rem;">
-    <div class="tool">
-      <input id="skip-reason" type="text" placeholder="Reason for skipping" autocomplete="off" aria-label="Reason for skipping">
-      <button id="skip" type="button">SKIP</button>
+  <div class="stage-grid-layout">
+    <!-- Left Column: Current Student on Stage & Primary Controls -->
+    <div class="stage-primary-column">
+      <section class="slot slot-current card current-graduate-card" aria-label="Current Student on Stage">
+        <div class="current-section-header">
+          <span class="current-section-badge">CURRENT GRADUATE ON STAGE</span>
+          <span class="current-region-label" style="display: none;">CURRENT</span>
+        </div>
+        <div class="current-graduate-layout">
+          <div class="current-photo-container">
+            <img id="current-photo" src="{{ asset_url('placeholder.svg') }}" alt="Current student photo" onerror="this.onerror=null;this.src='{{ asset_url('placeholder.svg') }}';" class="current-photo">
+          </div>
+          <div class="current-meta-container">
+            <h2 id="current-name" class="slot-name"></h2>
+            <p id="current-programme" class="slot-programme muted"></p>
+          </div>
+        </div>
+      </section>
+
+      <div class="stage-controls-card card">
+        <h3 class="controls-heading">Dias Ceremony Controls</h3>
+        <div class="stage-buttons-grid">
+          <button id="next" class="big-action go primary-advance" type="button">
+            <span class="advance-title">NEXT GRADUATE</span>
+            <small class="advance-note">Degree Given &middot; Advance LED (Page Down / Clicker)</small>
+          </button>
+          <div class="secondary-controls-row">
+            <button id="show-again" class="button secondary" type="button">SHOW AGAIN</button>
+            <button id="previous" class="button secondary" type="button">PREVIOUS</button>
+            <button id="home" class="button danger home-btn" type="button">
+              <span>HOME</span>
+              <small style="opacity: 0.85; font-size: 0.75rem;">(Esc)</small>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skip & Search Tools -->
+      <div class="stage-tools-card card">
+        <h3 class="tools-heading">Queue Search &amp; Exceptions</h3>
+        <div class="tool-row">
+          <input id="skip-reason" type="text" placeholder="Reason for skipping graduate (required)" autocomplete="off" aria-label="Reason for skipping">
+          <button id="skip" type="button" class="button">SKIP</button>
+        </div>
+        <div class="tool-row" style="margin-top: 0.6rem;">
+          <input id="search-input" type="text" placeholder="Search the queue by PRN or Name" autocomplete="off" aria-label="Search the queue">
+          <button id="search-btn" type="button" class="button">SEARCH</button>
+        </div>
+        <div id="results" class="results-list"></div>
+      </div>
     </div>
-    <div class="tool">
-      <input id="search-input" type="text" placeholder="Search the queue by PRN or name" autocomplete="off" aria-label="Search the queue">
-      <button id="search-btn" type="button">SEARCH</button>
+
+    <!-- Right Column: Waiting Queue with Infinite Scroll -->
+    <div class="stage-queue-column">
+      <section class="waiting card stage-queue-card" style="margin: 0;">
+        <div class="queue-header-bar">
+          <div class="queue-header-title-group">
+            <h2 style="margin: 0; font-size: 1.2rem;">WAITING <span id="depth" class="muted queue-depth-badge"></span></h2>
+            <span class="queue-mode-subtext">Live queue order &middot; Continuous scroll</span>
+          </div>
+        </div>
+        <div id="waiting-scroll-container" class="waiting-scroll-viewport">
+          <ol id="waiting" class="waiting-list"></ol>
+          <div id="queue-scroll-loader" class="queue-scroll-loader" hidden>
+            <span class="loader-spinner"></span>
+            <span>Loading additional queue records…</span>
+          </div>
+        </div>
+      </section>
     </div>
-    <div id="results" class="results"></div>
   </div>
 </div>
 <script src="{{ asset_url('stage.js') }}"></script>

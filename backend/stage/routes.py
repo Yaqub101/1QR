@@ -134,6 +134,20 @@ def stage_events(request: Request, principal: Principal = Depends(require_user))
         media_type="text/event-stream", headers=SSE_HEADERS)
 
 
+@router.get("/stage/queue")
+def stage_queue(request: Request, offset: int = 0, limit: int = 20, principal: Principal = Depends(require_user)):
+    """Fetch paginated queue records for Stage Manager infinite scroll."""
+    _stage_reader(principal)
+    with request.app.state.engine.connect() as conn:
+        rows = conn.execute(
+            text(stage_state.CARD_SQL + " WHERE q.status = 'QUEUED' ORDER BY q.queue_position OFFSET :off LIMIT :lim"),
+            {"off": max(0, offset), "lim": min(max(1, limit), 100)},
+        ).mappings()
+        cards = [stage_state.private_card(dict(r)) for r in rows]
+        total = conn.execute(text("SELECT count(*) FROM queue WHERE status = 'QUEUED'")).scalar_one()
+    return {"students": cards, "total": total, "offset": offset, "limit": limit}
+
+
 # --------------------------------------------------------------------------- the internal Caller screen
 def _caller_viewer(principal: Principal) -> None:
     if not permissions.has_permission(principal.role, permissions.CALLER_VIEW_PERMISSION):

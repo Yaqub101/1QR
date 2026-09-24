@@ -496,12 +496,15 @@ def reports_page(request: Request, principal: Principal = Depends(require_admin)
     groups: dict[str, list] = {}
     for item in reports_svc.catalogue():
         groups.setdefault(item["group"], []).append(item)
-    return render(request, "admin_reports.html", principal=principal, groups=groups, report=None)
+    return render(request, "admin_reports.html", principal=principal, groups=groups, report=None, active_nav="reports")
 
 
 @router.get("/reports/{key}")
 def report_page(request: Request, key: str, principal: Principal = Depends(require_admin)):
     params = dict(request.query_params)
     report = _run_report(request, key, params)
-    return render(request, "admin_reports.html", principal=principal, groups={}, report=report,
-                  query=urlencode(params), preview_rows=report.rows[:500])
+    groups: dict[str, list] = {}
+    for item in reports_svc.catalogue():
+        groups.setdefault(item["group"], []).append(item)
+    return render(request, "admin_reports.html", principal=principal, groups=groups, report=report,
+                  query=urlencode(params), preview_rows=report.rows[:500], active_nav="reports", current_key=key)

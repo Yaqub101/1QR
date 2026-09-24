@@ -190,6 +190,9 @@
     waiting: byId("waiting"), depth: byId("depth"),
   };
 
+  const scrollContainer = byId("waiting-scroll-container");
+  const scrollLoader = byId("queue-scroll-loader");
+
   async function post(url, body) {
     const response = await fetch(url, {
       method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -207,7 +210,89 @@
   const screen = window.createStageScreen({ els, post, connect, doc: document });
   screen.start();
   document.addEventListener("keydown", screen.handleKey);
+
   // Take control when the screen opens; if another laptop already has it, the screen offers TAKE OVER.
   post("/stage/control", {})
     .then((reply) => { if (reply && reply.state) screen.render(reply.state); });
+
+  // ---------------- Infinite Scroll for the Stage Manager Queue ----------------
+  let loadedStudentIds = new Set();
+  let totalInQueue = 0;
+  let isLoadingMore = false;
+
+  function studentRowElement(card) {
+    const row = document.createElement("li");
+    row.className = "result stage-queue-row";
+    const info = document.createElement("div");
+    info.className = "stage-queue-row-info";
+    const nameEl = document.createElement("span");
+    nameEl.className = "queue-student-name";
+    nameEl.textContent = card.name;
+    const progEl = document.createElement("span");
+    progEl.className = "queue-student-prog muted";
+    progEl.textContent = card.programme || "";
+    info.appendChild(nameEl);
+    if (card.programme) info.appendChild(progEl);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button small queue-send-btn";
+    button.textContent = "SEND";
+    button.addEventListener("click", () => {
+      post("/stage/display", { student_id: card.student_id, expect_current: null })
+        .then((reply) => { if (reply && reply.state) screen.render(reply.state); });
+    });
+
+    row.appendChild(info);
+    row.appendChild(button);
+    return row;
+  }
+
+  async function loadMoreQueue() {
+    if (isLoadingMore || loadedStudentIds.size >= totalInQueue) return;
+    isLoadingMore = true;
+    if (scrollLoader) scrollLoader.hidden = false;
+    try {
+      const offset = loadedStudentIds.size;
+      const resp = await fetch(`/stage/queue?offset=${offset}&limit=20`, { credentials: "same-origin" });
+      if (resp.ok) {
+        const data = await resp.json();
+        totalInQueue = data.total || 0;
+        if (Array.isArray(data.students)) {
+          data.students.forEach((student) => {
+            if (!loadedStudentIds.has(student.student_id)) {
+              loadedStudentIds.add(student.student_id);
+              if (els.waiting) els.waiting.appendChild(studentRowElement(student));
+            }
+          });
+        }
+      }
+    } catch (_) {
+      // transient network hiccup: let user scroll again to retry
+    } finally {
+      isLoadingMore = false;
+      if (scrollLoader) scrollLoader.hidden = true;
+    }
+  }
+
+  if (scrollContainer) {
+    scrollContainer.addEventListener("scroll", () => {
+      if (scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 60) {
+        loadMoreQueue();
+      }
+    });
+  }
+
+  // Update total count and track IDs whenever stage state changes
+  const origRender = screen.render;
+  if (origRender) {
+    screen.render = function (state) {
+      origRender(state);
+      if (state) {
+        totalInQueue = state.queue_depth || 0;
+        loadedStudentIds.clear();
+        (state.waiting || []).forEach((c) => loadedStudentIds.add(c.student_id));
+      }
+    };
+  }
 })();

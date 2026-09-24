@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Import: match the columns{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'import' %}
 {% block body %}
 <a href="/admin/import" class="back-link">&larr; Back to Upload</a>
 <h1>Match File Columns</h1>

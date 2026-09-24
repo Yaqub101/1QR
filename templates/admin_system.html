@@ -1,9 +1,14 @@
 {% extends "base.html" %}
-{% block title %}System{% endblock %}
+{% block title %}System Reset{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'system' %}
 {% block body %}
-<a href="/admin" class="back-link">&larr; Admin Console</a>
-<h1>System Operations &amp; Event Lifecycle</h1>
-<p class="muted">Administrative maintenance, pre-event data reset controls, and storage diagnostics.</p>
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>System Operations &amp; Event Lifecycle</h1>
+    <p class="admin-page-subtitle">Administrative maintenance, pre-event data reset controls, and storage diagnostics.</p>
+  </div>
+</div>
 
 {% if last %}
 <h2>Last System Reset Record</h2>

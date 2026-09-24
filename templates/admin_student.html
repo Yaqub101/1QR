@@ -1,19 +1,69 @@
 {% extends "base.html" %}
 {% block title %}{{ j.student.name }}{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'students' %}
 {% block body %}
-<a href="/admin/students" class="back-link">&larr; Back to Students</a>
-<h1>{{ j.student.name }}</h1>
-<div class="card" style="border-left: 4px solid var(--gold);">
-  <div style="font-size: 1.1rem;">PRN <b style="font-family: var(--font-mono);">{{ j.student.prn }}</b>{% if j.student.sequence_no %} &middot; Sequence {{ j.student.sequence_no }}{% endif %}</div>
-  <div style="color: var(--muted); font-weight: 500;">{{ j.student.programme }} &middot; {{ j.student.school }}</div>
-  <div>Status: <span class="role-badge" style="background: var(--cream); color: var(--brand-dark); border-color: var(--line);">{{ j.student.journey_status }}</span>
-       {% if j.student.master_status != "ACTIVE" %} &middot; <b style="color: var(--badink);">Not active on the master list</b>{% endif %}
-       {% if j.student.frozen %} &middot; <span class="muted">Display data frozen</span>{% endif %}</div>
-  <div style="margin-top: 0.3rem;">
-    <a href="/admin/api/reports/student-history/export?format=csv&student_id={{ j.student.student_id }}" class="button small" data-download>Download history (CSV)</a>
-    &middot; <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}" class="button small" data-download>XLSX</a>
+<div class="admin-page-header" style="margin-bottom: 1rem;">
+  <a href="/admin/students" class="back-link">&larr; Back to Student Search</a>
+</div>
+
+<div class="card student-hero-card" style="border-left: 4px solid var(--gold); margin-bottom: 1.5rem; padding: 1.25rem 1.5rem;">
+  <div class="student-hero-content" style="display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+    <div class="student-hero-avatar">
+      <img src="/photo/{{ j.student.student_id }}" alt="Photo" class="student-avatar-lg"
+           onerror="this.onerror=null;this.src='/static/placeholder.svg';"
+           style="width: 80px; height: 80px; border-radius: var(--radius); object-fit: cover; border: 2px solid var(--gold); box-shadow: var(--shadow-sm);">
+    </div>
+    <div class="student-hero-meta" style="flex: 1; min-width: 240px;">
+      <h1 style="margin: 0 0 0.3rem; border: none; padding: 0; font-size: 1.8rem;">{{ j.student.name }}</h1>
+      <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.4rem;">
+        <span class="prn-badge" style="font-family: var(--font-mono); font-weight: 700; background: var(--bg-subtle); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--line);">PRN: {{ j.student.prn }}</span>
+        {% if j.student.sequence_no %}<span class="seq-badge" style="font-size: 0.85rem; font-weight: 600; color: var(--muted);">Sequence #{{ j.student.sequence_no }}</span>{% endif %}
+        <span class="role-badge" style="background: var(--cream); color: var(--brand-dark); border-color: var(--line);">{{ j.student.journey_status }}</span>
+        {% if j.student.master_status != "ACTIVE" %}<span class="role-badge" style="background: var(--bad); color: var(--badink); border-color: var(--badborder);">Not Active</span>{% endif %}
+        {% if j.student.frozen %}<span class="role-badge" style="background: var(--info); color: var(--infoink); border-color: var(--infoborder);">Data Frozen</span>{% endif %}
+      </div>
+      <div style="color: var(--muted); font-weight: 500; font-size: 0.95rem;">
+        {{ j.student.programme }} &middot; {{ j.student.school }}
+      </div>
+    </div>
+    <div class="student-hero-actions" style="display: flex; flex-direction: column; gap: 0.4rem;">
+      <a href="/admin/api/reports/student-history/export?format=csv&student_id={{ j.student.student_id }}" class="button small" data-download>Download History (CSV)</a>
+      <a href="/admin/api/reports/student-history/export?format=xlsx&student_id={{ j.student.student_id }}" class="button small" data-download>Download History (XLSX)</a>
+    </div>
   </div>
 </div>
+
+<h2>Convocation Event Journey</h2>
+<div class="card journey-stepper-card" style="margin-bottom: 1.5rem; padding: 1.25rem 1.5rem; overflow-x: auto;">
+  {% set completed_acts = [] %}
+  {% for e in j.events %}{% if e.state != 'REVERSED' %}{% set _ = completed_acts.append(e.activity) %}{% endif %}{% endfor %}
+  <div class="journey-stepper" style="display: flex; gap: 0.5rem; align-items: stretch; min-width: 680px;">
+    {% set steps = [
+      ('REGISTRATION', '1. Registration', 'Reported'),
+      ('THOBE_ALLOCATION', '2. Robe', 'Allocated'),
+      ('SEATING', '3. Seating', 'Optional'),
+      ('QUEUE', '4. Queue', 'In Queue'),
+      ('STAGE', '5. Stage', 'Degree Conferred'),
+      ('THOBE_RETURN', '6. Robe Return', 'Returned'),
+      ('LUNCH', '7. Lunch', 'Completed')
+    ] %}
+    {% for act_key, step_title, step_desc in steps %}
+    {% set is_done = act_key in completed_acts or (act_key == 'THOBE_RETURN' and j.student.journey_status in ['ROBE_RETURNED', 'LUNCH_COMPLETED']) %}
+    <div class="journey-step-node {% if is_done %}step-done{% else %}step-pending{% endif %}" style="flex: 1; text-align: center; padding: 0.75rem 0.5rem; border-radius: var(--radius); border: 1px solid {% if is_done %}var(--okborder){% else %}var(--line){% endif %}; background: {% if is_done %}var(--ok){% else %}var(--card){% endif %};">
+      <div class="step-num" style="font-size: 0.85rem; font-weight: 700; color: {% if is_done %}var(--okink){% else %}var(--muted){% endif %};">
+        {% if is_done %}✓{% else %}{{ loop.index }}{% endif %}
+      </div>
+      <div class="step-name" style="font-weight: 700; font-size: 0.88rem; color: {% if is_done %}var(--okink){% else %}var(--ink){% endif %}; margin: 0.15rem 0;">{{ step_title }}</div>
+      <div class="step-status" style="font-size: 0.75rem; color: {% if is_done %}var(--okink){% else %}var(--muted){% endif %};">{{ step_desc }}</div>
+    </div>
+    {% if not loop.last %}
+    <div class="step-connector" style="display: flex; align-items: center; color: var(--muted); font-size: 0.9rem;">&rarr;</div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
 
 <h2>QR Pass Details</h2>
 <div class="card">

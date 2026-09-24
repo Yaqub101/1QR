@@ -1,8 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Exceptions{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'exceptions' %}
 {% block body %}
-<a href="/admin" class="back-link">&larr; Admin Console</a>
-<h1>Operational Exceptions &amp; Flags</h1>
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>Operational Exceptions &amp; Flags</h1>
+    <p class="admin-page-subtitle">Track, investigate and resolve operational irregularities and manual entry overrides</p>
+  </div>
+</div>
+
 
 <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; margin-bottom: 1rem;">
   <p style="font-weight: 600; margin: 0.4rem 0;">

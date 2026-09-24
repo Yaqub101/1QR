@@ -1,9 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Audit{% endblock %}
+{% block title %}Audit Trail{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'audit' %}
 {% block body %}
-<a href="/admin" class="back-link">&larr; Admin Console</a>
-<h1>System Audit Trail</h1>
-<p class="muted">Append-only immutable record. Entries cannot be modified, deleted or truncated. All exports are recorded.</p>
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>System Audit Trail</h1>
+    <p class="admin-page-subtitle">Append-only immutable record. Entries cannot be modified, deleted or truncated. All exports are recorded.</p>
+  </div>
+</div>
 
 <form method="get" action="/admin/audit" class="card filters" style="margin-bottom: 1.5rem;">
   <label>Student Search <input name="student" value="{{ filters.student or '' }}" placeholder="Name or PRN"></label>

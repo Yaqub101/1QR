@@ -1,12 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Students{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'students' %}
 {% block body %}
-<a href="/admin" class="back-link">&larr; Admin Console</a>
-<h1>Find a Student</h1>
-<form method="get" action="/admin/students" class="card narrow" style="margin-bottom: 1.5rem;">
-  <label>PRN or Student Name <input name="q" value="{{ q }}" autofocus placeholder="e.g. 202401109008 or John Doe"></label>
-  <button class="big" type="submit">Search Student</button>
-</form>
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>Student Workspace</h1>
+    <p class="admin-page-subtitle">Search student database, inspect individual convocation journeys, print passes &amp; manage exceptions</p>
+  </div>
+</div>
+
+<div class="card student-search-card" style="margin-bottom: 1.5rem;">
+  <form method="get" action="/admin/students" class="student-search-form">
+    <div class="search-input-group">
+      <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input name="q" value="{{ q }}" autofocus placeholder="Search by Student PRN or Full Name (e.g. 202401109008 or John Doe)" aria-label="Search student">
+    </div>
+    <button class="big" type="submit">Search Database</button>
+  </form>
+</div>
+
 {% if found %}
 <table class="spaced">
   <tr><th>Photo</th><th>Name</th><th>PRN</th><th>Programme</th><th>School</th><th>Status</th></tr>

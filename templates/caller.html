@@ -3,13 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Caller</title>
+  <title>Caller — MGM University Convocation</title>
   <link rel="stylesheet" href="{{ asset_url('caller.css') }}">
 </head>
 <body class="caller">
-  <header class="caller-bar"><span>Caller</span><span class="who">{{ principal.username }}</span></header>
+  <header class="caller-bar">
+    <div class="caller-brand">
+      <span class="caller-inst">MGM UNIVERSITY</span>
+      <span class="caller-title">Convocation Podium Caller</span>
+    </div>
+    <span class="who">{{ principal.username }}</span>
+  </header>
   <p id="caller-status" class="caller-status blue" role="status" aria-live="polite">Connecting…</p>
   <main id="caller-card" class="caller-card" hidden aria-live="assertive">
+    <div class="caller-badge">NOW PRESENTING ON STAGE</div>
     <h1 id="caller-name"></h1>
     <p id="caller-programme"></p>
   </main>

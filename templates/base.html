@@ -7,29 +7,160 @@
   <link rel="stylesheet" href="{{ asset_url('app.css') }}">
   <script src="{{ asset_url('busy.js') }}" defer></script>
 </head>
-<body>
-<header class="bar app-header">
+<body class="{% if principal and principal.is_admin and is_admin_screen %}has-admin-sidebar{% endif %}">
+<header class="bar app-header {% if is_admin_screen %}admin-header{% else %}station-header{% endif %}">
   <div class="brand brand-group">
-    <img src="{{ asset_url('mgm_logo.svg') }}" alt="MGM University" class="header-logo">
+    {% if principal and principal.is_admin and is_admin_screen %}
+    <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation menu">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    {% endif %}
+    <a href="{{ '/admin' if principal and principal.is_admin else '/' }}" class="header-logo-link">
+      <img src="{{ asset_url('mgm_logo.svg') }}" alt="MGM University" class="header-logo">
+    </a>
+    <div class="header-title-block">
+      <span class="header-title-main">MGM UNIVERSITY</span>
+      <span class="header-title-sub">Convocation Management</span>
+    </div>
   </div>
   {% if principal %}
   <div class="user-group">
     <span class="role-badge">{{ role_label[principal.role] }}</span>
     <span class="who">{{ principal.full_name or principal.username }}</span>
-    <form method="post" action="/logout"><button class="link" type="submit">Sign out</button></form>
+    <form method="post" action="/logout"><button class="link signout-link" type="submit">Sign out</button></form>
   </div>
   {% endif %}
 </header>
-<main>
-  {% if msg %}<p class="flash ok" role="status">{{ msg }}</p>{% endif %}
-  {% if error %}<p class="flash bad" role="alert">{{ error }}</p>{% endif %}
-  {% block body %}{% endblock %}
-</main>
-<footer class="app-footer">
-  <div class="footer-content">
-    <p class="footer-brand">MGM University &middot; Chhatrapati Sambhajinagar</p>
-    <p class="footer-system">Convocation Management System &middot; &copy; MGM University</p>
+
+<div class="{% if principal and principal.is_admin and is_admin_screen %}admin-layout-container{% else %}app-content-container{% endif %}">
+  {% if principal and principal.is_admin and is_admin_screen %}
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+  <aside id="admin-sidebar" class="admin-sidebar" aria-label="Administration Navigation">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Convocation Operations</span>
+      <span class="sidebar-subtitle">MGM University 2026</span>
+    </div>
+    <nav class="sidebar-nav">
+      <!-- Section: DASHBOARD -->
+      <div class="nav-section-label">Dashboard</div>
+      <a class="nav-item {% if active_nav == 'dashboard' %}active{% endif %}" href="/admin">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Live Dashboard</span>
+      </a>
+
+      <!-- Section: STUDENTS -->
+      <div class="nav-section-label">Students</div>
+      <a class="nav-item {% if active_nav == 'students' %}active{% endif %}" href="/admin/students">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span>Find Student</span>
+      </a>
+      <a class="nav-item {% if active_nav == 'import' %}active{% endif %}" href="/admin/import">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span>Import Students</span>
+      </a>
+
+      <!-- Section: EVENT OPERATIONS -->
+      <div class="nav-section-label">Event Operations</div>
+      <a class="nav-item station-link" href="/station/registry">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+        <span>Registry Station</span>
+      </a>
+      <a class="nav-item station-link" href="/station/seating">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18v3M20 18v3M6 10h12M4 14h16M7 6h10a2 2 0 0 1 2 2v6H5V8a2 2 0 0 1 2-2z"/></svg>
+        <span>Seating Station</span>
+      </a>
+      <a class="nav-item station-link" href="/station/queue">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <span>Queue Station</span>
+      </a>
+      <a class="nav-item station-link" href="/station/stage">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span>Stage Controller</span>
+      </a>
+      <a class="nav-item station-link" href="/station/lunch">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+        <span>Lunch Station</span>
+      </a>
+      <a class="nav-item station-link" href="/caller" target="_blank" rel="noopener">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        <span>Caller Screen ↗</span>
+      </a>
+      <a class="nav-item station-link" href="/led" target="_blank" rel="noopener">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span>Public LED ↗</span>
+      </a>
+
+      <!-- Section: PASSES & QR -->
+      <div class="nav-section-label">Passes &amp; QR</div>
+      <a class="nav-item {% if active_nav == 'passes' %}active{% endif %}" href="/admin/passes">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h3v3H7zM14 7h3v3h-3zM7 14h3v3H7zM14 14h3v3h-3z"/></svg>
+        <span>Passes &amp; QR</span>
+      </a>
+
+      <!-- Section: REPORTS -->
+      <div class="nav-section-label">Reports &amp; Analytics</div>
+      <a class="nav-item {% if active_nav == 'reports' %}active{% endif %}" href="/admin/reports">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>Reports Catalog</span>
+      </a>
+
+      <!-- Section: EXCEPTIONS -->
+      <div class="nav-section-label">Exceptions &amp; Audit</div>
+      <a class="nav-item {% if active_nav == 'exceptions' %}active{% endif %}" href="/admin/exceptions">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Exceptions</span>
+      </a>
+      <a class="nav-item {% if active_nav == 'audit' %}active{% endif %}" href="/admin/audit">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Audit Trail</span>
+      </a>
+
+      <!-- Section: SYSTEM -->
+      <div class="nav-section-label">System</div>
+      <a class="nav-item {% if active_nav == 'users' %}active{% endif %}" href="/admin/users">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>User Accounts</span>
+      </a>
+      <a class="nav-item {% if active_nav == 'system' %}active{% endif %}" href="/admin/system">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>System Reset</span>
+      </a>
+    </nav>
+  </aside>
+  {% endif %}
+
+  <div class="{% if principal and principal.is_admin and is_admin_screen %}admin-main-wrap{% else %}main-wrap{% endif %}">
+    <main>
+      <div class="{% if principal and principal.is_admin and is_admin_screen %}admin-main{% else %}app-main{% endif %}">
+        {% if msg %}<p class="flash ok" role="status">{{ msg }}</p>{% endif %}
+        {% if error %}<p class="flash bad" role="alert">{{ error }}</p>{% endif %}
+        {% block body %}{% endblock %}
+      </div>
+    </main>
+    <footer class="app-footer {% if principal and principal.is_admin and is_admin_screen %}admin-footer{% endif %}">
+      <div class="footer-content">
+        <p class="footer-brand">MGM University &middot; Chhatrapati Sambhajinagar</p>
+        <p class="footer-system">Convocation Management System &middot; &copy; MGM University</p>
+      </div>
+    </footer>
   </div>
-</footer>
+</div>
+
+<script>
+(function() {
+  var toggle = document.getElementById('sidebar-toggle');
+  var sidebar = document.getElementById('admin-sidebar');
+  var overlay = document.getElementById('sidebar-overlay');
+  if (toggle && sidebar && overlay) {
+    function toggleSidebar() {
+      sidebar.classList.toggle('open');
+      overlay.classList.toggle('open');
+    }
+    toggle.addEventListener('click', toggleSidebar);
+    overlay.addEventListener('click', toggleSidebar);
+  }
+})();
+</script>
 </body>
 </html>
+

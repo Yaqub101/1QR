@@ -36,11 +36,28 @@ body.caller {
   padding: 0.8rem 1.4rem;
   background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 100%);
   color: #FFFFFF;
+  border-bottom: 2px solid var(--gold);
+}
+
+.caller-brand {
+  display: flex;
+  flex-direction: column;
+}
+
+.caller-inst {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold-light);
+  font-weight: 700;
+}
+
+.caller-title {
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 700;
   font-size: 1.15rem;
-  letter-spacing: 0.04em;
-  border-bottom: 2px solid var(--gold);
+  letter-spacing: 0.02em;
+  color: #FFFFFF;
 }
 
 .caller-bar .who {
@@ -48,6 +65,20 @@ body.caller {
   font-weight: 500;
   font-size: 0.95rem;
   color: var(--gold-light);
+}
+
+.caller-badge {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brand);
+  background: var(--bg);
+  border: 1px solid var(--gold-light);
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  margin-bottom: 1.5rem;
 }
 
 .caller-status {

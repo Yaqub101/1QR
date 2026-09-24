@@ -78,12 +78,13 @@
       renderMarkers([]);
       els.cardName.textContent = "";
       els.cardFields.replaceChildren();
+      if (els.cardPhoto && els.cardPhoto.setAttribute) els.cardPhoto.setAttribute("src", "/static/placeholder.svg");
       pending = null;
     }
 
     function renderCard(student) {
       els.cardName.textContent = student.name;
-      els.cardPhoto.setAttribute("src", student.photo_url);
+      els.cardPhoto.setAttribute("src", student.photo_url || "/static/placeholder.svg");
       els.cardFields.replaceChildren(
         ...student.fields.map((f) => {
           const row = doc.createElement("div");
@@ -128,6 +129,23 @@
         els.confirmBtn.hidden = false;
         readyAt = now();
       } else {
+        if (reply.result === "CONFIRMED" && reply.student && els.lastScanSection) {
+          if (els.lastScanName) els.lastScanName.textContent = reply.student.name;
+          if (els.lastScanPhoto) els.lastScanPhoto.setAttribute("src", reply.student.photo_url || "/static/placeholder.svg");
+          if (els.lastScanDetails) {
+            const prnField = (reply.student.fields || []).find((f) => f.key === "prn");
+            const progField = (reply.student.fields || []).find((f) => f.key === "programme");
+            const prnVal = prnField ? `PRN: ${prnField.value}` : "";
+            const progVal = progField ? progField.value : "";
+            els.lastScanDetails.textContent = [prnVal, progVal].filter(Boolean).join(" · ");
+          }
+          if (els.lastScanBadge) els.lastScanBadge.textContent = "✓ " + (reply.message || "Confirmed");
+          if (els.lastScanTime) {
+            const d = new Date();
+            els.lastScanTime.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          }
+          els.lastScanSection.hidden = false;
+        }
         pending = null;
         els.confirmBtn.hidden = true;
         scheduleReset(); // refusals and completions clear themselves so the next student starts clean
@@ -226,6 +244,9 @@
     cardName: byId("card-name"), cardPhoto: byId("card-photo"), cardFields: byId("card-fields"),
     confirmBtn: byId("confirm"), searchInput: byId("search-prn"), searchBtn: byId("search-btn"),
     markers: byId("markers"), cardState: byId("card-state"),
+    lastScanSection: byId("last-scan-section"), lastScanName: byId("last-scan-name"),
+    lastScanPhoto: byId("last-scan-photo"), lastScanDetails: byId("last-scan-details"),
+    lastScanBadge: byId("last-scan-badge"), lastScanTime: byId("last-scan-time"),
   };
 
   async function post(url, body) {
@@ -269,21 +290,47 @@
   });
   screen.init();
 
-  // Keep the scan box focused whatever the operator touches.
+  // Keep the hardware scan box focused whatever the operator touches.
   document.addEventListener("click", (event) => {
     if (!event.target.closest("input, select, button, summary, a")) screen.focusScan();
   });
   window.addEventListener("focus", () => screen.focusScan());
   document.addEventListener("visibilitychange", () => { if (!document.hidden) screen.focusScan(); });
 
-  // Camera-based scanning: a decoded QR is handed to the SAME submitScan() the manual scan box uses,
-  // so it goes through the identical /scan -> render -> /confirm path (no second code path to the server).
+  // Camera-based scanning: battery-conscious lifecycle with inactivity timeout & tap-to-resume
+  const cameraVideo = byId("camera-video");
+  const cameraCanvas = byId("camera-canvas");
+  const cameraStatus = byId("camera-status");
+  const modeBadge = byId("scanner-mode-badge");
+  const pauseOverlay = byId("camera-pause-overlay");
+  const resumeBtn = byId("resume-scan-btn");
+  const permOverlay = byId("camera-permission-overlay");
+  const enableBtn = byId("enable-camera-btn");
+  const permMsg = byId("camera-perm-msg");
   const cameraDetails = byId("camera-details");
-  if (cameraDetails && window.CameraScan) {
-    const cameraStatus = byId("camera-status");
-    const cameraVideo = byId("camera-video");
-    const cameraCanvas = byId("camera-canvas");
-    const IDLE_STATUS = "Point the camera at the student's QR code.";
+
+  if (cameraVideo && window.CameraScan) {
+    const SCANNER_IDLE_TIMEOUT = 60000; // 60 seconds inactivity timeout to save battery
+    let lastActiveAt = Date.now();
+    let isPaused = false;
+
+    function setScannerStatus(mode, message) {
+      if (modeBadge) {
+        modeBadge.className = "scanner-mode-badge " + mode.toLowerCase();
+        modeBadge.textContent = mode.toUpperCase();
+      }
+      if (cameraStatus && message) {
+        cameraStatus.textContent = message;
+      }
+    }
+
+    function recordActivity() {
+      lastActiveAt = Date.now();
+    }
+
+    ["touchstart", "mousedown", "mousemove", "keydown", "click", "scroll"].forEach((evt) => {
+      document.addEventListener(evt, recordActivity, { passive: true });
+    });
 
     let BarcodeDetectorCtor = null;
     if (window.BarcodeDetector) {
@@ -295,19 +342,76 @@
       mediaDevices: navigator.mediaDevices,
       BarcodeDetectorCtor, jsQR: BarcodeDetectorCtor ? null : window.jsQR || null,
       now: Date.now, schedule: window.setTimeout.bind(window), cancelSchedule: window.clearTimeout.bind(window),
-      onDecode: (text) => { screen.submitScan(text); },
-      onError: (message) => { cameraStatus.textContent = message; }, // stays open: the message is inside it
+      onDecode: (text) => {
+        recordActivity();
+        setScannerStatus("PROCESSING", "Verifying student pass…");
+        screen.submitScan(text);
+        setTimeout(() => {
+          if (!isPaused && scanner.running) {
+            setScannerStatus("READY", "Point camera at the student's QR code.");
+          }
+        }, 1200);
+      },
+      onError: (message) => {
+        setScannerStatus("ERROR", message);
+        if (permOverlay && permMsg) {
+          permMsg.textContent = message;
+          permOverlay.hidden = false;
+        }
+      },
     });
 
-    if (!scanner.isSupported()) {
-      cameraStatus.textContent = "Camera scanning is not supported on this browser — use PRN search instead.";
-    } else {
-      cameraDetails.addEventListener("toggle", () => {
-        if (cameraDetails.open) { cameraStatus.textContent = IDLE_STATUS; scanner.start(); }
-        else scanner.stop();
-      });
-      window.addEventListener("pagehide", () => scanner.stop());
-      document.addEventListener("visibilitychange", () => { if (document.hidden) scanner.stop(); else if (cameraDetails.open) scanner.start(); });
+    async function startScanner() {
+      if (!scanner.isSupported()) {
+        if (cameraStatus) cameraStatus.textContent = "Camera scanning is not supported on this browser — use PRN search instead.";
+        return;
+      }
+      isPaused = false;
+      if (pauseOverlay) pauseOverlay.hidden = true;
+      if (permOverlay) permOverlay.hidden = true;
+      const ok = await scanner.start();
+      if (ok) {
+        setScannerStatus("READY", "Point camera at the student's QR code.");
+      } else {
+        if (permOverlay) permOverlay.hidden = false;
+      }
     }
+
+    function pauseScanner() {
+      if (scanner.running) {
+        scanner.stop();
+        isPaused = true;
+        if (pauseOverlay) pauseOverlay.hidden = false;
+        setScannerStatus("PAUSED", "Scanner paused to save battery.");
+      }
+    }
+
+    // Inactivity watchdog: pause camera after 60 seconds without interaction
+    setInterval(() => {
+      if (!isPaused && scanner.running && Date.now() - lastActiveAt >= SCANNER_IDLE_TIMEOUT) {
+        pauseScanner();
+      }
+    }, 2500);
+
+    if (resumeBtn) resumeBtn.addEventListener("click", () => startScanner());
+    if (pauseOverlay) pauseOverlay.addEventListener("click", () => startScanner());
+    if (enableBtn) enableBtn.addEventListener("click", () => startScanner());
+
+    window.addEventListener("pagehide", () => scanner.stop());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        pauseScanner();
+      }
+    });
+
+    if (cameraDetails) {
+      cameraDetails.addEventListener("toggle", () => {
+        if (cameraDetails.open) startScanner();
+        else pauseScanner();
+      });
+    }
+
+    // Auto-activate scanner when station loads
+    startScanner();
   }
 })();

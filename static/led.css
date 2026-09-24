@@ -71,20 +71,43 @@ body.led {
   padding: 6vh 5vw;
   border: 1.2vw solid var(--border);
   box-sizing: border-box;
+  background: radial-gradient(circle at 70% 50%, #2A170F 0%, #150B07 100%);
+}
+
+.photo-container {
+  width: 36vw;
+  height: 84vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .stage img {
-  width: 36vw;
-  height: 84vh;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   border-radius: 1.4vw;
   background: #2A170F;
   border: 0.6vw solid var(--accent);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85);
 }
 
 .info {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ceremony-tag {
+  font-size: 1.6vw;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 2vh;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6vw;
 }
 
 .info h1 {
@@ -94,7 +117,7 @@ body.led {
   margin: 0 0 3vh;
   overflow-wrap: anywhere;
   color: #FFFFFF;
-  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
 }
 
 .info p {

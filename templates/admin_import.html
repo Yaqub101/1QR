@@ -1,14 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Import Students{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'import' %}
 {% block body %}
-<a href="/admin" class="back-link">&larr; Admin Console</a>
-<h1>Import Student Master List</h1>
-<p class="muted">Upload the official university student roster (CSV, XLSX or XLS format) and optional photo ZIP archive. You will see a complete dry-run validation preview before any record is committed.</p>
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>Import Student Master List</h1>
+    <p class="admin-page-subtitle">Upload the official university student roster (CSV, XLSX or XLS format) and optional photo ZIP archive. You will see a complete dry-run validation preview before any record is committed.</p>
+  </div>
+</div>
 
-<form method="post" action="/admin/import/upload" enctype="multipart/form-data" class="card narrow"
+<form method="post" action="/admin/import/upload" enctype="multipart/form-data" class="card"
       data-busy="Uploading and checking…"
       data-busy-note="Uploading the file. With a photo ZIP this may take several minutes. Please keep this page open."
-      style="margin: 1.5rem auto;">
+      style="max-width: 46rem; margin: 1.5rem 0; padding: 1.5rem;">
   <label>Student Master List File <input type="file" name="file" accept=".csv,.xlsx,.xls" required></label>
   <label>Photo ZIP Archive <small class="muted">(optional)</small>
     <input type="file" name="photos_zip" accept=".zip,application/zip"></label>
@@ -24,7 +29,7 @@
 </form>
 
 <h2>Import Workflow Stages</h2>
-<div class="card" style="padding: 1.2rem;">
+<div class="card" style="max-width: 46rem; padding: 1.25rem 1.5rem;">
   <ol class="steps" style="margin: 0; padding-left: 1.2rem; display: grid; gap: 0.6rem;">
     <li><b>1. Column Alignment:</b> Standard headings are auto-mapped; custom or localized headings can be mapped manually.</li>
     <li><b>2. Verification &amp; Dry-Run:</b> Missing fields, repeated PRNs, overlong names, and duplicate entries are flagged without touching database state.</li>

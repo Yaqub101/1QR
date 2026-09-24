@@ -1,52 +1,118 @@
 {% extends "base.html" %}
 {% block title %}Reports{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'reports' %}
 {% block body %}
-<a href="{{ '/admin/reports' if report else '/admin' }}" class="back-link">&larr; {{ "Reports Catalog" if report else "Admin Console" }}</a>
-{% if not report %}
-<h1>Official Reports &amp; Exports</h1>
-<p class="muted" style="margin-top: -0.2rem;">Download verified convocation audit lists in CSV or Excel (XLSX) format. Each export event is logged in the system audit trail.</p>
-{% for group, items in groups.items() %}
-<h2>{{ group }}</h2>
-<div class="grid">
-  {% for r in items if r.key != "student-history" %}
-  <a class="tile" href="/admin/reports/{{ r.key }}">
-    {{ r.key.replace("-", " ")|capitalize }}
-    <small>{{ r.description }}</small>
-  </a>
-  {% endfor %}
-</div>
-{% endfor %}
-{% else %}
-<div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
-  <h1>{{ report.title }}</h1>
-  <div class="export-actions">
-    <a href="/admin/api/reports/{{ report.key }}/export?format=csv&{{ query }}" class="button small" data-download>Download CSV</a>
-    <a href="/admin/api/reports/{{ report.key }}/export?format=xlsx&{{ query }}" class="button small" data-download>Download XLSX</a>
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>Reports &amp; Analytics Workspace</h1>
+    <p class="admin-page-subtitle">Official university attendance, activity audit trails, stage progress &amp; asset tracking reports</p>
   </div>
 </div>
-{% if report.note %}<p class="muted" style="margin-top: -0.2rem;">{{ report.note }}</p>{% endif %}
-{% if report.totals %}
-<div class="card" style="margin: 0.8rem 0; padding: 0.8rem 1.1rem; background: var(--gold-soft); border-color: var(--gold-light);">
-  <p style="margin: 0; font-weight: 500;">
-    {% for k, v in report.totals.items() %}<b style="color: var(--brand-dark); font-size: 1.1rem;">{{ v }}</b> {{ k.replace("_", " ") }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
-  </p>
+
+<div class="reports-workspace-layout">
+  {% if groups %}
+  <aside class="reports-subnav card" aria-label="Reports Directory">
+    <div class="reports-subnav-title">Report Categories</div>
+    {% for group, items in groups.items() %}
+    <div class="reports-group-block">
+      <div class="reports-group-label">{{ group }}</div>
+      <div class="reports-group-items">
+        {% for r in items if r.key != "student-history" %}
+        <a href="/admin/reports/{{ r.key }}" class="report-nav-link {% if report and report.key == r.key %}active{% endif %}">
+          <span class="report-nav-name">{{ r.key.replace("-", " ")|capitalize }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </aside>
+  {% endif %}
+
+  <div class="reports-content-pane">
+    {% if not report %}
+    <div class="card reports-welcome-card" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+      <h2 style="margin-top: 0; font-size: 1.3rem;">Official Reports Directory</h2>
+      <p class="muted">Select any official report category from the navigation list on the left to view data previews and generate verified exports. Each file generation is permanently recorded in the system audit trail.</p>
+    </div>
+
+    {% for group, items in groups.items() %}
+    <div class="card report-catalog-group" style="margin-bottom: 1.25rem; padding: 1.25rem 1.5rem;">
+      <h3 style="margin-top: 0; font-size: 1.15rem; color: var(--brand-dark); border-bottom: 1px solid var(--line); padding-bottom: 0.4rem;">{{ group }}</h3>
+      <div class="reports-compact-list">
+        {% for r in items if r.key != "student-history" %}
+        <div class="report-compact-row" style="display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--bg-subtle);">
+          <div>
+            <a href="/admin/reports/{{ r.key }}" style="font-weight: 700; color: var(--brand); font-size: 1rem;">
+              {{ r.key.replace("-", " ")|capitalize }}
+            </a>
+            <div class="muted" style="font-size: 0.85rem;">{{ r.description }}</div>
+          </div>
+          <div style="display: flex; gap: 0.4rem;">
+            <a href="/admin/reports/{{ r.key }}" class="button small" style="background: var(--bg-subtle); color: var(--brand-dark);">View Preview</a>
+            <a href="/admin/api/reports/{{ r.key }}/export?format=csv" class="button small" data-download>CSV</a>
+            <a href="/admin/api/reports/{{ r.key }}/export?format=xlsx" class="button small" data-download>XLSX</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+
+    {% else %}
+    <div class="card report-view-card" style="padding: 1.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 0.8rem; border-bottom: 2px solid var(--cream); padding-bottom: 0.8rem;">
+        <div>
+          <a href="/admin/reports" class="back-link" style="font-size: 0.85rem; margin-bottom: 0.3rem; display: inline-block;">&larr; All Reports</a>
+          <h1 style="margin: 0; border: none; padding: 0; font-size: 1.6rem;">{{ report.title }}</h1>
+        </div>
+        <div class="export-actions" style="display: flex; gap: 0.5rem;">
+          <a href="/admin/api/reports/{{ report.key }}/export?format=csv&{{ query }}" class="button" data-download>Download CSV</a>
+          <a href="/admin/api/reports/{{ report.key }}/export?format=xlsx&{{ query }}" class="button" data-download>Download XLSX</a>
+        </div>
+      </div>
+
+      {% if report.note %}<p class="muted" style="margin-top: -0.2rem;">{{ report.note }}</p>{% endif %}
+
+      {% if report.totals %}
+      <div class="card" style="margin: 1rem 0; padding: 0.9rem 1.25rem; background: var(--gold-soft); border-color: var(--gold-light);">
+        <p style="margin: 0; font-weight: 500;">
+          {% for k, v in report.totals.items() %}
+          <span style="display: inline-block; margin-right: 1.2rem;">
+            <b style="color: var(--brand-dark); font-size: 1.2rem; font-family: var(--font-mono);">{{ v }}</b> {{ k.replace("_", " ")|capitalize }}
+          </span>
+          {% endfor %}
+        </p>
+      </div>
+      {% endif %}
+
+      {% if report.key.startswith("activity-") %}
+      <div class="report-filters-bar" style="margin: 1rem 0; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+        <span class="muted" style="font-size: 0.9rem;">Status Filter:</span>
+        <a href="/admin/reports/{{ report.key }}?status=all" class="filter-pill {% if not request.query_params.get('status') or request.query_params.get('status') == 'all' %}active{% endif %}">All Records</a>
+        <a href="/admin/reports/{{ report.key }}?status=completed" class="filter-pill {% if request.query_params.get('status') == 'completed' %}active{% endif %}">Completed</a>
+        <a href="/admin/reports/{{ report.key }}?status=not_completed" class="filter-pill {% if request.query_params.get('status') == 'not_completed' %}active{% endif %}">Not Completed</a>
+      </div>
+      {% endif %}
+
+      <div class="table-responsive-container">
+        <table class="spaced">
+          <tr>{% for key, label in report.columns %}<th>{{ label }}</th>{% endfor %}</tr>
+          {% for row in preview_rows %}
+          <tr>{% for key, label in report.columns %}<td>{{ row.get(key, "") }}</td>{% endfor %}</tr>
+          {% endfor %}
+          {% if not preview_rows %}<tr><td colspan="{{ report.columns|length }}" class="muted">Nothing to show.</td></tr>{% endif %}
+        </table>
+      </div>
+
+      {% if report.rows|length > 500 %}
+      <p class="muted" style="margin-top: 1rem; font-size: 0.88rem;">
+        Showing preview of first 500 of {{ report.rows|length }} rows. Use the Download buttons above to export the full dataset.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
-{% endif %}
-{% if report.key.startswith("activity-") %}
-<p style="margin: 0.8rem 0; font-weight: 600;">
-  Filter:
-  <a href="/admin/reports/{{ report.key }}?status=all" style="margin: 0 0.3rem;">All</a> &middot;
-  <a href="/admin/reports/{{ report.key }}?status=completed" style="margin: 0 0.3rem;">Completed</a> &middot;
-  <a href="/admin/reports/{{ report.key }}?status=not_completed" style="margin: 0 0.3rem;">Not completed</a>
-</p>
-{% endif %}
-<table class="spaced">
-  <tr>{% for key, label in report.columns %}<th>{{ label }}</th>{% endfor %}</tr>
-  {% for row in preview_rows %}
-  <tr>{% for key, label in report.columns %}<td>{{ row.get(key, "") }}</td>{% endfor %}</tr>
-  {% endfor %}
-  {% if not preview_rows %}<tr><td colspan="{{ report.columns|length }}" class="muted">Nothing to show.</td></tr>{% endif %}
-</table>
-{% if report.rows|length > 500 %}<p class="muted" style="margin-top: 0.8rem;">Showing first 500 of {{ report.rows|length }} rows. The exported file contains the full dataset.</p>{% endif %}
-{% endif %}
 {% endblock %}
+

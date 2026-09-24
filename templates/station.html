@@ -2,54 +2,144 @@
 {% block title %}{{ title or activity_label[activity] }}{% endblock %}
 {% block body %}
 <div id="station-root" data-activity="{{ activity }}" class="station-container">
-  <div class="station-header-bar" style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
-    <h1>{{ title or activity_label[activity] }}</h1>
-    <span class="station-badge" style="font-size: 0.85rem; font-weight: 700; color: var(--brand); background: var(--cream); border: 1px solid var(--line); padding: 0.25rem 0.65rem; border-radius: 999px; text-transform: uppercase;">
-      Active Station
-    </span>
+  <!-- Station Prominent Identity -->
+  <div class="station-identity-banner">
+    <div class="station-identity-meta">
+      <span class="station-institution-label">MGM UNIVERSITY &middot; CONVOCATION 2026</span>
+      <h1>{{ title or activity_label[activity] }}</h1>
+    </div>
+    <div class="station-status-pill">
+      <span class="status-pulse-dot"></span>
+      <span class="status-pill-text">SCANNER ACTIVE</span>
+    </div>
   </div>
 
-  <div id="banner" class="banner blue" role="status" aria-live="assertive"><span id="message">Scan a QR to begin.</span></div>
+  <!-- Operational Banner / Message Alert -->
+  <div id="banner" class="banner blue" role="status" aria-live="assertive">
+    <span id="message">Scan student QR to begin.</span>
+  </div>
 
-  <div class="scan-wrapper" style="margin: 1.2rem 0;">
+  <!-- Hidden/Accessible scan input for hardware USB/Bluetooth barcode scanners -->
+  <div class="scan-wrapper-offscreen" aria-hidden="true" style="position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0;">
     <input id="scan" class="scan-box" type="text" autofocus autocomplete="off" autocapitalize="off"
-           autocorrect="off" spellcheck="false" placeholder="Scan QR here or press Enter" aria-label="Scan the student's QR code">
+           autocorrect="off" spellcheck="false" placeholder="Scan QR here" aria-label="Hardware barcode scanner input">
   </div>
 
-  <div id="card" class="student" hidden>
-    <img id="card-photo" alt="Student photo" onerror="this.onerror=null;this.src='/static/placeholder.svg';">
-    <div class="student-info">
-      <h2 id="card-name"></h2>
-      <p id="card-state" class="card-state"></p>
-      <dl id="card-fields"></dl>
+  <!-- Main Scanning Station Workspace (2 columns on desktop, 1 on tablet/mobile) -->
+  <div class="station-grid-layout">
+    <!-- Left Column: Camera Viewfinder & Controls -->
+    <div class="scanner-column">
+      <div class="card scanner-viewport-card" id="camera-details">
+        <div class="scanner-header-bar">
+          <div class="scanner-label-group">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span class="scanner-title">QR Camera Scanner</span>
+          </div>
+          <span id="scanner-mode-badge" class="scanner-mode-badge ready">READY</span>
+        </div>
+
+        <div class="camera-stream-wrapper" id="camera-wrapper">
+          <video id="camera-video" playsinline muted autoplay aria-label="Camera preview for scanning student QR code"></video>
+          <canvas id="camera-canvas" hidden></canvas>
+
+          <!-- Viewfinder Frame with Reticle and Scan Laser -->
+          <div class="camera-viewfinder-overlay" id="camera-overlay">
+            <div class="viewfinder-frame">
+              <div class="reticle-corner top-left"></div>
+              <div class="reticle-corner top-right"></div>
+              <div class="reticle-corner bottom-left"></div>
+              <div class="reticle-corner bottom-right"></div>
+              <div class="scan-laser-line"></div>
+            </div>
+          </div>
+
+          <!-- Camera Inactivity / Battery Saver Pause Overlay -->
+          <div class="camera-overlay-screen pause-screen" id="camera-pause-overlay" hidden>
+            <div class="overlay-dialog">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="dialog-icon"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>
+              <h3 class="dialog-title">Scanner paused to save battery</h3>
+              <p class="dialog-desc">Camera was paused after a period of inactivity.</p>
+              <button type="button" id="resume-scan-btn" class="button big resume-btn">Tap to Resume Scanner</button>
+            </div>
+          </div>
+
+          <!-- Camera Permission Required Overlay -->
+          <div class="camera-overlay-screen permission-screen" id="camera-permission-overlay" hidden>
+            <div class="overlay-dialog">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="dialog-icon"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <h3 class="dialog-title" id="camera-perm-title">Camera access required</h3>
+              <p class="dialog-desc" id="camera-perm-msg">Enable camera to continuously scan graduate QR passes.</p>
+              <button type="button" id="enable-camera-btn" class="button big">Start Scanner</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="scanner-footer-bar">
+          <p id="camera-status" class="camera-status-text" role="status" aria-live="polite">Point camera at the student's QR code.</p>
+        </div>
+      </div>
+
+      <!-- Secondary Fallback: PRN Manual Search -->
+      <details class="manual secondary-fallback-card card" id="manual-details">
+        <summary class="fallback-summary">
+          <span>QR damaged or unreadable? Search by PRN</span>
+        </summary>
+        <div class="fallback-body">
+          <div class="manual-row">
+            <input id="search-prn" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
+                   placeholder="Enter Student PRN (e.g. 202401109008)" aria-label="Student PRN">
+            <button id="search-btn" type="button">Search Student</button>
+          </div>
+          <p class="muted" style="font-size: 0.82rem; margin: 0.4rem 0 0;">Check student photo and confirm before verifying.</p>
+        </div>
+      </details>
+    </div>
+
+    <!-- Right Column: Active Candidate Card & Last Scanned Record -->
+    <div class="student-column">
+      <!-- Active Scanned Student Card -->
+      <div id="card" class="card active-candidate-card" hidden>
+        <div class="candidate-header">
+          <span class="candidate-tag">STUDENT VERIFICATION</span>
+          <p id="card-state" class="card-state"></p>
+        </div>
+        <div class="candidate-profile-layout">
+          <div class="candidate-photo-wrap">
+            <img id="card-photo" src="{{ asset_url('placeholder.svg') }}" alt="Student photo" onerror="this.onerror=null;this.src='{{ asset_url('placeholder.svg') }}';" class="candidate-photo">
+          </div>
+          <div class="candidate-meta-wrap">
+            <h2 id="card-name" class="candidate-name"></h2>
+            <dl id="card-fields" class="candidate-fields"></dl>
+          </div>
+        </div>
+
+        <!-- Registry Checkboxes (Reporting, Robe Allocation, Money) -->
+        <div id="markers" class="markers" role="group" aria-label="Tick what the student hands over or takes back" hidden></div>
+
+        <div class="confirm-wrapper" style="margin-top: 1rem;">
+          <button id="confirm" class="confirm big-action go" type="button" hidden>{{ config.confirm_label }}</button>
+        </div>
+      </div>
+
+      <!-- Last Scanned Student Confirmation Card -->
+      <div id="last-scan-section" class="card last-scan-panel" hidden>
+        <div class="last-scan-header-bar">
+          <span class="last-scan-badge-title">LAST PROCESSED GRADUATE</span>
+          <span id="last-scan-time" class="last-scan-timestamp"></span>
+        </div>
+        <div class="last-scan-content">
+          <img id="last-scan-photo" src="{{ asset_url('placeholder.svg') }}" alt="Last student photo" onerror="this.onerror=null;this.src='{{ asset_url('placeholder.svg') }}';" class="last-scan-photo">
+          <div class="last-scan-info">
+            <div id="last-scan-name" class="last-scan-name"></div>
+            <div id="last-scan-details" class="last-scan-details muted"></div>
+            <div id="last-scan-badge" class="last-scan-status-badge"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
-
-  <div id="markers" class="markers" role="group" aria-label="Tick what the student hands over or takes back" hidden></div>
-
-  <div class="confirm-wrapper" style="margin: 1.2rem 0;">
-    <button id="confirm" class="confirm" type="button" hidden>{{ config.confirm_label }}</button>
-  </div>
-
-  <details class="camera-scan" id="camera-details">
-    <summary>Scan with camera</summary>
-    <div class="camera-view">
-      <video id="camera-video" playsinline muted autoplay aria-label="Camera preview for scanning the student's QR code"></video>
-      <canvas id="camera-canvas" hidden></canvas>
-    </div>
-    <p id="camera-status" class="muted" role="status" aria-live="polite">Point the camera at the student's QR code.</p>
-  </details>
-
-  <details class="manual">
-    <summary>QR damaged or unreadable? Search by PRN</summary>
-    <div class="manual-row">
-      <input id="search-prn" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
-             placeholder="Enter Student PRN" aria-label="Student PRN">
-      <button id="search-btn" type="button">Search Student</button>
-    </div>
-    <p class="muted">Check the photo against the student before confirming the activity.</p>
-  </details>
 </div>
+
 <script src="{{ asset_url('jsqr.min.js') }}"></script>
 <script src="{{ asset_url('station_logic.js') }}"></script>
 <script src="{{ asset_url('camera_scan.js') }}"></script>

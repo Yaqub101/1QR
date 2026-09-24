@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form, Request
 
 from backend import users as users_svc
+from backend.admin import dashboard
 from backend.security import permissions
 from backend.security.deps import require_admin
 from backend.security.passwords import MIN_ADMIN_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
@@ -25,7 +26,9 @@ def _uuid_or_404(value: str):
 
 @router.get("")
 def admin_home(request: Request, principal: Principal = Depends(require_admin)):
-    return render(request, "admin_home.html", principal=principal)
+    with request.app.state.engine.connect() as conn:
+        data = dashboard.snapshot(conn, request.app.state.settings)
+    return render(request, "admin_home.html", principal=principal, d=data, active_nav="dashboard")
 
 
 # ── users ───────────────────────────────────────────────────────────────────

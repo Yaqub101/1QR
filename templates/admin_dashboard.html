@@ -1,11 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'dashboard' %}
 {% block body %}
-<a href="/admin" class="back-link">&larr; Admin Console</a>
-<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
-  <h1>Executive Dashboard</h1>
-  <span style="font-size: 0.85rem; font-weight: 600; color: var(--muted);">Live Operations Monitor</span>
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>Live Event Dashboard</h1>
+    <p class="admin-page-subtitle">Real-time attendance cohort, journey progression, stage operations &amp; exception monitoring</p>
+  </div>
+  <div class="admin-header-status-badge">
+    <span class="live-pulse-dot"></span>
+    <span>Live Event Mode</span>
+  </div>
 </div>
+
+<div class="dashboard-quick-actions">
+  <a href="/admin/students" class="quick-action-btn">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <span>Find Student</span>
+  </a>
+  <a href="/admin/exceptions" class="quick-action-btn">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+    <span>Operational Exceptions</span>
+  </a>
+  <a href="/station/stage" class="quick-action-btn primary">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    <span>Stage Controller</span>
+  </a>
+  <a href="/admin/reports" class="quick-action-btn">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    <span>Reports Catalog</span>
+  </a>
+</div>
+
 <div id="live" data-url="/admin/dashboard/live">{% include "_dashboard_body.html" %}</div>
 <script src="{{ asset_url('admin_dashboard.js') }}"></script>
 {% endblock %}
+

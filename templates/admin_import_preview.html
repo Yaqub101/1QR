@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Import: check before importing{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'import' %}
 {% block body %}
 <a href="/admin/import/{{ batch.batch_id }}/columns" class="back-link">&larr; Back to Column Mapping</a>
 <h1>Verification &amp; Dry-Run Preview</h1>

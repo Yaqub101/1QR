@@ -12,8 +12,11 @@
     <p id="holding-text">{{ holding.text }}</p>
   </main>
   <main id="stage" class="stage" hidden>
-    <img id="photo" alt="">
+    <div class="photo-container">
+      <img id="photo" alt="" onerror="this.src='/static/placeholder.svg';">
+    </div>
     <div class="info">
+      <div class="ceremony-tag">CONVOCATION 2026 &bull; CONGRATULATIONS</div>
       <h1 id="name"></h1>
       <p id="award" class="award"></p>
       <p id="programme"></p>

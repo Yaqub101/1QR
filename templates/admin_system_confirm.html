@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Confirm data reset{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'system' %}
 {% block body %}
 <a href="/admin/system" class="back-link">&larr; Cancel and Return to System</a>
 <h1>Final confirmation</h1>
