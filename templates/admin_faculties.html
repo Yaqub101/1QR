@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Faculty Mapping Administration{% endblock %}
+{% set is_admin_screen = true %}
+{% set active_nav = 'faculties' %}
+{% block body %}
+<div class="admin-page-header">
+  <div class="admin-page-title-group">
+    <h1>Programme &amp; Faculty Mapping</h1>
+    <p class="admin-page-subtitle">Configure academic faculties for degree programmes and re-derive student records dynamically</p>
+  </div>
+</div>
+
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+  <div class="card" style="padding: 1rem; border-left: 4px solid var(--accent, #134B90);">
+    <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--muted, #666);">Total Programmes</div>
+    <div style="font-size: 1.8rem; font-weight: 700;">{{ total_progs }}</div>
+  </div>
+  <div class="card" style="padding: 1rem; border-left: 4px solid {% if unmapped_progs > 0 %}#CB3127{% else %}#278844{% endif %};">
+    <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--muted, #666);">Unmapped Programmes</div>
+    <div style="font-size: 1.8rem; font-weight: 700; color: {% if unmapped_progs > 0 %}#CB3127{% else %}#278844{% endif %};">{{ unmapped_progs }}</div>
+  </div>
+  <div class="card" style="padding: 1rem; border-left: 4px solid #278844;">
+    <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--muted, #666);">Total Students</div>
+    <div style="font-size: 1.8rem; font-weight: 700;">{{ total_students }}</div>
+  </div>
+  <div class="card" style="padding: 1rem; border-left: 4px solid {% if unmapped_students > 0 %}#CB3127{% else %}#278844{% endif %};">
+    <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--muted, #666);">Students Unmapped</div>
+    <div style="font-size: 1.8rem; font-weight: 700; color: {% if unmapped_students > 0 %}#CB3127{% else %}#278844{% endif %};">{{ unmapped_students }}</div>
+  </div>
+</div>
+
+<div class="card" style="padding: 1.25rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+    <h2 style="margin: 0; font-size: 1.2rem;">All Programmes ({{ items|length }})</h2>
+    <input type="search" id="filter-progs" placeholder="Filter programmes…" style="padding: 0.4rem 0.75rem; border-radius: 4px; border: 1px solid #ccc; max-width: 280px;" oninput="filterTable()">
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table class="table" id="progs-table" style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr style="text-align: left; border-bottom: 2px solid #ddd; background: #f8f9fa;">
+          <th style="padding: 0.6rem;">Programme Name</th>
+          <th style="padding: 0.6rem;">Current Faculty</th>
+          <th style="padding: 0.6rem; text-align: center;">Students</th>
+          <th style="padding: 0.6rem;">Assign Faculty</th>
+          <th style="padding: 0.6rem; text-align: right;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr class="prog-row" data-name="{{ it.programme_name | lower }}" style="border-bottom: 1px solid #eee; {% if it.faculty == 'UNMAPPED' %}background-color: #FFF3CD;{% endif %}">
+          <td style="padding: 0.6rem; font-weight: 500;">
+            {{ it.programme_name }}
+          </td>
+          <td style="padding: 0.6rem;">
+            <span class="badge" style="background-color: {{ it.palette.strong }}; color: #fff; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">
+              {{ it.palette.name }}
+            </span>
+          </td>
+          <td style="padding: 0.6rem; text-align: center; font-weight: 600;">
+            {{ it.student_count }}
+            {% if it.unmapped_count > 0 %}
+              <span style="color: #CB3127; font-size: 0.75rem; display: block;">({{ it.unmapped_count }} unmapped)</span>
+            {% endif %}
+          </td>
+          <td style="padding: 0.6rem;">
+            <select id="sel-{{ loop.index }}" style="padding: 0.35rem; border-radius: 4px; border: 1px solid #ccc;">
+              {% for f in faculties %}
+                <option value="{{ f }}" {% if f == it.faculty %}selected{% endif %}>{{ f }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td style="padding: 0.6rem; text-align: right;">
+            <button type="button" class="button" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;" onclick="saveFaculty('{{ it.programme_name }}', 'sel-{{ loop.index }}', this)">
+              Save
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function filterTable() {
+  var q = document.getElementById("filter-progs").value.toLowerCase();
+  var rows = document.querySelectorAll(".prog-row");
+  rows.forEach(function(r) {
+    var name = r.dataset.name || "";
+    r.style.display = name.indexOf(q) !== -1 ? "" : "none";
+  });
+}
+
+function saveFaculty(progName, selectId, btn) {
+  var sel = document.getElementById(selectId);
+  var faculty = sel.value;
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+
+  fetch("/admin/api/assign-faculty", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ programme: progName, faculty: faculty })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.ok) {
+      btn.textContent = "Saved!";
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      alert("Error: " + (res.detail || "Failed to update"));
+      btn.disabled = false;
+      btn.textContent = "Save";
+    }
+  })
+  .catch(function(err) {
+    alert("Connection error");
+    btn.disabled = false;
+    btn.textContent = "Save";
+  });
+}
+</script>
+{% endblock %}

@@ -20,6 +20,8 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from backend.faculty_map import Faculty, derive_faculty
+
 MAX_NAME_LENGTH = 200  # characters; overlong if > this
 
 # Which pandas engine reads which spreadsheet format. openpyxl only understands the modern,
@@ -130,6 +132,8 @@ class ImportPreview:
     errors: list[ImportError]     # fatal validation errors — blocks commit when non-empty
     flagged_duplicates: list[FlaggedDuplicate]
     warnings: list[ImportWarning] = dataclasses.field(default_factory=list)
+    unmapped_programmes: list[str] = dataclasses.field(default_factory=list)
+    unmapped_programmes_count: int = 0
     is_valid: bool = False
 
 
@@ -140,6 +144,8 @@ class ImportSummary:
     updated: int
     skipped: int
     errors: int
+    unmapped_programmes: list[str] = dataclasses.field(default_factory=list)
+    unmapped_programmes_count: int = 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -240,6 +246,20 @@ def validate_import(
     existing_seq_nos: set[int] = {
         r[0] for r in conn.execute(text("SELECT sequence_no FROM students")).fetchall()
     }
+
+    db_custom_map: dict[str, str] = {}
+    db_overrides: set[str] = set()
+    try:
+        rows_pf = conn.execute(text("SELECT programme_key, faculty, coalesce(is_override, false) FROM programme_faculty")).fetchall()
+        db_custom_map = {r[0]: r[1] for r in rows_pf}
+        db_overrides = {r[0] for r in rows_pf if r[2]}
+    except Exception:
+        try:
+            rows_pf = conn.execute(text("SELECT programme_key, faculty FROM programme_faculty")).fetchall()
+            db_custom_map = {r[0]: r[1] for r in rows_pf}
+        except Exception:
+            pass
+    unmapped_programmes_seen: set[str] = set()
 
     # Track duplicates within this file
     file_prns_seen: dict[str, int] = {}  # prn -> first row index (1-based)
@@ -376,15 +396,31 @@ def validate_import(
             ))
             continue
 
+        # Derive faculty:
+        faculty = derive_faculty(
+            school=values.get("school"),
+            programme=values.get("programme"),
+            custom_map=db_custom_map,
+            overrides=db_overrides,
+        )
+        values["faculty"] = faculty
+        if faculty == Faculty.UNMAPPED.value:
+            prog_val = values.get("programme")
+            if prog_val:
+                unmapped_programmes_seen.add(prog_val.strip())
+
         to_create.append({"row": idx, **values})
 
     is_valid = len(errors) == 0
+    unmapped_list = sorted(unmapped_programmes_seen)
     return ImportPreview(
         to_create=to_create,
         to_skip=to_skip,
         errors=errors,
         flagged_duplicates=flagged_duplicates,
         warnings=warnings,
+        unmapped_programmes=unmapped_list,
+        unmapped_programmes_count=len(unmapped_list),
         is_valid=is_valid,
     )
 
@@ -411,10 +447,10 @@ def commit_import(
             conn.execute(
                 text(
                     """
-                    INSERT INTO students (prn, name, programme, school,
+                    INSERT INTO students (prn, name, programme, school, faculty,
                                          sequence_no, seat_no, awards, photo_path, status,
                                          email, mobile)
-                    VALUES (:prn, :name, :programme, :school,
+                    VALUES (:prn, :name, :programme, :school, :faculty,
                             :sequence_no, :seat_no, :awards, :photo_path, :status,
                             :email, :mobile)
                     """
@@ -424,6 +460,7 @@ def commit_import(
                     "name": r["name"],
                     "programme": r["programme"],
                     "school": r["school"],
+                    "faculty": r.get("faculty", Faculty.UNMAPPED.value),
                     "sequence_no": r.get("sequence_no"),
                     "seat_no": r.get("seat_no"),
                     "awards": r.get("awards"),
@@ -442,6 +479,8 @@ def commit_import(
             updated=0,
             skipped=len(preview.to_skip),
             errors=len(preview.errors),
+            unmapped_programmes=list(preview.unmapped_programmes),
+            unmapped_programmes_count=preview.unmapped_programmes_count,
         )
 
         conn.execute(

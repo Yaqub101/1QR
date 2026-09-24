@@ -497,7 +497,7 @@ class TestTheEndpointsAreUnchanged:
                                files={"file": ("s.csv", csv_bytes(student_rows(prns)), "text/csv")})
         assert response.status_code == 200
         body = response.json()
-        assert set(body) == {"columns", "mapping", "to_create", "to_skip", "flagged_duplicates", "errors", "is_valid"}
+        assert set(body) >= {"columns", "mapping", "to_create", "to_skip", "flagged_duplicates", "errors", "is_valid"}
         assert body["to_create"] == 2 and body["is_valid"] is True
 
     def test_commit_still_answers_the_same_json_and_still_writes(self, apps, engine):
@@ -506,7 +506,11 @@ class TestTheEndpointsAreUnchanged:
         response = client.post("/admin/import/commit",
                                files={"file": ("s.csv", csv_bytes(student_rows(prns)), "text/csv")})
         assert response.status_code == 200
-        assert response.json() == {"read": 2, "created": 2, "updated": 0, "skipped": 0, "errors": 0}
+        res = response.json()
+        assert {k: res[k] for k in ("read", "created", "updated", "skipped", "errors")} == {
+            "read": 2, "created": 2, "updated": 0, "skipped": 0, "errors": 0
+        }
+        assert "unmapped_programmes" in res and "unmapped_programmes_count" in res
         assert scalar(engine, "SELECT count(*) FROM students WHERE prn = ANY(:p)", p=prns) == 2
 
     def test_commit_still_refuses_a_broken_file_with_422_and_writes_nothing(self, apps, engine):

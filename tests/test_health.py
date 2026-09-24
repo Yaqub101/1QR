@@ -66,12 +66,14 @@ def test_health_mismatched_version_reports_not_ok_and_logs_error_on_startup(bare
     with engine.begin() as conn:
         conn.execute(text("UPDATE alembic_version SET version_num = '0016_optional_seating_labels'"))
 
+    from backend.database import get_expected_schema_version
+    expected_head = get_expected_schema_version()
     body = health(bare_database)
     assert body["status"] == "NOT OK"
     assert body["db"] == "not_ready"
     assert body["alembic_version"] == "0016_optional_seating_labels"
-    assert body["expected_version"] == "0017_money_deposit"
-    expected_msg = "database schema out of date: db=0016_optional_seating_labels, expected=0017_money_deposit"
+    assert body["expected_version"] == expected_head
+    expected_msg = f"database schema out of date: db=0016_optional_seating_labels, expected={expected_head}"
     assert body["detail"] == expected_msg
     assert body["message"] == expected_msg
 
