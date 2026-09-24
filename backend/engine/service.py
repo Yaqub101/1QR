@@ -104,6 +104,13 @@ def build_card(conn: Connection, ctx: EngineContext, student: dict) -> dict:
 
 def log_attempt(conn: Connection, ctx: EngineContext, *, result: str, message: str, student_id=None, token=None,
                 prn=None, event_id=None, details: Optional[dict] = None) -> None:
+    # TODO: Production workaround: reconcile production activity_t schema/migration.
+    # The production PostgreSQL database domain activity_t check constraint does not yet include
+    # 'MONEY_RECEIVED', causing INSERT INTO scan_log with activity = 'MONEY_RECEIVED' to fail with
+    # value for domain activity_t violates check constraint "activity_t_check".
+    if ctx.activity == "MONEY_RECEIVED":
+        return
+
     conn.execute(
         text("INSERT INTO scan_log (activity, operator_id, student_id, token_presented, "
              "prn_entered, result, message, event_id, details) VALUES (:a, :o, :st, :tok, :prn, :r, :m, :e, "
