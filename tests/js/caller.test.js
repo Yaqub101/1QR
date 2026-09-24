@@ -1,122 +1,179 @@
-// The Caller screen's logic under node, with a MOCKED clock (role/flow redesign, Phase R3).
-//   - shows ONLY the name and the programme / degree of the student the LED shows;
-//   - a "waiting" message when the LED is on the holding screen (nobody to call);
-//   - if contact with the server is lost for 5 seconds, the name is taken away and a warning is shown, so the
-//     caller never reads out a name that may no longer be the one on the LED; it recovers by itself.
+// Caller screen unit tests under Node.js (Structure Change v3).
+// Tests for:
+// - live queue list rendering
+// - highlighted first row with NEXT action button
+// - absence of NEXT action button on non-first rows
+// - faculty CSS class and palette styling
+// - NEXT button click handler
+// - empty queue state
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
-const { createCallerScreen } = require(path.join(__dirname, "..", "..", "static", "caller.js"));
+const { buildRow, renderQueue, formatFaculty } = require(path.join(__dirname, "..", "..", "static", "caller.js"));
 
-function el(props = {}) {
-  return { hidden: false, textContent: "", className: "", ...props };
-}
+function createFakeDoc() {
+  function makeEl(tagName) {
+    const el = {
+      tagName: tagName.toUpperCase(),
+      className: "",
+      id: "",
+      textContent: "",
+      hidden: false,
+      disabled: false,
+      dataset: {},
+      style: {
+        borderLeftColor: "",
+        backgroundColor: "",
+        color: "",
+        properties: {},
+        setProperty(name, val) {
+          this.properties[name] = val;
+        }
+      },
+      children: [],
+      appendChild(child) {
+        this.children.push(child);
+        return child;
+      },
+      replaceChild(newChild, oldChild) {
+        const idx = this.children.indexOf(oldChild);
+        if (idx !== -1) {
+          this.children[idx] = newChild;
+        }
+        return newChild;
+      },
+      contains(child) {
+        return this.children.includes(child);
+      },
+      setAttribute(name, val) {
+        this[name] = val;
+      },
+      querySelector(selector) {
+        if (selector === ".cq-btn-next") {
+          return this._findChild((c) => c.className && c.className.includes("cq-btn-next"));
+        }
+        return null;
+      },
+      _findChild(predicate) {
+        for (const child of this.children) {
+          if (predicate(child)) return child;
+          if (child._findChild) {
+            const found = child._findChild(predicate);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+    };
+    return el;
+  }
 
-function harness() {
-  const els = { name: el(), programme: el(), status: el(), card: el({ hidden: true }) };
-  let now = 0;
-  let handlers = null;
-  const timers = [];
-  createCallerScreen({
-    els, now: () => now, lostMs: 5000, watchMs: 500,
-    connect: (h) => { handlers = h; return () => {}; },
-    setInterval: (fn) => { timers.push(fn); return timers.length; },
-  }).start();
   return {
-    els,
-    send: (payload) => handlers.state(payload),
-    ping: () => handlers.ping(),
-    advance: (ms) => { now += ms; },
-    tick: () => timers.forEach((fn) => fn()),
+    createElement: makeEl
   };
 }
 
-const SHOWING = (name, programme) => ({ mode: "SHOWING", version: 7, student: { name, programme } });
-const HOME = { mode: "HOME", version: 8, student: null };
-
-test("before any contact the caller sees no name, only that the screen is connecting", () => {
-  const h = harness();
-  assert.equal(h.els.card.hidden, true);
-  assert.equal(h.els.name.textContent, "");
-  assert.match(h.els.status.textContent, /connecting/i);
-});
-
-test("a SHOWING update shows the name and the programme, large", () => {
-  const h = harness();
-  h.send(SHOWING("Priya Nair", "Master of Business Administration (Finance)"));
-  assert.equal(h.els.card.hidden, false);
-  assert.equal(h.els.name.textContent, "Priya Nair");
-  assert.equal(h.els.programme.textContent, "Master of Business Administration (Finance)");
-});
-
-test("the screen only ever reads the name and the programme, even if the server sent more", () => {
-  const h = harness();
-  h.send({ mode: "SHOWING", version: 1, student: { name: "Asha", programme: "B.Tech", prn: "PRN-SECRET", school: "Eng", photo_url: "/x" } });
-  const shown = JSON.stringify(h.els);
-  assert.ok(!shown.includes("PRN-SECRET") && !shown.includes("Eng") && !shown.includes("/x"));
-});
-
-test("HOME takes the name away at once and says there is nobody to call", () => {
-  const h = harness();
-  h.send(SHOWING("Asha", "B.Tech"));
-  h.send(HOME);
-  assert.equal(h.els.card.hidden, true);
-  assert.equal(h.els.name.textContent, "");
-  assert.match(h.els.status.textContent, /waiting for the stage/i);
-});
-
-test("LOSING THE SERVER: after 5 seconds without contact the name is taken away and a warning shown (mocked time)", () => {
-  const h = harness();
-  h.send(SHOWING("Asha", "B.Tech"));
-  h.advance(4900); h.tick();
-  assert.equal(h.els.card.hidden, false, "still within 5 seconds of the last contact");
-  h.advance(200); h.tick();
-  assert.equal(h.els.card.hidden, true);
-  assert.equal(h.els.name.textContent, "");
-  assert.match(h.els.status.textContent, /connection lost/i);
-  assert.match(h.els.status.className, /red/);
-});
-
-test("heartbeats keep the name up indefinitely while the server is alive", () => {
-  const h = harness();
-  h.send(SHOWING("Asha", "B.Tech"));
-  for (let i = 0; i < 30; i++) { h.advance(2000); h.ping(); h.tick(); }
-  assert.equal(h.els.card.hidden, false);
-  assert.equal(h.els.name.textContent, "Asha");
-});
-
-test("when contact returns the screen shows the CURRENT student, not the one from before the loss", () => {
-  const h = harness();
-  h.send(SHOWING("Asha", "B.Tech"));
-  h.advance(6000); h.tick();
-  h.send(SHOWING("Ravi", "B.Com"));
-  assert.equal(h.els.card.hidden, false);
-  assert.equal(h.els.name.textContent, "Ravi");
-  assert.doesNotMatch(h.els.status.textContent, /connection lost/i);
-});
-
-test("a ping after a loss does not bring back an old name: only a fresh state does", () => {
-  const h = harness();
-  h.send(SHOWING("Asha", "B.Tech"));
-  h.advance(6000); h.tick();
-  h.ping(); h.tick();
-  assert.equal(h.els.card.hidden, true);
-  assert.equal(h.els.name.textContent, "");
-});
-
-test("a malformed message never shows a half card", () => {
-  const h = harness();
-  h.send(SHOWING("Asha", "B.Tech"));
-  for (const bad of [null, "x", { mode: "SHOWING", student: { programme: "B.Tech" } }, { mode: "SHOWING", student: null }]) {
-    h.send(bad);
-    assert.equal(h.els.card.hidden, true);
-    assert.equal(h.els.name.textContent, "");
+const sampleStudents = [
+  {
+    student_id: "s-1",
+    name: "Aaditya Patil",
+    prn: "PRN001",
+    programme: "B.Tech Computer Science",
+    school: "Engineering & Technology",
+    faculty: "ENGINEERING",
+    queue_position: 1,
+    palette: { strong: "#134B90", light: "#9EC8E9" }
+  },
+  {
+    student_id: "s-2",
+    name: "Neha Deshmukh",
+    prn: "PRN002",
+    programme: "B.Sc Chemistry",
+    school: "Basic and Applied Sciences",
+    faculty: "SCIENCE",
+    queue_position: 2,
+    palette: { strong: "#278844", light: "#9DD29C" }
+  },
+  {
+    student_id: "s-3",
+    name: "Rohan Verma",
+    prn: "PRN003",
+    programme: "BBA",
+    school: "Management and Commerce",
+    faculty: "MANAGEMENT",
+    queue_position: 3,
+    palette: { strong: "#CB3127", light: "#F8B0AC" }
   }
+];
+
+test("formatFaculty resolves known and fallback faculty names", () => {
+  assert.equal(formatFaculty("ENGINEERING"), "Engineering");
+  assert.equal(formatFaculty("SCIENCE"), "Science");
+  assert.equal(formatFaculty("MANAGEMENT"), "Management");
+  assert.equal(formatFaculty("UNMAPPED"), "General");
+  assert.equal(formatFaculty(""), "General");
 });
 
-test("Unicode names are shown untouched", () => {
-  const h = harness();
-  h.send(SHOWING("Zoë Ångström-Iyer · श्रेया", "M.Sc"));
-  assert.equal(h.els.name.textContent, "Zoë Ångström-Iyer · श्रेया");
+test("first row is highlighted with cq-row--first and includes NEXT button", () => {
+  const doc = createFakeDoc();
+  const row = buildRow(sampleStudents[0], true, 1, doc);
+
+  assert.ok(row.className.includes("cq-row--first"), "First row must have cq-row--first class");
+  assert.ok(row.className.includes("cq-faculty-engineering"), "Row must have faculty class");
+  assert.equal(row.id, "cq-row-s-1");
+  assert.equal(row.dataset.studentId, "s-1");
+
+  const btn = row.querySelector(".cq-btn-next");
+  assert.ok(btn != null, "First row must have a NEXT button");
+  assert.equal(btn.className, "cq-btn-next");
+});
+
+test("subsequent rows do NOT have cq-row--first and do NOT have a NEXT button", () => {
+  const doc = createFakeDoc();
+  const row2 = buildRow(sampleStudents[1], false, 2, doc);
+
+  assert.ok(!row2.className.includes("cq-row--first"), "Second row must NOT have cq-row--first");
+  assert.ok(row2.className.includes("cq-faculty-science"), "Second row must have faculty class");
+  const btn2 = row2.querySelector(".cq-btn-next");
+  assert.equal(btn2, null, "Second row must not have NEXT button");
+});
+
+test("faculty palette styling is applied to row and badges", () => {
+  const doc = createFakeDoc();
+  const row = buildRow(sampleStudents[0], true, 1, doc);
+
+  assert.equal(row.style.borderLeftColor, "#134B90");
+  assert.equal(row.style.properties["--cq-fac-strong"], "#134B90");
+  assert.equal(row.style.properties["--cq-fac-light"], "#9EC8E9");
+});
+
+test("renderQueue populates list container, updates count, and sets emptyEl", () => {
+  const doc = createFakeDoc();
+  const list = doc.createElement("ul");
+  const countEl = doc.createElement("span");
+  const emptyEl = doc.createElement("p");
+  emptyEl.hidden = false;
+
+  let calledStudentId = null;
+  const onCall = (sid) => { calledStudentId = sid; };
+
+  // Render list of 3 students
+  renderQueue(sampleStudents, 3, { list, countEl, emptyEl }, onCall, doc);
+
+  assert.equal(countEl.textContent, 3);
+  assert.equal(emptyEl.hidden, true);
+  assert.equal(list.children.length, 3);
+
+  // First child has button and clicking it calls callback
+  const firstChild = list.children[0];
+  const nextBtn = firstChild.querySelector(".cq-btn-next");
+  assert.ok(nextBtn != null);
+  nextBtn.onclick();
+  assert.equal(calledStudentId, "s-1");
+
+  // Empty queue
+  renderQueue([], 0, { list, countEl, emptyEl }, onCall, doc);
+  assert.equal(countEl.textContent, 0);
+  assert.equal(emptyEl.hidden, false);
 });

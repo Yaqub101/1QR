@@ -36,7 +36,11 @@
 
     function studentRow(card, label, onSend) {
       const row = doc.createElement("li");
-      row.className = "result";
+      row.className = "result stage-queue-row";
+      if (card && card.palette && row.style) {
+        row.style.borderLeft = "5px solid " + card.palette.strong;
+        row.style.backgroundColor = card.palette.light + "22";
+      }
       const text = doc.createElement("span");
       text.textContent = label;
       const button = doc.createElement("button");
@@ -239,6 +243,10 @@
   function studentRowElement(card) {
     const row = document.createElement("li");
     row.className = "result stage-queue-row";
+    if (card && card.palette) {
+      row.style.borderLeft = "5px solid " + card.palette.strong;
+      row.style.backgroundColor = card.palette.light + "22";
+    }
     const info = document.createElement("div");
     info.className = "stage-queue-row-info";
     const nameEl = document.createElement("span");
@@ -249,6 +257,17 @@
     progEl.textContent = card.programme || "";
     info.appendChild(nameEl);
     if (card.programme) info.appendChild(progEl);
+
+    if (card.faculty) {
+      const facEl = document.createElement("span");
+      facEl.className = "queue-faculty-badge";
+      facEl.textContent = card.faculty;
+      if (card.palette) {
+        facEl.style.backgroundColor = card.palette.strong;
+        facEl.style.color = "#ffffff";
+      }
+      info.appendChild(facEl);
+    }
 
     const button = document.createElement("button");
     button.type = "button";

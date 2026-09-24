@@ -139,7 +139,10 @@ def _record_degree(conn: Connection, settings, principal, student_id) -> None:
 
 
 def _put_on_stage(conn: Connection, ctx, student_id, **audit) -> bool:
-    conn.execute(text("UPDATE queue SET status = 'DISPLAYED' WHERE student_id = :s"), {"s": student_id})
+    conn.execute(
+        text("UPDATE queue SET status = 'DISPLAYED', staged_at = coalesce(staged_at, now()) WHERE student_id = :s"),
+        {"s": student_id},
+    )
     stage_state.update_state(conn, current_student_id=student_id)
     shown = _show(conn, student_id)
     _audit(conn, ctx, "STAGE_DISPLAY", student_id, **audit)
@@ -155,7 +158,11 @@ def next_student(engine, *, expect_current: Optional[str], settings, principal) 
         if on_stage is not None:
             _record_degree(conn, settings, principal, on_stage)
         row = conn.execute(
-            text("SELECT student_id FROM queue WHERE status = 'QUEUED' ORDER BY queue_position LIMIT 1 FOR UPDATE")
+            text(
+                "SELECT student_id FROM queue "
+                "WHERE status = 'QUEUED' AND staged_at IS NULL "
+                "ORDER BY queue_position LIMIT 1 FOR UPDATE"
+            )
         ).scalar()
         if row is None:
             if on_stage is not None:
@@ -195,7 +202,10 @@ def previous(engine, **kw) -> dict:
     With nobody on stage: show the last student to leave the stage again (display only)."""
     def act(conn, ctx, st):
         if st["current_student_id"] is not None:
-            conn.execute(text("UPDATE queue SET status = 'QUEUED' WHERE student_id = :s"), {"s": st["current_student_id"]})
+            conn.execute(
+                text("UPDATE queue SET status = 'QUEUED', staged_at = NULL WHERE student_id = :s"),
+                {"s": st["current_student_id"]},
+            )
             stage_state.update_state(conn, current_student_id=None, display_student_id=None)
             _audit(conn, ctx, "STAGE_PREVIOUS", st["current_student_id"], returned_to_queue=True)
             return {"message": "Student returned to the front of the queue."}
