@@ -12,11 +12,20 @@
 
 
 <div class="card" style="border-left: 4px solid var(--gold); margin-bottom: 1.5rem;">
-  <h2 style="margin-top: 0; font-size: 1.2rem;">Generate Missing Tokens</h2>
-  <form method="post" action="/admin/passes/generate" data-busy="Generating…">
-    <p class="muted">Creates a unique QR token only for students who do not have one yet. Existing QR codes are never altered or invalidated, so this is safe to run after importing supplementary student batches.</p>
-    <button class="big" type="submit">Generate missing tokens</button>
-  </form>
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+    <div style="flex: 1; min-width: 250px;">
+      <h2 style="margin-top: 0; font-size: 1.2rem;">Generate Missing Tokens</h2>
+      <form method="post" action="/admin/passes/generate" data-busy="Generating…">
+        <p class="muted">Creates a unique QR token only for students who do not have one yet. Existing QR codes are never altered or invalidated, so this is safe to run after importing supplementary student batches.</p>
+        <button class="big" type="submit">Generate missing tokens</button>
+      </form>
+    </div>
+    <div style="border-left: 1px solid var(--line); padding-left: 1.5rem; min-width: 200px;">
+      <h3 style="margin-top: 0; font-size: 1rem;">Big Screen Display Data</h3>
+      <p class="muted" style="font-size: 0.85rem;">Ensure student names, awards, and photos are approved and frozen for the LED screen.</p>
+      <a href="/admin/system#freeze-card" class="button small">Freeze Display Data &rarr;</a>
+    </div>
+  </div>
 </div>
 
 <h2>Passes List</h2>

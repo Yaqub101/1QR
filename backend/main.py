@@ -238,10 +238,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     # ── Admin: snapshot ───────────────────────────────────────────────────────
     @app.post("/admin/snapshot/freeze", dependencies=[Depends(require_admin)])
-    def snapshot_freeze() -> Dict[str, Any]:
+    def snapshot_freeze(request: Request, principal: Principal = Depends(require_admin)) -> Any:
         """Freeze display_snapshot from current student master records."""
         with engine.connect() as conn:
-            summary = freeze_display_data(conn)
+            summary = freeze_display_data(conn, operator_id=principal.user_id)
+        if "text/html" in request.headers.get("accept", "") and request.headers.get("hx-request") != "true":
+            from backend.web import redirect as web_redirect
+            return web_redirect("/admin/system#freeze-card",
+                                msg=f"Display data frozen successfully. {summary.frozen_count} student record(s) approved for the LED screen.")
         return {"frozen_count": summary.frozen_count}
 
     # ── Admin: master pack ────────────────────────────────────────────────────

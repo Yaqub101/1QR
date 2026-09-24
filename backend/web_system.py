@@ -30,13 +30,17 @@ def _photo_sentence(result) -> str:
 
 @router.get("")
 def system_page(request: Request, principal: Principal = Depends(require_admin)):
+    from sqlalchemy import text
     with request.app.state.engine.connect() as conn:
         now = reset_svc.labelled(reset_svc.counts(conn))
         last = reset_svc.last_reset(conn)
+        student_count = conn.execute(text("SELECT count(*) FROM students")).scalar() or 0
+        frozen_count = conn.execute(text("SELECT count(*) FROM display_snapshot")).scalar() or 0
     if last is not None:
         stamp = event_clock_time(last["occurred_at"], request.app.state.settings.event_utc_offset_minutes)
         last["when"] = stamp.replace("T", " ") if stamp else ""
     return render(request, "admin_system.html", principal=principal, counts=now, last=last,
+                  student_count=student_count, frozen_count=frozen_count,
                   phrase=reset_svc.CONFIRM_PHRASE, storage=_store(request).describe())
 
 

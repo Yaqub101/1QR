@@ -32,6 +32,55 @@
 </div>
 {% endif %}
 
+<h2>Stage &amp; Big Screen Display Data</h2>
+<div id="freeze-card" class="card" style="margin-bottom: 1.5rem; border-left: 4px solid var(--gold);">
+  <h2 style="margin-top: 0; font-size: 1.25rem;">Freeze Display Data for Big Screen</h2>
+  <p class="muted">Copies all student names, programmes, schools, awards and photos into the approved display snapshot (<code>display_snapshot</code>) used by the public LED and internal Caller screens.</p>
+
+  <div class="grid counts" style="margin: 1rem 0;">
+    <div class="card" style="margin: 0; padding: 0.75rem 1rem;">
+      <div style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">Total Students</div>
+      <div style="font-size: 1.8rem; font-weight: 700;" data-count="students-total">{{ student_count or 0 }}</div>
+    </div>
+    <div class="card" style="margin: 0; padding: 0.75rem 1rem; border-top: 3px solid {% if (frozen_count or 0) == (student_count or 0) and (student_count or 0) > 0 %}var(--okink){% else %}var(--badink){% endif %};">
+      <div style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">Frozen Display Records</div>
+      <div style="font-size: 1.8rem; font-weight: 700;" data-count="frozen-total">{{ frozen_count or 0 }}</div>
+    </div>
+  </div>
+
+  {% if (frozen_count or 0) == 0 and (student_count or 0) > 0 %}
+  <p class="flash bad" style="margin-bottom: 1rem;">
+    <b>No display data has been frozen yet.</b> The Stage Controller, public LED, and Caller screens will remain on the holding screen until display data is frozen.
+  </p>
+  {% elif (frozen_count or 0) < (student_count or 0) %}
+  <p class="flash bad" style="margin-bottom: 1rem;">
+    <b>{{ (student_count or 0) - (frozen_count or 0) }} student(s) lack approved display data.</b> Newly imported students will stay on the holding screen until re-frozen.
+  </p>
+  {% elif (frozen_count or 0) == (student_count or 0) and (student_count or 0) > 0 %}
+  <p class="flash ok" style="margin-bottom: 1rem;">
+    <b>All {{ student_count }} student(s) have approved display data.</b> The big screen and Caller screen are ready.
+  </p>
+  {% endif %}
+
+  <div class="flash bad" style="background: var(--bg-subtle, #f8f9fa); border-color: var(--line, #ddd); color: var(--ink, #333); margin-bottom: 1rem;">
+    <p style="margin: 0; font-size: 0.9rem;">
+      <b>Warning:</b> Names, programmes, schools, awards and photos are copied directly to the public LED screen. 
+      Once frozen, these records are <b>locked by database triggers</b>; any subsequent corrections will require a logged <b>Master Patch</b> from the student's detail page.
+    </p>
+  </div>
+
+  <form method="post" action="/admin/snapshot/freeze" data-busy="Freezing display data…"
+        onsubmit="var chk = document.getElementById('freeze-confirm-check'); if (!chk || !chk.checked) { alert('Please check the confirmation box before proceeding.'); return false; } return true;">
+    <label style="display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; margin-bottom: 1rem; font-size: 0.92rem;">
+      <input type="checkbox" id="freeze-confirm-check" required style="margin-top: 0.2rem;">
+      <span>I understand that names, programmes, schools, awards and photos are copied to the public LED screen, and that frozen rows are locked (corrections need a Master Patch).</span>
+    </label>
+    <button class="big" type="submit" {% if not student_count or student_count == 0 %}disabled{% endif %}>
+      {% if (frozen_count or 0) == 0 %}Freeze Display Data{% else %}Re-Freeze / Update Display Data ({{ student_count }} Students){% endif %}
+    </button>
+  </form>
+</div>
+
 <h2>Pre-Event Data Reset</h2>
 <div class="card danger-zone">
   <h2>Danger: Irreversible Event Reset</h2>

@@ -114,4 +114,5 @@ def private_state(conn: Connection, principal, settings) -> dict:
         "waiting": ahead,
         "previous": card_for(conn, st["previous_student_id"]),
         "queue_depth": conn.execute(text("SELECT count(*) FROM queue WHERE status = 'QUEUED'")).scalar_one(),
+        "display_snapshot_count": conn.execute(text("SELECT count(*) FROM display_snapshot")).scalar_one(),
     }

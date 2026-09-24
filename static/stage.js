@@ -90,6 +90,21 @@
       els.led.textContent = state.led_mode === "SHOWING"
         ? `Audience screen: showing ${shown || "a student"}`
         : "Audience screen: holding screen";
+
+      if (els.freezeWarning) {
+        let warning = "";
+        if (state.display_snapshot_count === 0) {
+          warning = "No display data has been frozen: the LED will stay on the holding screen until display data is frozen.";
+        } else if (current && !current.has_display_data) {
+          warning = "This student has no approved display data: the LED will stay on the holding screen until display data is frozen.";
+        }
+        if (warning) {
+          if (els.freezeWarningText) els.freezeWarningText.textContent = warning;
+          els.freezeWarning.hidden = false;
+        } else {
+          els.freezeWarning.hidden = true;
+        }
+      }
     }
 
     function handle(reply, quiet) {
@@ -188,6 +203,7 @@
     takeOver: byId("take-over"), message: byId("message"), banner: byId("banner"), led: byId("led"), results: byId("results"),
     currentName: byId("current-name"), currentProgramme: byId("current-programme"), currentPhoto: byId("current-photo"),
     waiting: byId("waiting"), depth: byId("depth"),
+    freezeWarning: byId("freeze-warning"), freezeWarningText: byId("freeze-warning-text"),
   };
 
   const scrollContainer = byId("waiting-scroll-container");

@@ -23,7 +23,7 @@ function el(props = {}) {
 function harness() {
   const els = {};
   for (const k of ["next", "showAgain", "home", "previous", "searchBtn", "skip", "takeOver"]) els[k] = el();
-  for (const k of ["message", "banner", "led", "currentName", "currentProgramme", "currentPhoto", "waiting", "depth", "results"]) els[k] = el();
+  for (const k of ["message", "banner", "led", "currentName", "currentProgramme", "currentPhoto", "waiting", "depth", "results", "freezeWarning", "freezeWarningText"]) els[k] = el();
   els.searchInput = el(); els.skipReason = el();
   const calls = [];
   const replies = [];
@@ -203,3 +203,25 @@ test("the first live state replaces 'Connecting…' with 'Ready.' (it must not s
   h.state(STATE(true));
   assert.equal(h.els.message.textContent, "Degree recorded. Showing the next student."); // later states keep the last message
 });
+
+test("freeze warning banner shows when display_snapshot has 0 rows", () => {
+  const h = harness();
+  h.state(STATE(true, { display_snapshot_count: 0 }));
+  assert.equal(h.els.freezeWarning.hidden, false);
+  assert.ok(h.els.freezeWarningText.textContent.includes("holding screen until display data is frozen"));
+});
+
+test("freeze warning banner shows when current student has no snapshot row", () => {
+  const h = harness();
+  const studentWithoutSnapshot = { ...CARD("Asha", 1), has_display_data: false };
+  h.state(STATE(true, { display_snapshot_count: 5, current: studentWithoutSnapshot }));
+  assert.equal(h.els.freezeWarning.hidden, false);
+  assert.ok(h.els.freezeWarningText.textContent.includes("holding screen until display data is frozen"));
+});
+
+test("freeze warning banner is hidden when display snapshot is present and current student is approved", () => {
+  const h = harness();
+  h.state(STATE(true, { display_snapshot_count: 5, current: CARD("Asha", 1) }));
+  assert.equal(h.els.freezeWarning.hidden, true);
+});
+

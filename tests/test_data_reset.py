@@ -643,3 +643,20 @@ class TestAudit:
         location(full_reset(admin(apps)))
         page = admin(apps).get("/admin/audit?action=DATA_RESET").text
         assert "DATA_RESET" in page and "eng-admin" in page
+
+    def test_reset_succeeds_and_clears_caller_dismissals(self, apps, engine):
+        """Regression test: caller_dismissals has an FK to students and must be emptied by reset."""
+        s = make_student(engine)
+        u_id = admin_id(engine)
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO caller_dismissals (student_id, dismissed_by) VALUES (:s, :u)"),
+                {"s": s.id, "u": u_id}
+            )
+        assert scalar(engine, "SELECT count(*) FROM caller_dismissals") == 1
+
+        location(full_reset(admin(apps)))
+
+        assert scalar(engine, "SELECT count(*) FROM students") == 0
+        assert scalar(engine, "SELECT count(*) FROM caller_dismissals") == 0
+

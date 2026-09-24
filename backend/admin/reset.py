@@ -73,7 +73,7 @@ REFUSAL_WINDOW_MINUTES = 15  # ... in this window lock the form
 DATA_LOCK_KEY = 0x1C0_0DA7A
 
 # Deleted in this order (children before parents). Each is emptied completely.
-CLEARED_TABLES = ("exceptions", "scan_log", "queue", "activity_events", "qr_tokens", "display_snapshot",
+CLEARED_TABLES = ("exceptions", "scan_log", "queue", "caller_dismissals", "activity_events", "qr_tokens", "display_snapshot",
                   "students", "counters")
 # Emptied in part: see _delete_all.
 PARTLY_CLEARED_TABLES = ("audit_log", "stage_state")

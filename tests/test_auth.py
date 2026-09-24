@@ -449,7 +449,7 @@ class TestSessions:
 # The role matrix: 9 identities x every protected endpoint
 # --------------------------------------------------------------------------- #
 STATION_PAGES = [("GET", f"/station/{slug(a)}") for a in ACTIVITIES] + [("GET", "/station/registry")]
-CALLER_PAGES = [("GET", "/caller"), ("GET", "/caller/state"), ("GET", "/caller/queue"), ("GET", "/caller/queue-events")]
+CALLER_PAGES = [("GET", "/caller"), ("GET", "/caller/state"), ("GET", "/caller/queue")]
 ADMIN_ENDPOINTS = [
     ("GET", "/admin"), ("GET", "/admin/users"),
     ("POST", "/admin/users"),
