@@ -102,7 +102,15 @@
         box.checked = !!m.done;
         box.disabled = !!m.done;
         const text = doc.createElement("span");
-        text.textContent = m.done && m.time ? `${m.label} — done ${m.time}` : m.label;
+        let label = m.label;
+        if (typeof window !== "undefined") {
+          if (m.key === "THOBE_ALLOCATION" || m.label === "Robe allotted") {
+            label = "Robe given & cash taken";
+          } else if (m.key === "THOBE_RETURN" || m.label === "Robe returned") {
+            label = "Robe taken & cash given";
+          }
+        }
+        text.textContent = m.done && m.time ? `${label} — done ${m.time}` : label;
         row.appendChild(box);
         row.appendChild(text);
         return row;

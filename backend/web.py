@@ -38,8 +38,8 @@ templates.env.globals["activity_label"] = ownership.ACTIVITY_LABEL
 templates.env.globals["role_label"] = {
     "ADMIN": "Admin",
     "DEPUTY_ADMIN": "Deputy Admin",
-    "REGISTRY": "Registry operator (Reporting, Robe, Robe Return)",
-    "CALLER": "Caller (read-only Caller screen)",
+    "REGISTRY": "Reporting operator (Reporting, Robe, Robe Return)",
+    "CALLER": "Dean (read-only Dean screen)",
     **{a: f"{label} operator" for a, label in ownership.ACTIVITY_LABEL.items()
        if a not in ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN")},
 }

@@ -138,11 +138,18 @@ _VIEW_BEFORE = """
 def upgrade() -> None:
     op.execute("DROP VIEW student_status")
     op.execute(_VIEW.replace("CREATE OR REPLACE VIEW", "CREATE VIEW"))
+<<<<<<< HEAD
     # Tighten waiver: only THOBE_RETURN waivers are issued in the 7-activity flow.
     # NOT VALID guarantees existing production historical waiver rows are untouched without aborting deploy.
     op.execute("ALTER TABLE activity_events DROP CONSTRAINT activity_events_waiver_is_return_only")
     op.execute("ALTER TABLE activity_events ADD CONSTRAINT activity_events_waiver_is_return_only "
                "CHECK (kind <> 'WAIVER' OR activity = 'THOBE_RETURN') NOT VALID")
+=======
+    # Tighten waiver: only THOBE_RETURN waivers are issued in the 7-activity flow
+    op.execute("ALTER TABLE activity_events DROP CONSTRAINT activity_events_waiver_is_return_only")
+    op.execute("ALTER TABLE activity_events ADD CONSTRAINT activity_events_waiver_is_return_only "
+               "CHECK (kind <> 'WAIVER' OR activity = 'THOBE_RETURN')")
+>>>>>>> 458e76270176af72a3b8429bad164e424624cf2c
 
 
 def downgrade() -> None:
@@ -150,4 +157,8 @@ def downgrade() -> None:
     op.execute(_VIEW_BEFORE.replace("CREATE OR REPLACE VIEW", "CREATE VIEW"))
     op.execute("ALTER TABLE activity_events DROP CONSTRAINT activity_events_waiver_is_return_only")
     op.execute("ALTER TABLE activity_events ADD CONSTRAINT activity_events_waiver_is_return_only "
+<<<<<<< HEAD
                "CHECK (kind <> 'WAIVER' OR activity IN ('THOBE_RETURN', 'MONEY_RETURNED')) NOT VALID")
+=======
+               "CHECK (kind <> 'WAIVER' OR activity IN ('THOBE_RETURN', 'MONEY_RETURNED'))")
+>>>>>>> 458e76270176af72a3b8429bad164e424624cf2c

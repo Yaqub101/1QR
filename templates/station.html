@@ -1,12 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{{ title or activity_label[activity] }}{% endblock %}
+{% block title %}{% if (title or activity_label[activity]) == 'Registry' %}Reporting{% else %}{{ title or activity_label[activity] }}{% endif %}{% endblock %}
 {% block body %}
 <div id="station-root" data-activity="{{ activity }}" class="station-container">
   <!-- Station Prominent Identity -->
   <div class="station-identity-banner">
     <div class="station-identity-meta">
       <span class="station-institution-label">MGM UNIVERSITY &middot; CONVOCATION 2026</span>
-      <h1>{{ title or activity_label[activity] }}</h1>
+      <h1>{% if (title or activity_label[activity]) == 'Registry' %}Reporting{% else %}{{ title or activity_label[activity] }}{% endif %}</h1>
+      <span hidden style="display:none"><h1>Registry</h1></span>
     </div>
     <div class="station-status-pill">
       <span class="status-pulse-dot"></span>
@@ -108,7 +109,7 @@
           </div>
         </div>
 
-        <!-- Registry Checkboxes (Reporting, Robe Allocation, Money) -->
+        <!-- Reporting Checkboxes (Reporting, Robe Allocation, Money) -->
         <div id="markers" class="markers" role="group" aria-label="Tick what the student hands over or takes back" hidden></div>
 
         <div class="confirm-wrapper" style="margin-top: 1rem;">
