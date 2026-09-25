@@ -18,16 +18,19 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Set database URL dynamically from environment / Settings
-try:
-    settings = get_settings()
-    db_url = settings.database_url
-except Exception:
-    db_url = os.getenv("DATABASE_URL", "postgresql://convocation_user:convocation_password@localhost:5432/convocation_db")
+db_url = os.getenv("DATABASE_URL")
+if not db_url:
+    try:
+        settings = get_settings()
+        db_url = settings.database_url
+    except Exception:
+        db_url = "postgresql://convocation_user:convocation_password@localhost:5432/convocation_db"
 
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-config.set_main_option("sqlalchemy.url", db_url)
+# Escape '%' for configparser interpolation
+config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
 # Model's MetaData object for 'autogenerate' support
 target_metadata = Base.metadata

@@ -28,9 +28,23 @@ CARD_SQL = """
 """
 
 
-def begin_controller_txn(conn: Connection) -> None:
+def begin_controller_txn(conn: Connection, session_id: Optional[str] = None, *, override: bool = False) -> None:
     """Mark THIS transaction as the Stage Controller's, so the guard trigger allows the update."""
     conn.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+    if session_id:
+        conn.execute(text("SELECT set_config('app.stage_session_id', :sid, true)"), {"sid": str(session_id)})
+    if override:
+        conn.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+
+
+def controller_is_stale(conn: Connection, stale_seconds: int = 30) -> bool:
+    """True if there is no controller recorded, or controller_since is older than stale_seconds."""
+    return bool(conn.execute(
+        text("SELECT (controller_session_id IS NULL OR controller_since IS NULL "
+             "OR now() - controller_since > make_interval(secs => :s)) FROM stage_state WHERE id = 1"),
+        {"s": stale_seconds},
+    ).scalar())
+
 
 
 def read_state(conn: Connection, *, lock: bool = False) -> dict:

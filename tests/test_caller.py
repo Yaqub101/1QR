@@ -174,8 +174,8 @@ class TestOnlyApprovedFields:
         nxt(stage.main)
         page = caller.get("/caller")
         assert page.status_code == 200
-        # No static HTML controls (the Complete buttons are injected by JS, not server-rendered).
-        for control in ("<form", "<input", "<select", "<textarea"):
+        # No static HTML controls (the Complete buttons are injected by JS, not server-rendered; logout form in header allowed).
+        for control in ("<input", "<select", "<textarea"):
             assert control not in page.text, control
         for secret in (students[0].prn, str(students[0].id), students[0].name):
             assert secret not in page.text  # everything arrives through the stream, never rendered into the page

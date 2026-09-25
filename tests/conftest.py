@@ -23,11 +23,37 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 os.environ["PHOTO_STORAGE"] = "local"
 os.environ.pop("PHOTO_STORAGE_DIR", None)
 
-# Strict PostgreSQL default for test database
-TEST_DB_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql://convocation_user:convocation_password@localhost:5432/convocation_test"
-)
+_pgserver_instance = None
+
+
+def _get_test_db_url() -> str:
+    global _pgserver_instance
+    if "TEST_DATABASE_URL" in os.environ:
+        return os.environ["TEST_DATABASE_URL"]
+
+    default_url = "postgresql://convocation_user:convocation_password@localhost:5432/convocation_test"
+    try:
+        engine = create_engine(default_url, connect_args={"connect_timeout": 1})
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        engine.dispose()
+        return default_url
+    except Exception:
+        pass
+
+    try:
+        import pgserver
+        pgdata_dir = os.path.join(str(REPO_ROOT), ".pgdata_test")
+        _pgserver_instance = pgserver.get_server(pgdata_dir)
+        base_url = make_url(_pgserver_instance.get_uri())
+        test_url = str(base_url.set(database="convocation_test"))
+        return test_url
+    except Exception:
+        return default_url
+
+
+TEST_DB_URL = _get_test_db_url()
+
 
 
 def ensure_postgres_test_db(url_str: str) -> None:

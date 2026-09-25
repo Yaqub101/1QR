@@ -38,3 +38,4 @@ logs/
 *.egg-info/
 
 outputs/
+.pgdata_test/

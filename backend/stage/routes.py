@@ -110,6 +110,17 @@ def stage_takeover(body: Optional[EmptyBody] = None, request: Request = None, pr
     return _do(request, principal, controller.takeover)
 
 
+@router.post("/stage/heartbeat")
+def stage_heartbeat(body: Optional[EmptyBody] = None, request: Request = None, principal: Principal = Depends(require_stage_operator)):
+    return _do(request, principal, controller.heartbeat)
+
+
+@router.post("/stage/release")
+def stage_release(body: Optional[EmptyBody] = None, request: Request = None, principal: Principal = Depends(require_stage_operator)):
+    return _do(request, principal, controller.release)
+
+
+
 @router.post("/stage/next")
 def stage_next(body: NextBody, request: Request, principal: Principal = Depends(require_stage_operator)):
     """THE advance: the student on stage received the degree, and the next one goes on stage."""

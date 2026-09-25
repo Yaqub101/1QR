@@ -225,3 +225,32 @@ test("freeze warning banner is hidden when display snapshot is present and curre
   assert.equal(h.els.freezeWarning.hidden, true);
 });
 
+test("heartbeat starts when controlling and stops when control is lost", async () => {
+  const timers = [];
+  let cleared = 0;
+  const h = harness();
+  const calls = [];
+  let stateCallback;
+  const screen = createStageScreen({
+    els: h.els,
+    post: async (url, body) => { calls.push({ url, body }); return { state: STATE(true) }; },
+    connect: (cb) => { stateCallback = cb.state; return () => {}; },
+    doc: { createElement: () => el() },
+    setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearInterval: () => { cleared++; },
+    heartbeatMs: 10000,
+  });
+  screen.start();
+  stateCallback(STATE(true));
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].ms, 10000);
+
+  await timers[0].fn();
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { url: "/stage/heartbeat", body: {} });
+
+  stateCallback(STATE(false));
+  assert.equal(cleared, 1);
+});
+
+

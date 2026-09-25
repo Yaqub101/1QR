@@ -1,6 +1,7 @@
 """Sign-in, sign-out, "who am I", and the station screen shell."""
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
 from typing import Optional
 
@@ -14,6 +15,7 @@ from backend.audit import write_audit
 from backend.engine import registry
 from backend.engine.activities import ACTIVITY_CONFIGS
 from backend.security import permissions, sessions
+from backend.stage import state as stage_state
 from backend.security.deps import (
     SESSION_COOKIE,
     ActivityAccess,
@@ -95,7 +97,21 @@ def _end_session(request: Request) -> None:
     token = token_from_request(request)
     if token:
         with request.app.state.engine.begin() as conn:
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            sid = conn.execute(text("SELECT id FROM sessions WHERE token_hash = :h"), {"h": token_hash}).scalar()
             sessions.revoke_token(conn, token)
+            if sid:
+                st = conn.execute(text("SELECT controller_session_id, controller_epoch FROM stage_state WHERE id = 1")).mappings().one_or_none()
+                if st and st["controller_session_id"] == sid:
+                    stage_state.begin_controller_txn(conn, session_id=sid)
+                    stage_state.update_state(
+                        conn,
+                        controller_session_id=None,
+                        controller_station_id=None,
+                        controller_since=None,
+                        controller_epoch=st["controller_epoch"] + 1,
+                    )
+
 
 
 @router.post("/logout")

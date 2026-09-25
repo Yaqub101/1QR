@@ -51,12 +51,21 @@ def _refuse(status: int, pair_or_code, message: Optional[str] = None):
     raise StageRefusal(status, code, msg)
 
 
-def _run(engine, *, settings, principal, fn: Callable, needs_control: bool = True) -> dict:
+STALE_THRESHOLD_SECONDS = 30
+HEARTBEAT_INTERVAL_SECONDS = 10
+
+
+def _run(engine, *, settings, principal, fn: Callable, needs_control: bool = True, override: bool = False) -> dict:
     """One controller action: authorise, take the stage lock, check control, act, return the new private state."""
     try:
         with engine.begin() as conn:
             ctx = service.authorize_station(settings, principal, "STAGE")
-            stage_state.begin_controller_txn(conn)
+            is_admin = principal.role in ("ADMIN", "DEPUTY_ADMIN")
+            stage_state.begin_controller_txn(
+                conn,
+                principal.session_id,
+                override=(override or (is_admin and not needs_control)),
+            )
             st = stage_state.read_state(conn, lock=True)  # serialises every press, including a rapid double press
             if needs_control and (st["controller_session_id"] is None or str(st["controller_session_id"]) != principal.session_id):
                 _refuse(409, NOT_CONTROLLER)
@@ -81,7 +90,9 @@ def claim(engine, **kw) -> dict:
         mine = st["controller_session_id"] is not None and str(st["controller_session_id"]) == ctx.principal.session_id
         if mine:
             return {"changed": False, "message": "This laptop is running the stage."}
-        if stage_state.controller_is_live(conn, st, ctx.settings.session_idle_minutes):
+        if (st["controller_session_id"] is not None
+                and not stage_state.controller_is_stale(conn, STALE_THRESHOLD_SECONDS)
+                and stage_state.controller_is_live(conn, st, ctx.settings.session_idle_minutes)):
             _refuse(409, "CONTROLLED_ELSEWHERE", "Another laptop is running the stage. Use TAKE OVER to replace it.")
         _set_controller(conn, ctx, st)
         return {"message": "This laptop is now running the stage."}
@@ -93,6 +104,11 @@ def takeover(engine, **kw) -> dict:
         mine = st["controller_session_id"] is not None and str(st["controller_session_id"]) == ctx.principal.session_id
         if mine:
             return {"changed": False, "message": "This laptop is already running the stage."}
+        is_admin = ctx.principal.role in ("ADMIN", "DEPUTY_ADMIN")
+        if (not is_admin and st["controller_session_id"] is not None
+                and not stage_state.controller_is_stale(conn, STALE_THRESHOLD_SECONDS)
+                and stage_state.controller_is_live(conn, st, ctx.settings.session_idle_minutes)):
+            _refuse(409, "ACTIVE_CONTROLLER", "Another laptop is actively running the stage. Try again after it is idle.")
         _audit(conn, ctx, "STAGE_TAKEOVER",
                replaced_session=str(st["controller_session_id"]) if st["controller_session_id"] else None)
         _set_controller(conn, ctx, st)
@@ -100,10 +116,46 @@ def takeover(engine, **kw) -> dict:
     return _run(engine, fn=act, needs_control=False, **kw)
 
 
+def heartbeat(engine, **kw) -> dict:
+    """Periodically update controller_since while this session holds the controller lock."""
+    def act(conn, ctx, st):
+        mine = st["controller_session_id"] is not None and str(st["controller_session_id"]) == ctx.principal.session_id
+        if not mine:
+            _refuse(409, NOT_CONTROLLER)
+        stage_state.update_state(conn, controller_since=conn.execute(text("SELECT now()")).scalar())
+        return {"changed": False, "message": "Heartbeat recorded."}
+    return _run(engine, fn=act, needs_control=True, **kw)
+
+
+def release(engine, **kw) -> dict:
+    """Clean release of the controller lock on graceful logout/navigation/disconnect."""
+    def act(conn, ctx, st):
+        mine = st["controller_session_id"] is not None and str(st["controller_session_id"]) == ctx.principal.session_id
+        if not mine:
+            return {"changed": False, "message": "This laptop is not running the stage."}
+        _clear_controller(conn, ctx, st)
+        _audit(conn, ctx, "STAGE_RELEASE", session=ctx.principal.session_id)
+        return {"message": "Stage control released."}
+    return _run(engine, fn=act, needs_control=False, **kw)
+
+
 def _set_controller(conn: Connection, ctx, st: dict) -> None:
+    if st["controller_session_id"] is not None and not stage_state.controller_is_live(conn, st, ctx.settings.session_idle_minutes):
+        conn.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
     stage_state.update_state(
         conn, controller_session_id=ctx.principal.session_id,
         controller_since=conn.execute(text("SELECT now()")).scalar(), controller_epoch=st["controller_epoch"] + 1)
+
+
+def _clear_controller(conn: Connection, ctx, st: dict) -> None:
+    stage_state.update_state(
+        conn,
+        controller_session_id=None,
+        controller_station_id=None,
+        controller_since=None,
+        controller_epoch=st["controller_epoch"] + 1,
+    )
+
 
 
 # --------------------------------------------------------------------------- the LED

@@ -484,6 +484,15 @@ class TestSingleController:
         assert claim_b.status_code == 409 and claim_b.json()["detail"]["code"] == "CONTROLLED_ELSEWHERE"
         assert q(engine, "SELECT count(*) AS n FROM stage_state")[0]["n"] == 1     # one controller slot, by construction
 
+        # B attempts takeover while A is still active -> blocked by stale threshold guard
+        assert act(stage.backup, "takeover", station="STG-02").status_code == 409
+
+        # A becomes stale (>30s)
+        with engine.begin() as c:
+            c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            c.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+            c.execute(text("UPDATE stage_state SET controller_since = now() - interval '35 seconds' WHERE id = 1"))
+
         # B takes over on purpose
         took = act(stage.backup, "takeover", station="STG-02")
         assert took.status_code == 200 and took.json()["state"]["you_control"] is True
@@ -499,27 +508,39 @@ class TestSingleController:
         assert mine["you_control"] is False and mine["controller"]["username"] == "stage-backup"
         assert events_of(engine, students[0], "STAGE") == []                       # A's locked-out NEXT did nothing
 
-        # B now runs the show (one NEXT: A's student receives the degree, the next is shown); A can take it back
+        # B now runs the show (one NEXT: A's student receives the degree, the next is shown); A can take it back when stale
         assert nxt(stage.backup, station="STG-02").status_code == 200
         assert led(apps).json()["student"]["name"] == students[1].name and len(events_of(engine, students[0], "STAGE")) == 1
+
+        with engine.begin() as c:
+            c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            c.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+            c.execute(text("UPDATE stage_state SET controller_since = now() - interval '35 seconds' WHERE id = 1"))
+
         assert act(stage.main, "takeover").status_code == 200
         assert act(stage.backup, "home", station="STG-02").status_code == 409
 
     def test_take_over_is_audited_with_who_replaced_whom(self, apps, world, engine, stage):
         claim(stage)
-        act(stage.backup, "takeover", station="STG-02")
+        with engine.begin() as c:
+            c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            c.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+            c.execute(text("UPDATE stage_state SET controller_since = now() - interval '35 seconds' WHERE id = 1"))
+        assert act(stage.backup, "takeover", station="STG-02").status_code == 200
         row = q(engine, "SELECT operator_id, details FROM audit_log WHERE action = 'STAGE_TAKEOVER' ORDER BY id DESC LIMIT 1")[0]
         assert row["details"]["replaced_session"] is not None
 
     def test_a_dead_controller_does_not_block_the_backup(self, apps, world, engine, stage):
         claim(stage)
-        with engine.begin() as c:  # laptop A's session ended (idle timeout / logged out)
-            c.execute(text("UPDATE sessions SET revoked_at = now() WHERE token_hash = :h"),
-                      {"h": hashlib.sha256(stage.main_token.encode()).hexdigest()})
-        assert act(stage.backup, "control", station="STG-02").status_code == 200  # no take-over needed
-        with engine.begin() as c:  # put A's session back for the rest of the module
-            c.execute(text("UPDATE sessions SET revoked_at = NULL WHERE token_hash = :h"),
-                      {"h": hashlib.sha256(stage.main_token.encode()).hexdigest()})
+        try:
+            with engine.begin() as c:  # laptop A's session ended (idle timeout / logged out)
+                c.execute(text("UPDATE sessions SET revoked_at = now() WHERE token_hash = :h"),
+                          {"h": hashlib.sha256(stage.main_token.encode()).hexdigest()})
+            assert act(stage.backup, "control", station="STG-02").status_code == 200  # no take-over needed
+        finally:
+            with engine.begin() as c:  # put A's session back for the rest of the module
+                c.execute(text("UPDATE sessions SET revoked_at = NULL WHERE token_hash = :h"),
+                          {"h": hashlib.sha256(stage.main_token.encode()).hexdigest()})
 
     def test_an_admin_can_take_over_but_a_queue_operator_cannot(self, apps, world, engine, stage):
         claim(stage)
@@ -530,6 +551,185 @@ class TestSingleController:
     def test_non_stage_operators_cannot_control_the_stage(self, apps, world):
         for role in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "THOBE_RETURN", "LUNCH"):
             assert act(operator(apps, world, role), "control").status_code == 403
+
+
+# =========================================================================== REGRESSION: STALE LOCK, HEARTBEAT & RELEASE
+class TestStaleLockAndHeartbeat:
+    """Regression tests for Stage Controller deadlock bug (Render production):
+    Test A — normal acquisition
+    Test B — active controller blocks another session
+    Test C — stale controller can be taken over
+    Test D — heartbeat prevents false takeover
+    Test E — clean release (explicit /stage/release and /api/logout)
+    """
+
+    def test_a_normal_acquisition(self, apps, world, engine, stage):
+        # Initial: no controller
+        reset_stage(engine)
+        st = q(engine, "SELECT controller_session_id, controller_epoch FROM stage_state WHERE id = 1")[0]
+        assert st["controller_session_id"] is None
+        epoch_before = st["controller_epoch"]
+
+        # Session A acquires lock
+        resp = act(stage.main, "control")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["state"]["you_control"] is True
+
+        st_after = q(engine, "SELECT controller_session_id, controller_since, controller_epoch FROM stage_state WHERE id = 1")[0]
+        assert st_after["controller_session_id"] is not None
+        assert st_after["controller_since"] is not None
+        assert st_after["controller_epoch"] == epoch_before + 1
+
+    def test_b_active_controller_blocks_another_session_takeover(self, apps, world, engine, stage):
+        # Session A owns lock
+        reset_stage(engine)
+        assert act(stage.main, "control").status_code == 200
+
+        # Session B attempts takeover before stale threshold (30s)
+        resp = act(stage.backup, "takeover", station="STG-02")
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "ACTIVE_CONTROLLER"
+
+        # Session A still owns the stage
+        mine = stage.main.get("/stage/state").json()
+        assert mine["you_control"] is True
+        backup_view = stage.backup.get("/stage/state").json()
+        assert backup_view["you_control"] is False
+
+    def test_c_stale_controller_can_be_taken_over(self, apps, world, engine, stage):
+        # Session A owns lock
+        reset_stage(engine)
+        assert act(stage.main, "control").status_code == 200
+        epoch_a = q(engine, "SELECT controller_epoch FROM stage_state WHERE id = 1")[0]["controller_epoch"]
+
+        # Simulate Session A dying without release (controller_since > 30s ago)
+        with engine.begin() as c:
+            c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            c.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+            c.execute(text("UPDATE stage_state SET controller_since = now() - interval '35 seconds' WHERE id = 1"))
+
+        # Session B acquires lock via takeover
+        resp = act(stage.backup, "takeover", station="STG-02")
+        assert resp.status_code == 200
+        assert resp.json()["state"]["you_control"] is True
+
+        st_b = q(engine, "SELECT controller_epoch, controller_since FROM stage_state WHERE id = 1")[0]
+        assert st_b["controller_epoch"] == epoch_a + 1
+        assert st_b["controller_since"] is not None
+
+        # Session A is now locked out
+        assert act(stage.main, "home").status_code == 409
+
+    def test_d_heartbeat_prevents_false_takeover(self, apps, world, engine, stage):
+        # Session A owns lock
+        reset_stage(engine)
+        assert act(stage.main, "control").status_code == 200
+
+        # Age the timestamp to near stale threshold (e.g. 20s ago)
+        with engine.begin() as c:
+            c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            c.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+            c.execute(text("UPDATE stage_state SET controller_since = now() - interval '20 seconds' WHERE id = 1"))
+
+        # Heartbeat is sent by active controller Session A
+        hb_resp = act(stage.main, "heartbeat")
+        assert hb_resp.status_code == 200
+        assert hb_resp.json()["ok"] is True
+
+        # Non-controller cannot heartbeat
+        hb_b = act(stage.backup, "heartbeat")
+        assert hb_b.status_code == 409
+
+        # Since heartbeat refreshed controller_since to now(), Session B cannot take over
+        takeover_resp = act(stage.backup, "takeover", station="STG-02")
+        assert takeover_resp.status_code == 409
+        assert takeover_resp.json()["detail"]["code"] == "ACTIVE_CONTROLLER"
+
+    def test_e_clean_release_api_endpoint(self, apps, world, engine, stage):
+        # Session A owns lock
+        reset_stage(engine)
+        assert act(stage.main, "control").status_code == 200
+        epoch_a = q(engine, "SELECT controller_epoch FROM stage_state WHERE id = 1")[0]["controller_epoch"]
+
+        # Session A releases normally
+        rel_resp = act(stage.main, "release")
+        assert rel_resp.status_code == 200
+        assert rel_resp.json()["ok"] is True
+
+        st = q(engine, "SELECT controller_session_id, controller_since, controller_epoch FROM stage_state WHERE id = 1")[0]
+        assert st["controller_session_id"] is None
+        assert st["controller_since"] is None
+        assert st["controller_epoch"] == epoch_a + 1
+
+        # Session B acquires lock immediately without waiting for stale timeout
+        acq_resp = act(stage.backup, "control", station="STG-02")
+        assert acq_resp.status_code == 200
+        assert acq_resp.json()["state"]["you_control"] is True
+
+    def test_e_clean_release_on_logout(self, apps, world, engine, stage):
+        client_c = new_client(apps)
+        assert api_login(client_c, "stage-backup").status_code == 200
+
+        # Session C owns lock
+        reset_stage(engine)
+        assert act(client_c, "control", station="STG-02").status_code == 200
+
+        # Session C signs out
+        assert client_c.post("/api/logout").status_code == 200
+
+        st = q(engine, "SELECT controller_session_id, controller_since FROM stage_state WHERE id = 1")[0]
+        assert st["controller_session_id"] is None
+        assert st["controller_since"] is None
+
+        # Session A acquires lock immediately
+        acq_resp = act(stage.main, "control")
+        assert acq_resp.status_code == 200
+        assert acq_resp.json()["state"]["you_control"] is True
+
+    def test_stage_state_guard_trigger_db_level(self, engine):
+        """Direct DB trigger test: stage_state_guard() allows stale takeover and blocks active takeover."""
+        import uuid
+        sid1 = uuid.uuid4()
+        sid2 = uuid.uuid4()
+
+        with engine.begin() as conn:
+            conn.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            conn.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+            conn.execute(text("UPDATE stage_state SET controller_session_id = NULL, controller_since = NULL WHERE id = 1"))
+
+        # 1. Acquire when NULL succeeds without override
+        with engine.begin() as conn:
+            conn.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            conn.execute(text("UPDATE stage_state SET controller_session_id = :s, controller_since = now() WHERE id = 1"),
+                         {"s": sid1})
+
+        # 2. Another session attempts to overwrite while sid1 is fresh (<30s) -> fails at DB trigger level
+        with engine.connect() as conn:
+            outer = conn.begin()
+            try:
+                conn.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+                with db_error(conn, RESTRICT_VIOLATION, match="Stage Controller"):
+                    conn.execute(text("UPDATE stage_state SET controller_session_id = :s, controller_since = now() WHERE id = 1"),
+                                 {"s": sid2})
+            finally:
+                outer.rollback()
+
+        # 3. Simulate sid1 becoming stale (>30s)
+        with engine.begin() as conn:
+            conn.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            conn.execute(text("SELECT set_config('app.stage_override', 'on', true)"))
+            conn.execute(text("UPDATE stage_state SET controller_since = now() - interval '35 seconds' WHERE id = 1"))
+
+        # 4. Another session sid2 can now take over at DB level without override
+        with engine.begin() as conn:
+            conn.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
+            conn.execute(text("UPDATE stage_state SET controller_session_id = :s, controller_since = now() WHERE id = 1"),
+                         {"s": sid2})
+            row = conn.execute(text("SELECT controller_session_id FROM stage_state WHERE id = 1")).scalar()
+            assert row == sid2
+
 
 
 def bounded_stream(engine, settings, *, max_ticks=300, which="led"):

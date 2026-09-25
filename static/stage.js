@@ -71,9 +71,28 @@
       );
     }
 
+    const setIntervalFn = deps.setInterval || null;
+    const clearIntervalFn = deps.clearInterval || null;
+    const heartbeatMs = deps.heartbeatMs || 10000;
+    let heartbeatTimer = null;
+
     function render(state) {
       if (!state) return;
       youControl = !!state.you_control;
+      if (setIntervalFn && clearIntervalFn) {
+        if (youControl && !heartbeatTimer) {
+          heartbeatTimer = setIntervalFn(() => {
+            if (youControl) {
+              post("/stage/heartbeat", {}).then((reply) => {
+                if (reply && reply.state) render(reply.state);
+              }).catch(() => {});
+            }
+          }, heartbeatMs);
+        } else if (!youControl && heartbeatTimer) {
+          clearIntervalFn(heartbeatTimer);
+          heartbeatTimer = null;
+        }
+      }
       const current = state.current;
       onStage = current ? current.student_id : null;
       els.currentName.textContent = current ? current.name : "";
@@ -189,7 +208,14 @@
       connect({ state: render });
     }
 
-    return { start, handleKey, render };
+    function stop() {
+      if (clearIntervalFn && heartbeatTimer) {
+        clearIntervalFn(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    }
+
+    return { start, stop, handleKey, render };
   }
 
   return createStageScreen;
@@ -227,13 +253,28 @@
     return () => source.close();
   }
 
-  const screen = window.createStageScreen({ els, post, connect, doc: document });
+  const screen = window.createStageScreen({
+    els, post, connect, doc: document,
+    setInterval: window.setInterval.bind(window),
+    clearInterval: window.clearInterval.bind(window),
+  });
   screen.start();
   document.addEventListener("keydown", screen.handleKey);
+
+  // Cleanly release the controller lock when navigating away or closing the tab
+  window.addEventListener("pagehide", () => {
+    try {
+      fetch("/stage/release", {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: "{}", keepalive: true,
+      });
+    } catch (_) {}
+  });
 
   // Take control when the screen opens; if another laptop already has it, the screen offers TAKE OVER.
   post("/stage/control", {})
     .then((reply) => { if (reply && reply.state) screen.render(reply.state); });
+
 
   // ---------------- Infinite Scroll for the Stage Manager Queue ----------------
   let loadedStudentIds = new Set();
