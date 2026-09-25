@@ -26,16 +26,16 @@
 
   <div class="header-center">
     <a href="{{ '/admin' if principal and principal.is_admin else '/' }}" class="header-center-link">
-      <div class="header-logo-pill">
-        <img src="{{ asset_url('img/convocation-logo.png') }}" alt="Convocation Logo" class="header-logo convocation-logo">
-      </div>
+      <img src="{{ asset_url('img/convocation_white.png') }}" alt="MGM University Convocation" class="header-convocation-logo">
     </a>
   </div>
 
   <div class="header-right user-group">
     {% if principal %}
-    <span class="role-badge">{{ role_label[principal.role] }}</span>
-    <span class="who">{{ principal.full_name or principal.username }}</span>
+    <div class="user-meta-line">
+      <span class="role-badge">{{ role_label[principal.role] }}</span>
+      <span class="who">{{ principal.full_name or principal.username }}</span>
+    </div>
     <form method="post" action="/logout"><button class="link signout-link" type="submit">Sign out</button></form>
     {% endif %}
   </div>

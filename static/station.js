@@ -186,8 +186,25 @@
       const view = Logic.classifyResult(reply.result);
       showBanner(view.colour, reply.message || TEMPORARY);
       playSound(view.sound);
-      if (reply.student) renderCard(reply.student);
-      else clearCard();
+      if (reply.student) {
+        renderCard(reply.student);
+        if (els.card && typeof els.card.scrollIntoView === "function") {
+          const doScroll = () => {
+            try {
+              els.card.scrollIntoView({ behavior: "smooth", block: "start" });
+            } catch (_) {
+              els.card.scrollIntoView(true);
+            }
+          };
+          if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+            window.requestAnimationFrame(doScroll);
+          } else {
+            doScroll();
+          }
+        }
+      } else {
+        clearCard();
+      }
       if (reply.student && els.cardState) els.cardState.textContent = reply.state || "";
       if (reply.student && reply.markers) renderMarkers(reply.markers);
 
@@ -498,6 +515,7 @@
     activity: rootEl.dataset.activity,
   });
   screen.init();
+  if (typeof window !== "undefined") window.stationScreen = screen;
 
   // Camera-based scanning: battery-conscious lifecycle with inactivity timeout & tap-to-resume
   const cameraVideo = byId("camera-video");

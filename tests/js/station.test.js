@@ -747,4 +747,39 @@ test("Successful reissue updates UI, shows download button and does NOT auto-dow
   assert.equal(autoDownloaded, false);
 });
 
+test("auto-scroll: card scrolls into view smoothly every time a scan resolves to a student", async () => {
+  const scrollCalls = [];
+  const h = harness();
+  h.els.card.scrollIntoView = (opts) => { scrollCalls.push(opts); };
+
+  // First successful scan
+  h.replies.push({
+    result: "READY",
+    student: { name: "Bhavana", student_id: "s-1", fields: [] },
+  });
+  await h.screen.submitScan("TOK111");
+  assert.equal(scrollCalls.length, 1);
+  assert.deepEqual(scrollCalls[0], { behavior: "smooth", block: "start" });
+
+  // Second successful scan in a row
+  h.replies.push({
+    result: "READY",
+    student: { name: "Venkata", student_id: "s-2", fields: [] },
+  });
+  await h.screen.submitScan("TOK222");
+  assert.equal(scrollCalls.length, 2);
+  assert.deepEqual(scrollCalls[1], { behavior: "smooth", block: "start" });
+
+  // Failed scan / no match -> does NOT scroll
+  h.replies.push({
+    result: "ERROR",
+    message: "No matching student",
+    student: null,
+  });
+  await h.screen.submitScan("INVALID");
+  assert.equal(scrollCalls.length, 2, "must not scroll on failed scan / error");
+  assert.equal(h.els.banner.className, "banner red");
+});
+
+
 
