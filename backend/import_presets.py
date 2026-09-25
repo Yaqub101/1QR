@@ -122,6 +122,7 @@ UNIVERSITY_CONVOCATION_DETAIL_REPORT = Preset(
         "school": ("Stream",),
         "email": ("Email Id",),
         "mobile": ("Mobile No.",),
+        "sr_no": ("Sr.No",),
     },
     # This import is the paid-registrations file: every row on it is, by definition, ACTIVE. There
     # is no status column in the file at all (and no sequence_no / seat_no / photo column either --

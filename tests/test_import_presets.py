@@ -234,13 +234,13 @@ class TestApplyPresetRedaction:
 
     def test_the_returned_columns_are_only_the_six_safe_fields_plus_status(self):
         columns, _ = self._parsed()
-        assert set(columns) == {"prn", "name", "programme", "school", "email", "mobile", "status"}
+        assert set(columns) == {"prn", "name", "programme", "school", "email", "mobile", "status", "sr_no"}
 
     def test_not_one_row_dict_contains_any_denylisted_key_or_value(self):
         _, record_rows = self._parsed()
         assert len(record_rows) == len(sample_fixture_rows())
         for row in record_rows:
-            assert set(row) == {"prn", "name", "programme", "school", "email", "mobile", "status"}
+            assert set(row) == {"prn", "name", "programme", "school", "email", "mobile", "status", "sr_no"}
             assert_no_sentinel(row)
 
     def test_a_middle_name_is_joined_with_single_spaces(self):
@@ -513,7 +513,7 @@ class TestAgainstTheRealFile:
     def test_the_real_file_previews_at_exactly_the_numbers_asked_for(self, engine, real_bytes):
         cols, parsed_rows, mapping, preview = read_and_validate(
             engine, real_bytes, "StudentConvocationDetailReport_Fees Paid Student.xls")
-        assert set(cols) == {"prn", "name", "programme", "school", "email", "mobile", "status"}
+        assert set(cols) == {"prn", "name", "programme", "school", "email", "mobile", "status", "sr_no"}
         assert preview.is_valid is True, [e.message for e in preview.errors][:5]
         assert len(preview.to_create) == 1200
         assert len(preview.to_skip) == 1
@@ -524,9 +524,9 @@ class TestAgainstTheRealFile:
         preset, header_row = import_presets.detect_preset(real_bytes, engine="xlrd")
         df = pd.read_excel(io.BytesIO(real_bytes), engine="xlrd", header=header_row, dtype=str)
         cols, parsed_rows = import_presets.apply_preset(preset, df)
-        assert set(cols) == {"prn", "name", "programme", "school", "email", "mobile", "status"}
+        assert set(cols) == {"prn", "name", "programme", "school", "email", "mobile", "status", "sr_no"}
         for row in parsed_rows:
-            assert set(row) == {"prn", "name", "programme", "school", "email", "mobile", "status"}
+            assert set(row) == {"prn", "name", "programme", "school", "email", "mobile", "status", "sr_no"}
 
     def test_the_real_file_imports_successfully_through_the_actual_upload_screen(self, apps, engine, real_bytes):
         """Everything else in this class proves the mechanism by calling `read_and_validate` /

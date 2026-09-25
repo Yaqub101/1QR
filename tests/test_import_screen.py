@@ -204,7 +204,7 @@ class TestColumnMapping:
         client = admin(apps, "college")
         prn = f"ODD{tag()}"
         # None of these headings is an alias the importer knows, so nothing is matched for the Admin.
-        records = [{"Roll Code": prn, "Called": f"Student {prn}", "Stream": "B.Tech", "Wing": "Engineering"}]
+        records = [{"Roll Code": prn, "Called": f"Student {prn}", "Track": "B.Tech", "Wing": "Engineering"}]
         batch = batch_of(upload(client, csv_bytes(records)))
         assert mapping_form(client.get(f"/admin/import/{batch}/columns").text) == {
             "map__0": "", "map__1": "", "map__2": "", "map__3": ""}, "nothing should be auto-detected here"

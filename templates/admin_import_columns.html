@@ -10,6 +10,15 @@
 <p class="muted">Map each column from the uploaded spreadsheet to the corresponding convocation student record field.
   Columns marked “Do not import” will be skipped.</p>
 
+{% if auto_matched %}
+<div class="flash ok" style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem;">
+  <div>
+    <b>Headers automatically detected!</b> All required student fields have been matched from the spreadsheet.
+  </div>
+  <a href="/admin/import/{{ batch.batch_id }}/preview" class="button small">Proceed to Preview &rarr;</a>
+</div>
+{% endif %}
+
 <form method="post" action="/admin/import/{{ batch.batch_id }}/columns" data-busy="Checking…">
   <table class="spaced">
     <tr><th>Column in File</th><th>Mapped Field</th><th>Sample Data (First Rows)</th></tr>

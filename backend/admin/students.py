@@ -27,20 +27,20 @@ def search(conn: Connection, query: str = "", limit: int = SEARCH_LIMIT, offset:
     
     if needle:
         number = int(needle) if needle.isdigit() and len(needle) < 10 else None
-        where_clause = "WHERE s.prn ILIKE :like ESCAPE '\\' OR s.name ILIKE :like ESCAPE '\\' OR s.sequence_no = :num "
+        where_clause = "WHERE s.prn ILIKE :like ESCAPE '\\' OR s.name ILIKE :like ESCAPE '\\' OR s.sr_no ILIKE :like ESCAPE '\\' OR s.sequence_no = :num "
         params["like"] = _like(needle)
         params["num"] = number
         
     total = conn.execute(text(f"SELECT count(*) FROM students s {where_clause}"), params).scalar()
     
     rows = conn.execute(text(f"""
-        SELECT s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.status, s.photo_path, v.step, v.status AS journey 
+        SELECT s.id, s.prn, s.name, s.programme, s.school, s.sequence_no, s.status, s.photo_path, s.sr_no, v.step, v.status AS journey 
         FROM students s JOIN student_status v ON v.student_id = s.id 
         {where_clause}
         ORDER BY s.sequence_no NULLS LAST, s.name LIMIT :n OFFSET :off"""), params).mappings()
         
     students = [{"student_id": str(r["id"]), "prn": r["prn"], "name": r["name"], "programme": r["programme"],
-             "school": r["school"], "sequence_no": r["sequence_no"], "master_status": r["status"],
+             "school": r["school"], "sequence_no": r["sequence_no"], "sr_no": r.get("sr_no"), "master_status": r["status"],
              "photo_path": r.get("photo_path"),
              "journey_status": journey_status(r["journey"])} for r in rows]
              
@@ -57,7 +57,7 @@ def journey(conn: Connection, student_id, settings) -> Optional[dict]:
     off = settings.event_utc_offset_minutes
     student = conn.execute(text(
         "SELECT s.id, s.prn, s.name, s.programme, s.school, s.awards, s.photo_path, s.sequence_no, s.seat_no, s.status, "
-        "s.email, s.mobile, "
+        "s.email, s.mobile, s.sr_no, "
         "v.step, v.status AS journey, EXISTS (SELECT 1 FROM display_snapshot d WHERE d.student_id = s.id) AS frozen "
         "FROM students s JOIN student_status v ON v.student_id = s.id WHERE s.id = :s"), {"s": sid}).mappings().one_or_none()
     if student is None:
@@ -102,7 +102,7 @@ def journey(conn: Connection, student_id, settings) -> Optional[dict]:
         "student": {"student_id": str(student["id"]), "prn": student["prn"], "name": student["name"],
                     "programme": student["programme"], "school": student["school"], "awards": student["awards"],
                     "photo_path": student["photo_path"], "sequence_no": student["sequence_no"],
-                    "seat_no": student["seat_no"], "master_status": student["status"],
+                    "seat_no": student["seat_no"], "sr_no": student.get("sr_no"), "master_status": student["status"],
                     "email": student["email"], "mobile": student["mobile"],
                     "frozen": bool(student["frozen"]),
                     "journey_status": journey_status(student["journey"])},

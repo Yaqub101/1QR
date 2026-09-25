@@ -18,6 +18,7 @@
       <h1 style="margin: 0 0 0.3rem; border: none; padding: 0; font-size: 1.8rem;">{{ j.student.name }}</h1>
       <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.4rem;">
         <span class="prn-badge" style="font-family: var(--font-mono); font-weight: 700; background: var(--bg-subtle); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--line);">PRN: {{ j.student.prn }}</span>
+        {% if j.student.sr_no %}<span class="sr-badge" style="font-size: 0.85rem; font-weight: 600; color: var(--muted); background: var(--bg-subtle); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--line);">Sr. No. {{ j.student.sr_no }}</span>{% endif %}
         {% if j.student.sequence_no %}<span class="seq-badge" style="font-size: 0.85rem; font-weight: 600; color: var(--muted);">Sequence #{{ j.student.sequence_no }}</span>{% endif %}
         <span class="role-badge" style="background: var(--cream); color: var(--brand-dark); border-color: var(--line);">{{ j.student.journey_status }}</span>
         {% if j.student.master_status != "ACTIVE" %}<span class="role-badge" style="background: var(--bad); color: var(--badink); border-color: var(--badborder);">Not Active</span>{% endif %}

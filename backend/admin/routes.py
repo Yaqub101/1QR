@@ -230,7 +230,10 @@ def api_passes(request: Request, school: Optional[str] = None, offset: Optional[
                     details={"count": result.count, "school": school, "offset": first, "limit": count,
                              "warnings": [{"prn": w.prn, "code": w.code} for w in result.warnings[:200]],
                              "warning_count": len(result.warnings)})
-    name = f"passes-{_safe(school)}" if school else "passes-all"
+    if school:
+        name = f"QR_{passes_svc.sanitize_department_filename(school)}"
+    else:
+        name = "passes-all"
     return _pdf(result.pdf, f"{name}-from-{first + 1}.pdf" if first else f"{name}.pdf", len(result.warnings))
 
 
@@ -335,8 +338,31 @@ def passes_page(request: Request, page: int = 1, principal: Principal = Depends(
     with request.app.state.engine.connect() as conn:
         total = conn.execute(text("SELECT count(*) FROM students WHERE status = 'ACTIVE'")).scalar()
         rows = passes_svc.load_passes(conn, offset=(max(page, 1) - 1) * size, limit=size)
+        departments = passes_svc.list_departments(conn)
     return render(request, "admin_passes.html", principal=principal,
-                  students=rows, page=max(page, 1), pages=max(1, -(-total // size)))
+                  students=rows, departments=departments, page=max(page, 1), pages=max(1, -(-total // size)))
+
+
+@router.get("/passes/department")
+def passes_download_department(request: Request, name: str, principal: Principal = Depends(require_admin)):
+    name = (name or "").strip()
+    if not name:
+        return redirect("/admin/passes", error="Department name is required.")
+    with request.app.state.engine.connect() as conn:
+        rows = passes_svc.load_passes(conn, school=name)
+        if not rows:
+            return redirect("/admin/passes", error=f"No active students found in department '{name}'.")
+        try:
+            data = passes_svc.to_pass_data(rows)
+        except qr_tokens.TokenError as e:
+            return redirect("/admin/passes", error=e.message)
+        event_name = passes_svc.event_title(conn, fallback="Convocation")
+    result = pass_cache.get_or_render_sheets(event_name, rows, data, extra={"department": name})
+    safe_name = passes_svc.sanitize_department_filename(name)
+    filename = f"QR_{safe_name}.pdf"
+    response = Response(content=result.pdf, media_type="application/pdf")
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @router.post("/passes/generate")

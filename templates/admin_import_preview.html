@@ -29,6 +29,22 @@
   </div>
 </div>
 
+{% if mapping %}
+<details style="margin: 1.5rem 0;" open>
+  <summary style="font-weight: 600; cursor: pointer; font-size: 1.05rem;">Recognized Column Mappings ({{ mapping|length }} matched)</summary>
+  <table class="spaced" style="margin-top: 0.5rem;">
+    <tr><th>File Column</th><th>Matched Field</th></tr>
+    {% for file_col, canonical in mapping.items() %}
+    <tr>
+      <td><b>{{ file_col }}</b></td>
+      <td><code style="font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-subtle); padding: 0.15rem 0.35rem; border-radius: 3px;">{{ canonical }}</code></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p><a href="/admin/import/{{ batch.batch_id }}/columns" class="muted" style="font-size: 0.88rem;">Adjust column mapping &rarr;</a></p>
+</details>
+{% endif %}
+
 {% if preview.errors %}
 <h2>Rows Requiring Correction</h2>
 <p class="flash bad">Cannot commit cohort while validation errors exist. Please correct the source file and re-upload.</p>

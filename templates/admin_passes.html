@@ -28,6 +28,36 @@
   </div>
 </div>
 
+<h2>Department-Wise QR Passes</h2>
+{% if departments %}
+<div class="card" style="margin-bottom: 1.5rem;">
+  <p class="muted">Generate and print passes grouped by student department. Each batch contains only students belonging to that department with clean, printable filenames (e.g. <code>QR_&lt;department&gt;.pdf</code>).</p>
+  <table class="spaced">
+    <tr><th>Department</th><th>Students</th><th>QR Status</th><th>Action</th></tr>
+    {% for d in departments %}
+    <tr>
+      <td><b>{{ d.department }}</b></td>
+      <td>{{ d.total_students }}</td>
+      <td>
+        {% if d.with_token == d.total_students %}
+        <span class="role-badge" style="background: var(--ok); color: var(--okink); border-color: var(--okborder);">All Ready ({{ d.with_token }}/{{ d.total_students }})</span>
+        {% else %}
+        <span class="role-badge" style="background: var(--cream); color: var(--muted); border-color: var(--line);">{{ d.with_token }}/{{ d.total_students }} ready</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if d.with_token == d.total_students %}
+        <a href="/admin/passes/department?name={{ d.department|urlencode }}" class="button small" data-download data-busy="Preparing passes for {{ d.department }}…">Download QR Passes (PDF)</a>
+        {% else %}
+        <span class="muted" style="font-size: 0.85rem;">Generate missing tokens first</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
 <h2>Passes List</h2>
 
 <div class="card" style="margin-bottom: 1.5rem;">

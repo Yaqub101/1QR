@@ -35,7 +35,8 @@ from starlette.concurrency import run_in_threadpool
 
 from backend import import_staging, photo_storage
 from backend.admin import reset as reset_svc
-from backend.importer import (FIELD_LABELS, REQUIRED_FIELDS, commit_import, detect_column_mapping, excel_engine_for,
+from backend.importer import (FIELD_LABELS, REQUIRED_FIELDS, check_required_fields_satisfied,
+                              commit_import, detect_column_mapping, excel_engine_for,
                               read_and_validate)
 from backend.photos import import_photos_from_zip, inspect_photo_zip, link_photos_by_prn
 from backend.security.deps import http_error, require_admin
@@ -112,7 +113,7 @@ async def upload(request: Request, file: UploadFile = File(...), photo_dir: str 
     batch = import_staging.create(request.app.state.settings, content=content, filename=file.filename or "upload.csv",
                                   uploaded_by=principal.user_id, photo_dir=folder)
     try:
-        columns, _, _, _ = _preview_for(request, batch)
+        columns, _, detected_mapping, _ = _preview_for(request, batch)
     except ValueError as exc:
         logger.info("import upload could not be read: %s", exc)
         import_staging.discard(batch)
@@ -121,6 +122,10 @@ async def upload(request: Request, file: UploadFile = File(...), photo_dir: str 
     if not columns:
         import_staging.discard(batch)
         return redirect("/admin/import", error="That file has no columns. Please check it and try again.")
+
+    # Save automatically detected mapping in the staged batch
+    if detected_mapping:
+        import_staging.update(batch, mapping=detected_mapping)
 
     if has_zip:
         try:
@@ -143,10 +148,12 @@ def columns_page(request: Request, batch_id: str, principal: Principal = Depends
     batch = _batch(request, batch_id)
     columns, file_rows, _, _ = _preview_for(request, batch)
     detected = batch.mapping or detect_column_mapping(columns)
+    is_satisfied, _ = check_required_fields_satisfied(detected.values())
     return render(
         request, "admin_import_columns.html", principal=principal, batch=batch,
         columns=list(enumerate(columns)), chosen={c: detected.get(c, "") for c in columns},
         field_labels=FIELD_LABELS, sample=file_rows[:SAMPLE_ROWS], row_count=len(file_rows),
+        auto_matched=is_satisfied,
     )
 
 
@@ -171,8 +178,8 @@ async def choose_columns(request: Request, batch_id: str, principal: Principal =
         taken[field] = column
         mapping[column] = field
 
-    missing = [FIELD_LABELS[f] for f in REQUIRED_FIELDS if f not in taken]
-    if missing:
+    is_satisfied, missing = check_required_fields_satisfied(taken.keys())
+    if not is_satisfied:
         return redirect(f"/admin/import/{batch_id}/columns",
                         error=f"Still to be matched: {', '.join(missing)}.")
 

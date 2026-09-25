@@ -426,13 +426,41 @@ def load_passes(conn, *, school: Optional[str] = None, student_id: Optional[str]
     if student_id:
         where.append("s.id = :sid")
         params["sid"] = student_id
-    sql = ("SELECT s.id, s.prn, s.name, s.programme, s.photo_path, s.sequence_no, t.token FROM students s "
+    sql = ("SELECT s.id, s.prn, s.name, s.programme, s.photo_path, s.sequence_no, s.sr_no, t.token FROM students s "
            "LEFT JOIN qr_tokens t ON t.student_id = s.id AND t.active "
            f"WHERE {' AND '.join(where)} ORDER BY s.sequence_no NULLS LAST, s.name, s.id OFFSET :offset")
     if limit is not None:
         sql += " LIMIT :limit"
         params["limit"] = limit
     return [dict(r) for r in conn.execute(text(sql), params).mappings()]
+
+
+def list_departments(conn) -> list[dict]:
+    """Return distinct active student departments (stored in s.school) with student counts and QR token counts."""
+    rows = conn.execute(
+        text(
+            """
+            SELECT s.school AS department,
+                   count(*) AS total_students,
+                   count(t.token) AS with_token
+            FROM students s
+            LEFT JOIN qr_tokens t ON t.student_id = s.id AND t.active
+            WHERE s.status = 'ACTIVE' AND s.school IS NOT NULL AND btrim(s.school) <> ''
+            GROUP BY s.school
+            ORDER BY s.school
+            """
+        )
+    ).fetchall()
+    return [{"department": r[0], "total_students": r[1], "with_token": r[2]} for r in rows]
+
+
+def sanitize_department_filename(name: str) -> str:
+    """Sanitize department name for safe Windows/Linux filenames."""
+    if not name:
+        return "Department"
+    s = re.sub(r"[^\w\-]+", "_", name.strip())
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s[:60] or "Department"
 
 
 def to_pass_data(rows: Sequence[dict]) -> list:

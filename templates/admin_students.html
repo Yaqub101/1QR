@@ -22,7 +22,7 @@
 
 {% if found %}
 <table class="spaced">
-  <tr><th>Photo</th><th>Name</th><th>PRN</th><th>Programme</th><th>School</th><th>Status</th></tr>
+  <tr><th>Photo</th><th>Sr. No.</th><th>Name</th><th>PRN</th><th>Programme</th><th>School</th><th>Status</th></tr>
   {% for s in found %}
   <tr>
       <td style="width: 56px; text-align: center;">
@@ -35,6 +35,7 @@
                style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--gold-light); vertical-align: middle;">
       {% endif %}
       </td>
+      <td><span class="muted">{{ s.sr_no or "—" }}</span></td>
       <td><a href="/admin/students/{{ s.student_id }}" style="font-weight: 700;">{{ s.name }}</a></td>
       <td><code style="font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-subtle); padding: 0.15rem 0.35rem; border-radius: 3px;">{{ s.prn }}</code></td>
       <td>{{ s.programme }}</td>

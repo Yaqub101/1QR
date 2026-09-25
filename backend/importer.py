@@ -12,9 +12,13 @@ from __future__ import annotations
 import dataclasses
 import io
 import json
+import logging
 import math
 import pathlib
-from typing import Any, Optional
+import re
+from typing import Any, Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 from sqlalchemy import text
@@ -42,8 +46,18 @@ def excel_engine_for(filename: str) -> Optional[str]:
 FIELD_LABELS = {
     "prn": "PRN / ID",
     "name": "Full Name",
+    "first_name": "First Name",
+    "middle_name": "Middle Name",
+    "last_name": "Last Name",
     "programme": "Programme",
+    "department": "Department",
+    "stream": "Stream",
     "school": "School / Department",
+    "enrollment_no": "Enrollment / Roll No",
+    "sr_no": "Sr No.",
+    "mother_name": "Mother's Name",
+    "father_name": "Father's Name",
+    "gender": "Gender",
     "sequence_no": "Sequence No",
     "seat_no": "Seat No",
     "awards": "Awards",
@@ -54,25 +68,101 @@ FIELD_LABELS = {
 }
 REQUIRED_FIELDS = ["prn", "name", "programme", "school"]
 
+
+def check_required_fields_satisfied(mapped_canonicals: Iterable[str]) -> tuple[bool, list[str]]:
+    """Check whether all logical required fields are satisfied by the mapped columns.
+    
+    - prn: satisfied by 'prn' or 'enrollment_no'
+    - name: satisfied by 'name' or 'first_name'
+    - programme: satisfied by 'programme'
+    - school: satisfied by 'school' or 'department' or 'stream'
+    """
+    mapped = set(mapped_canonicals)
+    missing = []
+    if not ({"prn", "enrollment_no"} & mapped):
+        missing.append(FIELD_LABELS["prn"])
+    if not ({"name", "first_name"} & mapped):
+        missing.append(FIELD_LABELS["name"])
+    if "programme" not in mapped:
+        missing.append(FIELD_LABELS["programme"])
+    if not ({"school", "department", "stream"} & mapped):
+        missing.append(FIELD_LABELS["school"])
+    return len(missing) == 0, missing
+
+
+def normalize_key(text: Any) -> str:
+    """Normalize string for alias comparison: lowercase, replace punctuation with spaces, collapse spaces."""
+    if text is None:
+        return ""
+    s = re.sub(r"[._/\-]+", " ", str(text).strip().lower())
+    return " ".join(s.split())
+
+
 _COLUMN_ALIASES: dict[str, list[str]] = {
-    "prn": ["prn", "prnno", "prn no", "prn no.", "prn number", "student prn", "enrollment no", "enrollment number"],
+    "prn": [
+        "prn", "prn no", "prn no.", "prnno", "prn number", "student prn", "student_prn",
+    ],
+    "enrollment_no": [
+        "enrollment no/roll no", "enrollment no / roll no", "enrollment no roll no",
+        "enrollment no", "enrollment no.", "enrollment number",
+        "roll no", "roll no.", "roll number", "enrollment", "rollno", "enrollment_no",
+    ],
+    "first_name": [
+        "student first name", "first name", "firstname", "student_first_name",
+        "student first name in english",
+    ],
+    "middle_name": [
+        "student middle name", "middle name", "middlename", "student_middle_name",
+        "student middle name in english",
+    ],
+    "last_name": [
+        "student last name", "last name", "lastname", "surname", "student_last_name",
+        "student last name in english",
+    ],
     "name": [
         "name", "student name", "full name", "student full name",
         "studentname", "student_name",
     ],
     "programme": [
-        "programme", "program", "degree", "programme/degree", "programme / degree",
-        "degree programme", "programme_degree", "course",
+        "programme name", "program name", "programme", "program", "degree",
+        "programme/degree", "programme / degree", "degree programme",
+        "programme_degree", "course",
+    ],
+    "department": [
+        "department name", "department", "dept name", "dept", "department_name",
+    ],
+    "stream": [
+        "stream",
     ],
     "school": [
-        "school", "department", "school/department", "school / department",
-        "dept", "faculty", "school_department",
+        "school", "school/department", "school / department", "school_department", "faculty",
+    ],
+    "sr_no": [
+        "sr no.", "sr no", "sr.no.", "sr.no", "serial no.", "serial no", "sno", "s.no.", "s.no", "sr_no",
+    ],
+    "mother_name": [
+        "student mother name", "mother name", "mother's name", "mothername",
+        "student_mother_name", "student mother name in english",
+    ],
+    "father_name": [
+        "student father name", "father name", "father's name", "fathername",
+        "student_father_name", "student father name in english",
+    ],
+    "gender": [
+        "gender", "sex",
+    ],
+    "email": [
+        "email", "email id", "email_id", "e-mail", "e-mail id", "email address", "student email",
+    ],
+    "mobile": [
+        "mobile", "mobile no", "mobile no.", "mobile number", "phone", "phone number",
+        "contact number", "contact no", "contact no.", "mobile_no",
     ],
     "sequence_no": [
         "sequence no", "sequence no.", "sequence number",
         "convocation sequence no", "convocation sequence no.",
         "convocation sequence number", "seq no", "seq no.", "seq",
-        "sequence_no", "sequenceno", "sno",
+        "sequence_no", "sequenceno",
     ],
     "seat_no": [
         "seat no", "seat no.", "seat number", "seat",
@@ -87,14 +177,7 @@ _COLUMN_ALIASES: dict[str, list[str]] = {
         "photograph", "image", "pic",
     ],
     "status": [
-        "status", "record status", "student status"
-    ],
-    "email": [
-        "email", "email id", "e-mail", "e-mail id", "email address", "student email",
-    ],
-    "mobile": [
-        "mobile", "mobile no", "mobile no.", "mobile number", "phone", "phone number",
-        "contact number", "contact no", "contact no.",
+        "status", "record status", "student status",
     ],
 }
 
@@ -152,20 +235,101 @@ class ImportSummary:
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
-def parse_file(
-    file_or_path: io.IOBase | pathlib.Path | str,
-    filename: str,
-) -> tuple[list[str], list[dict]]:
-    """Read a CSV or XLSX file and return (column_names, list_of_row_dicts).
+RECOGNIZED_HEADER_PATTERNS: set[str] = set()
+for _aliases in _COLUMN_ALIASES.values():
+    for _a in _aliases:
+        RECOGNIZED_HEADER_PATTERNS.add(normalize_key(_a))
+for _other in (
+    "signature", "date of admission", "aadhar card no", "admission type category",
+    "address", "convocation presentia", "payment details", "batch name", "cgpa",
+    "result declaration date", "last exam name", "last exam year", "last exam grade",
+    "certificate by courier", "courier address", "guest name", "guest gender", "guest relation",
+):
+    RECOGNIZED_HEADER_PATTERNS.add(normalize_key(_other))
 
+
+def detect_header_row(
+    file_or_path: io.IOBase | pathlib.Path | str | bytes,
+    filename: str,
+    max_probe_rows: int = 15,
+) -> int:
+    """Scan the first ~10-15 rows and select the row containing the highest number of
+    recognized student-related column names. Returns 0-indexed row number.
+    """
+    engine = excel_engine_for(filename)
+    raw_source = file_or_path
+    if isinstance(raw_source, bytes):
+        raw_source = io.BytesIO(raw_source)
+    elif isinstance(raw_source, (str, pathlib.Path)):
+        raw_source = pathlib.Path(raw_source)
+
+    pos = raw_source.tell() if hasattr(raw_source, "tell") else None
+
+    try:
+        if engine:
+            probe = pd.read_excel(raw_source, engine=engine, header=None, nrows=max_probe_rows, dtype=str, keep_default_na=False)
+        else:
+            probe = pd.read_csv(raw_source, header=None, nrows=max_probe_rows, dtype=str, keep_default_na=False)
+    except Exception as e:
+        logger.debug("detect_header_row probe failed: %s", e)
+        return 0
+    finally:
+        if pos is not None and hasattr(raw_source, "seek"):
+            raw_source.seek(pos)
+
+    best_row = 0
+    max_score = 0
+
+    for r_idx in range(len(probe)):
+        row_vals = probe.iloc[r_idx].tolist()
+        score = 0
+        for val in row_vals:
+            norm = normalize_key(val)
+            if not norm:
+                continue
+            if norm in RECOGNIZED_HEADER_PATTERNS:
+                score += 1
+            else:
+                for pat in RECOGNIZED_HEADER_PATTERNS:
+                    if len(pat) >= 4 and (norm == pat or norm.startswith(pat) or pat in norm):
+                        score += 1
+                        break
+        if score > max_score:
+            max_score = score
+            best_row = r_idx
+
+    # Require at least 2 recognized headers to consider a non-row-0 as the header row
+    if max_score >= 2:
+        return best_row
+    return 0
+
+
+def parse_file(
+    file_or_path: io.IOBase | pathlib.Path | str | bytes,
+    filename: str,
+    header_row: Optional[int] = None,
+) -> tuple[list[str], list[dict]]:
+    """Read a CSV or XLSX/XLS file and return (column_names, list_of_row_dicts).
+
+    Automatically detects header row if header_row is None.
     Strips leading/trailing whitespace from all string values and column names.
     Empty strings are normalised to None.
     """
+    raw_source = file_or_path
+    if isinstance(raw_source, bytes):
+        raw_source = io.BytesIO(raw_source)
+
+    pos = raw_source.tell() if hasattr(raw_source, "tell") else None
+    if header_row is None:
+        header_row = detect_header_row(raw_source, filename)
+        if pos is not None and hasattr(raw_source, "seek"):
+            raw_source.seek(pos)
+
     engine = excel_engine_for(filename)
     if engine:
-        df = pd.read_excel(file_or_path, engine=engine, dtype=str, keep_default_na=False)
+        df = pd.read_excel(raw_source, engine=engine, header=header_row, dtype=str, keep_default_na=False)
     else:
-        df = pd.read_csv(file_or_path, dtype=str, keep_default_na=False)
+        df = pd.read_csv(raw_source, header=header_row, dtype=str, keep_default_na=False)
 
     # Normalise column names: strip whitespace
     df.columns = [str(c).strip() for c in df.columns]
@@ -185,14 +349,27 @@ def detect_column_mapping(columns: list[str]) -> dict[str, str]:
     Returns a dict {file_column -> canonical_field}.
     Only recognised columns are included.
     """
-    normalised = {c.lower().strip(): c for c in columns}
     mapping: dict[str, str] = {}
-    for canonical, aliases in _COLUMN_ALIASES.items():
-        for alias in aliases:
-            if alias in normalised:
-                file_col = normalised[alias]
-                if file_col not in mapping:  # first alias wins
-                    mapping[file_col] = canonical
+    mapped_canonicals: set[str] = set()
+
+    for col in columns:
+        if not col or col.startswith("Unnamed:"):
+            continue
+        norm = normalize_key(col)
+        if not norm:
+            continue
+        for canonical, aliases in _COLUMN_ALIASES.items():
+            if canonical in mapped_canonicals:
+                continue
+            matched = False
+            for alias in aliases:
+                norm_alias = normalize_key(alias)
+                if norm == norm_alias:
+                    matched = True
+                    break
+            if matched:
+                mapping[col] = canonical
+                mapped_canonicals.add(canonical)
                 break
     return mapping
 
@@ -272,14 +449,42 @@ def validate_import(
         row_flags: list[FlaggedDuplicate] = []
         row_warnings: list[ImportWarning] = []
 
-        # ── Required fields ──────────────────────────────────────────────────
+        # ── Required fields & flexible fallbacks ─────────────────────────────
         values: dict[str, Any] = {}
-        for field in REQUIRED:
-            val = _get(row, field)
-            if val is None or (isinstance(val, str) and val.strip() == ""):
-                row_errors.append(ImportError(row=idx, field=field, message=f"Missing required field '{field}'"))
-            else:
-                values[field] = val.strip() if isinstance(val, str) else val
+
+        prn_val = _get(row, "prn") or _get(row, "enrollment_no")
+        if prn_val is None or (isinstance(prn_val, str) and prn_val.strip() == ""):
+            row_errors.append(ImportError(row=idx, field="prn", message="Missing required field 'prn'"))
+        else:
+            values["prn"] = prn_val.strip() if isinstance(prn_val, str) else prn_val
+
+        name_val = _get(row, "name")
+        if name_val is None or (isinstance(name_val, str) and name_val.strip() == ""):
+            parts = [
+                str(p).strip() for p in (
+                    _get(row, "first_name"),
+                    _get(row, "middle_name"),
+                    _get(row, "last_name"),
+                ) if p is not None and str(p).strip() != ""
+            ]
+            if parts:
+                name_val = " ".join(parts)
+        if name_val is None or (isinstance(name_val, str) and name_val.strip() == ""):
+            row_errors.append(ImportError(row=idx, field="name", message="Missing required field 'name'"))
+        else:
+            values["name"] = name_val.strip() if isinstance(name_val, str) else name_val
+
+        prog_val = _get(row, "programme")
+        if prog_val is None or (isinstance(prog_val, str) and prog_val.strip() == ""):
+            row_errors.append(ImportError(row=idx, field="programme", message="Missing required field 'programme'"))
+        else:
+            values["programme"] = prog_val.strip() if isinstance(prog_val, str) else prog_val
+
+        school_val = _get(row, "school") or _get(row, "department") or _get(row, "stream")
+        if school_val is None or (isinstance(school_val, str) and school_val.strip() == ""):
+            row_errors.append(ImportError(row=idx, field="school", message="Missing required field 'school'"))
+        else:
+            values["school"] = school_val.strip() if isinstance(school_val, str) else school_val
 
         # ── Sequence_no validation ───────────────────────────────────────────
         seq_raw = _get(row, "sequence_no")
@@ -308,11 +513,16 @@ def validate_import(
         values["seat_no"] = _get(row, "seat_no")
         values["awards"] = _get(row, "awards")
         values["photo_path"] = _get(row, "photo")
-        # Optional contact details. Many rows have no email at all — that is allowed, not an
-        # error and not even a note: only a MISSING PHOTO gets a warning below, because a photo
-        # affects the pass; a missing email or mobile affects nothing this system does today.
+        # Optional contact details.
         values["email"] = _get(row, "email")
         values["mobile"] = _get(row, "mobile")
+
+        # University serial number
+        sr_no_raw = _get(row, "sr_no")
+        if sr_no_raw is not None and str(sr_no_raw).strip() != "":
+            values["sr_no"] = str(sr_no_raw).strip()
+        else:
+            values["sr_no"] = None
 
         prn = values.get("prn")
 
@@ -333,18 +543,18 @@ def validate_import(
                 row_warnings.append(ImportWarning(row=idx, field="photo", prn=prn, message=f"Photo named '{values['photo_path']}' not found in upload directory."))
 
         # ── Within-file duplicate PRN ─────────────────────────────────────────
-        # An EXACT repeat of an earlier row — same PRN AND every other value the same — is the
+        # An EXACT repeat of an earlier row — same PRN AND every other student value the same — is the
         # export tool listing the same student twice (a re-run report, a pagination artefact: the
         # real university file does this with PRN 202308116012, same student, different Sr.No).
-        # That is a normal duplicate, exactly like a student already on the list: it is skipped,
-        # noted, and does NOT block the rest of the file. A PRN that repeats with DIFFERENT data
-        # is a genuine conflict — nothing here can guess which row is right — and still blocks.
+        # We exclude sr_no from the comparison so different report row counts on the same student
+        # are treated as duplicates, preserving the first row's sr_no, not a conflict error.
         exact_repeat = False
         if prn:
             earlier = file_prns_seen.get(prn)
+            comp_values = {k: v for k, v in values.items() if k != "sr_no"}
             if earlier is None:
-                file_prns_seen[prn] = {"row": idx, "values": dict(values)}
-            elif earlier["values"] == values:
+                file_prns_seen[prn] = {"row": idx, "values": comp_values}
+            elif earlier["values"] == comp_values:
                 exact_repeat = True
                 row_flags.append(FlaggedDuplicate(
                     row=idx, prn=prn, type="in_file",
@@ -449,10 +659,10 @@ def commit_import(
                     """
                     INSERT INTO students (prn, name, programme, school, faculty,
                                          sequence_no, seat_no, awards, photo_path, status,
-                                         email, mobile)
+                                         email, mobile, sr_no)
                     VALUES (:prn, :name, :programme, :school, :faculty,
                             :sequence_no, :seat_no, :awards, :photo_path, :status,
-                            :email, :mobile)
+                            :email, :mobile, :sr_no)
                     """
                 ),
                 {
@@ -468,6 +678,7 @@ def commit_import(
                     "status": r.get("status", "ACTIVE"),
                     "email": r.get("email"),
                     "mobile": r.get("mobile"),
+                    "sr_no": r.get("sr_no"),
                 },
             )
             created += 1
