@@ -9,13 +9,25 @@ const path = require("node:path");
 const { createLedScreen } = require(path.join(__dirname, "..", "..", "static", "led.js"));
 
 function el(props = {}) {
-  return { hidden: false, textContent: "", attributes: {}, setAttribute(k, v) { this.attributes[k] = v; }, ...props };
+  return {
+    hidden: false,
+    textContent: "",
+    style: {},
+    attributes: {},
+    dataset: {},
+    setAttribute(k, v) { this.attributes[k] = v; },
+    removeAttribute(k) { delete this.attributes[k]; },
+    ...props,
+  };
 }
 
 function harness(overrides = {}) {
   const els = {
     holding: el({ hidden: true }), holdingTitle: el(), holdingText: el(), stage: el({ hidden: true }),
-    photo: el(), name: el(), programme: el(), school: el(), award: el(),
+    photo: el({ style: {} }), candidateImage: el({ style: {} }), candidateInitials: el({ style: {} }),
+    name: el({ style: {} }), batchYear: el(), batchYearContainer: el({ dataset: { defaultBatch: "2024-2026" } }),
+    faculty: el({ style: {} }), facultyContainer: el({ style: {} }),
+    programme: el(), school: el(), award: el(),
   };
   let now = 0;
   let handlers = null;
@@ -172,4 +184,95 @@ test("a malformed message never blanks the screen", () => {
   h.send({ mode: "SHOWING" });          // no student
   h.send({ garbage: true });
   assert.equal(h.els.holding.hidden, false); // falls back to the holding screen, never a broken student card
+});
+
+test("faculty mapping maps the 7 faculty enum values to full display strings and hides UNMAPPED", () => {
+  const h = harness();
+  const cases = [
+    { input: "SCIENCE", expected: "Faculty of Basic & Applied Science", visible: true },
+    { input: "ENGINEERING", expected: "Faculty of Engineering & Technology", visible: true },
+    { input: "MANAGEMENT", expected: "Faculty of Management & Commerce", visible: true },
+    { input: "SOCIAL_SCI", expected: "Faculty of Social Science & Humanities", visible: true },
+    { input: "DESIGN", expected: "Faculty of Design", visible: true },
+    { input: "INTERDISCIPLINARY", expected: "Faculty of Interdisciplinary Studies", visible: true },
+    { input: "PERFORMING_ARTS", expected: "Faculty of Performing Arts", visible: true },
+    { input: "UNMAPPED", expected: "", visible: false },
+    { input: "", expected: "", visible: false },
+  ];
+
+  for (const c of cases) {
+    h.send({
+      ...SHOWING,
+      student: { ...SHOWING.student, school: c.input },
+    });
+    assert.equal(h.els.faculty.textContent, c.expected, `Mismatch for ${c.input}`);
+    assert.equal(
+      h.els.facultyContainer.style.display,
+      c.visible ? "" : "none",
+      `Visibility mismatch for ${c.input}`
+    );
+  }
+});
+
+test("photo absent -> student initials centered in candidateInitials and photo element hidden", () => {
+  const h = harness();
+  h.send({
+    ...SHOWING,
+    student: {
+      name: "Shrishrimal Bhavana Pradeepkumar",
+      photo_url: null,
+      school: "MANAGEMENT",
+      programme: "MBA",
+      award: "",
+    },
+  });
+  assert.equal(h.els.candidateInitials.textContent, "SP");
+  assert.equal(h.els.candidateInitials.style.display, "flex");
+  assert.equal(h.els.photo.style.display, "none");
+});
+
+test("photo present -> photo src set, photo visible, candidateInitials hidden", () => {
+  const h = harness();
+  h.send({
+    ...SHOWING,
+    student: {
+      name: "Akashkumar Gulab Shirsath",
+      photo_url: "/led/photo/validkey123",
+      school: "SCIENCE",
+      programme: "B.Sc",
+      award: "",
+    },
+  });
+  assert.equal(h.els.candidateInitials.textContent, "AS");
+  assert.equal(h.els.photo.attributes.src, "/led/photo/validkey123");
+  assert.equal(h.els.photo.style.display, "block");
+  assert.equal(h.els.candidateInitials.style.display, "none");
+});
+
+test("batch year uses student record if present, else config value", () => {
+  const h = harness();
+  // Config default fallback
+  h.send({ ...SHOWING, student: { ...SHOWING.student, batch_year: null } });
+  assert.equal(h.els.batchYear.textContent, "2024-2026");
+
+  // Specific student batch_year
+  h.send({ ...SHOWING, student: { ...SHOWING.student, batch_year: "2022-2024" } });
+  assert.equal(h.els.batchYear.textContent, "2022-2024");
+});
+
+test("idle -> active -> idle state transition", () => {
+  const h = harness();
+  // Starts idle
+  assert.equal(h.els.holding.hidden, false);
+  assert.equal(h.els.stage.hidden, true);
+
+  // Transitions to active
+  h.send(SHOWING);
+  assert.equal(h.els.holding.hidden, true);
+  assert.equal(h.els.stage.hidden, false);
+
+  // Transitions back to idle
+  h.send(HOME);
+  assert.equal(h.els.holding.hidden, false);
+  assert.equal(h.els.stage.hidden, true);
 });

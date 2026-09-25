@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ holding.title }}</title>
+  <title>MGM University Convocation Slide Template</title>
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -30,20 +30,88 @@
     }
   </script>
 
-  <link rel="stylesheet" href="{{ asset_url('led.css') }}">
+  <style>
+    /* Full viewport display container locked to standard 16:9 screen ratio */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #0b0f19;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      font-family: 'Montserrat', sans-serif;
+    }
+
+    .screen-stage {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      max-width: 1920px;
+      max-height: 100vh;
+      background: #faf8f5;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Radiating sunburst effect centered behind the portrait */
+    .sunburst-bg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-conic-gradient(
+        from 0deg,
+        rgba(215, 175, 95, 0.08) 0deg 3.5deg,
+        transparent 3.5deg 7deg
+      );
+      mask-image: radial-gradient(circle at 23% 50%, black 15%, transparent 72%);
+      -webkit-mask-image: radial-gradient(circle at 23% 50%, black 15%, transparent 72%);
+    }
+
+    /* Soft campus garden watermark wash */
+    .campus-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: 
+        radial-gradient(circle at 75% 55%, rgba(210, 200, 185, 0.18) 0%, transparent 60%),
+        radial-gradient(circle at 25% 45%, rgba(255, 255, 255, 0.95) 0%, rgba(247, 243, 237, 0.65) 100%);
+    }
+
+    /* Premium Academic Portrait Frame */
+    .portrait-frame-outer {
+      background: linear-gradient(135deg, #dfaf4d 0%, #faeaaf 28%, #c99332 55%, #fae8a8 78%, #8f5c15 100%);
+      box-shadow: 
+        0 24px 50px -10px rgba(46, 29, 23, 0.3),
+        0 10px 20px -4px rgba(0, 0, 0, 0.12);
+    }
+
+    .portrait-frame-mat {
+      background: linear-gradient(145deg, #ffffff 0%, #fbf8f2 100%);
+      box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.06);
+    }
+
+    .portrait-frame-inner {
+      background: linear-gradient(135deg, #caa044 0%, #fcedbb 50%, #9e6919 100%);
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.14);
+    }
+
+    /* Allow live text clicking & editing directly on screen if needed */
+    [contenteditable="true"]:focus {
+      outline: 2px dashed #d4a13e;
+      outline-offset: 4px;
+      border-radius: 4px;
+    }
+  </style>
 </head>
-<body class="led">
 
-  <!-- IDLE: Holding Screen (full-bleed, no other elements) -->
-  <main id="holding">
-    <img src="{{ asset_url('img/Holding-Screen.png') }}" alt="Holding Screen" class="w-full h-full object-cover">
-    <!-- Hidden elements for test harness compatibility -->
-    <span id="holding-title" style="display:none;">{{ holding.title }}</span>
-    <span id="holding-text" style="display:none;">{{ holding.text }}</span>
-  </main>
+<body>
 
-  <!-- ACTIVE: 16:9 Presentation Stage -->
-  <main id="stage" class="screen-stage" hidden>
+  <!-- 16:9 Presentation Stage -->
+  <main class="screen-stage">
 
     <!-- Subtle Background Overlays -->
     <div class="campus-overlay"></div>
@@ -66,18 +134,14 @@
             <!-- Inner Gold Hairline Trim Around Photo -->
             <div class="w-full h-full rounded-lg portrait-frame-inner p-[2px] overflow-hidden flex-1 shadow-sm">
               
-              <!-- CANDIDATE PHOTO / INITIALS -->
-              <div class="w-full h-full rounded-[6px] overflow-hidden bg-slate-200 relative flex items-center justify-center">
+              <!-- CANDIDATE PHOTO (Change 'src' to update image) -->
+              <div class="w-full h-full rounded-[6px] overflow-hidden bg-slate-200 relative">
                 <img 
                   id="candidateImage"
-                  src="" 
+                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=700&q=80" 
                   alt="Graduating Student Portrait" 
                   class="w-full h-full object-cover object-top"
-                  style="display: none;"
-                >
-                <div id="candidateInitials" class="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#f8f5ee] via-[#efe6d5] to-[#decbb3] text-[#2e1d17] font-black text-7xl select-none" style="display: flex; letter-spacing: 0.05em; text-shadow: 0 1px 2px rgba(255,255,255,0.8);">
-                  --
-                </div>
+                />
               </div>
 
             </div>
@@ -107,19 +171,19 @@
         <!-- Logo 1: 5th Convocation Asset -->
         <div class="flex items-center pt-4">
           <img 
-            src="{{ asset_url('img/Convocation logo.png') }}" 
+            src="Convocation logo.png" 
             alt="5th Convocation Saturday 26th September 2026" 
             class="h-32 w-auto max-w-[340px] object-contain drop-shadow-sm"
-          >
+          />
         </div>
 
         <!-- Logo 2: MGM University Charkha Asset -->
         <div class="absolute top-[-10px] right-[-20px] flex items-start justify-end">
           <img 
-            src="{{ asset_url('img/Charakha Logo 1.png') }}" 
+            src="Charakha Logo 1.png" 
             alt="MGM University Chhatrapati Sambhajinagar" 
             class="h-[180px] w-auto max-w-[380px] object-contain drop-shadow-sm"
-          >
+          />
         </div>
 
       </div>
@@ -127,19 +191,31 @@
       <!-- MIDDLE: Graduate Name, Batch Year, Faculty -->
       <div class="space-y-4 my-auto pl-2 w-full">
         
-        <!-- Candidate Full Name (single templated block, auto-wrapping, font-scaled) -->
-        <div class="flex flex-col min-h-[96px] justify-center">
-          <h2 id="name" class="text-[40px] lg:text-[46px] font-black text-convocationBrown leading-[1.1] tracking-tight m-0 break-words" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.1;"></h2>
+        <!-- Candidate Full Name -->
+        <div class="flex flex-col">
+          <h2 contenteditable="true" class="text-[40px] lg:text-[46px] font-black text-convocationBrown leading-[1.1] tracking-tight m-0">
+            Shrishrimal
+          </h2>
+          <h2 contenteditable="true" class="text-[40px] lg:text-[46px] font-black text-convocationBrown leading-[1.1] tracking-tight m-0 mt-1">
+            Bhavana Pradeepkumar
+          </h2>
         </div>
 
         <!-- Batch / Academic Year -->
-        <div id="batchYearContainer" class="pt-2" data-default-batch="2024-2026">
-          <p id="batchYear" class="text-3xl lg:text-[34px] font-extrabold text-convocationBrown tracking-tight m-0">2024-2026</p>
+        <div class="pt-2">
+          <p contenteditable="true" class="text-3xl lg:text-[34px] font-extrabold text-convocationBrown tracking-tight m-0">
+            2024-2026
+          </p>
         </div>
 
         <!-- Faculty / Department Name (Red Color) -->
-        <div id="facultyContainer" class="pt-4 flex flex-col">
-          <h3 id="faculty" class="text-2xl lg:text-[28px] font-black text-convocationRed tracking-normal leading-[1.15] m-0 break-words"></h3>
+        <div class="pt-4 flex flex-col">
+          <h3 contenteditable="true" class="text-2xl lg:text-[28px] font-black text-convocationRed tracking-normal leading-[1.15] m-0">
+            Faculty of management
+          </h3>
+          <h3 contenteditable="true" class="text-2xl lg:text-[28px] font-black text-convocationRed tracking-normal leading-[1.15] m-0 mt-1">
+            and commerce
+          </h3>
         </div>
 
       </div>
@@ -149,12 +225,7 @@
 
     </div>
 
-    <!-- Hidden elements for backward compatibility with payload/tests -->
-    <p id="programme" style="display:none;"></p>
-    <p id="school" style="display:none;"></p>
-    <p id="award" style="display:none;"></p>
   </main>
 
-  <script src="{{ asset_url('led.js') }}"></script>
 </body>
 </html>

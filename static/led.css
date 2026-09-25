@@ -1,170 +1,95 @@
-/* The audience screen. Built for a 16:9 projector / LED wall at 1920x1080 and scales with the viewport (vw/vh).
-   No controls, nothing selectable. The font stack lists Devanagari and Tamil families first so
-   Indian-language names render on a laptop that has them installed.
-   Styled in MGM University Convocation ceremonial colors. */
-:root {
-  --bg: #1B100B;
-  --bg-deep: #120A07;
-  --ink: #FAF6F0;
-  --accent: #E5B25D;
-  --accent-bright: #F5D38B;
-  --soft: #D4C3AC;
-  --border: #8C5338;
-}
-
-* {
-  box-sizing: border-box;
-}
+/* MGM University Convocation LED Display Styles */
 
 html, body {
   margin: 0;
+  padding: 0;
+  width: 100%;
   height: 100%;
-  background: radial-gradient(circle at center, var(--bg) 0%, var(--bg-deep) 100%);
-  color: var(--ink);
+  background-color: #0b0f19;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
-  cursor: none;
+  font-family: 'Montserrat', sans-serif;
   user-select: none;
-}
-
-body.led {
-  font-family: "Noto Sans", "Noto Sans Devanagari", "Noto Sans Tamil", "Noto Sans Bengali", "Segoe UI", "Nirmala UI", system-ui, sans-serif;
+  cursor: none;
 }
 
 [hidden] {
   display: none !important;
 }
 
-.led-logos-header {
-  position: absolute;
-  top: 2.2vh;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 1.5rem;
-  z-index: 100;
-  pointer-events: none;
-}
-
-.header-logo-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #FFFFFF;
-  padding: 3px 14px;
-  border-radius: 999px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-}
-
-.header-logo {
-  height: 44px;
-  width: auto;
-  max-width: 190px;
-  object-fit: contain;
-  display: block;
-}
-
-.holding {
+#holding {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 6vh 6vw;
-  border: 1.5vw solid var(--border);
-  box-sizing: border-box;
-}
-
-.holding h1 {
-  font-family: Georgia, "Times New Roman", Garamond, serif;
-  font-size: 6.8vw;
-  margin: 0 0 3vh;
-  letter-spacing: 0.04em;
-  color: var(--accent-bright);
-  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-}
-
-.holding p {
-  font-size: 3.2vw;
-  margin: 0;
-  color: var(--soft);
-  letter-spacing: 0.02em;
-}
-
-.stage {
-  height: 100vh;
-  display: grid;
-  grid-template-columns: 36vw 1fr;
-  gap: 4.5vw;
-  align-items: center;
-  padding: 6vh 5vw;
-  border: 1.2vw solid var(--border);
-  box-sizing: border-box;
-  background: radial-gradient(circle at 70% 50%, #2A170F 0%, #150B07 100%);
-}
-
-.photo-container {
-  width: 36vw;
-  height: 84vh;
+  z-index: 50;
+  background-color: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
-.stage img {
+#holding[hidden] {
+  display: none !important;
+}
+
+.screen-stage {
+  aspect-ratio: 16 / 9;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 1.4vw;
-  background: #2A170F;
-  border: 0.6vw solid var(--accent);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85);
-}
-
-.info {
-  min-width: 0;
+  max-width: 1920px;
+  max-height: 100vh;
+  background: #faf8f5;
+  position: relative;
+  overflow: hidden;
   display: flex;
-  flex-direction: column;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
 }
 
-.ceremony-tag {
-  font-size: 1.6vw;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 2vh;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6vw;
+.screen-stage[hidden] {
+  display: none !important;
 }
 
-.info h1 {
-  font-family: Georgia, "Times New Roman", Garamond, serif;
-  font-size: 6.4vw;
-  line-height: 1.1;
-  margin: 0 0 3vh;
-  overflow-wrap: anywhere;
-  color: #FFFFFF;
-  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+/* Radiating sunburst effect centered behind the portrait */
+.sunburst-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(215, 175, 95, 0.08) 0deg 3.5deg,
+    transparent 3.5deg 7deg
+  );
+  mask-image: radial-gradient(circle at 23% 50%, black 15%, transparent 72%);
+  -webkit-mask-image: radial-gradient(circle at 23% 50%, black 15%, transparent 72%);
 }
 
-.info p {
-  margin: 0 0 2vh;
-  font-size: 3vw;
-  color: var(--soft);
-  overflow-wrap: anywhere;
+/* Soft campus garden watermark wash */
+.campus-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: 
+    radial-gradient(circle at 75% 55%, rgba(210, 200, 185, 0.18) 0%, transparent 60%),
+    radial-gradient(circle at 25% 45%, rgba(255, 255, 255, 0.95) 0%, rgba(247, 243, 237, 0.65) 100%);
 }
 
-.info .award {
-  color: var(--accent-bright);
-  font-weight: 700;
-  font-size: 3.4vw;
-  letter-spacing: 0.02em;
+/* Premium Academic Portrait Frame */
+.portrait-frame-outer {
+  background: linear-gradient(135deg, #dfaf4d 0%, #faeaaf 28%, #c99332 55%, #fae8a8 78%, #8f5c15 100%);
+  box-shadow: 
+    0 24px 50px -10px rgba(46, 29, 23, 0.3),
+    0 10px 20px -4px rgba(0, 0, 0, 0.12);
 }
 
-.info .award:empty {
-  display: none;
+.portrait-frame-mat {
+  background: linear-gradient(145deg, #ffffff 0%, #fbf8f2 100%);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.06);
+}
+
+.portrait-frame-inner {
+  background: linear-gradient(135deg, #caa044 0%, #fcedbb 50%, #9e6919 100%);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.14);
 }
