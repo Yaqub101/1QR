@@ -4,23 +4,41 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dean — MGM University Convocation</title>
+  <link rel="stylesheet" href="{{ asset_url('app.css') }}">
   <link rel="stylesheet" href="{{ asset_url('caller.css') }}">
+  <script src="{{ asset_url('busy.js') }}" defer></script>
 </head>
 <body class="caller">
-  <header class="caller-bar">
-    <div class="caller-brand">
-      <span class="caller-inst">MGM UNIVERSITY</span>
-      <span class="caller-title">Convocation Podium Dean</span>
+  <header class="bar app-header station-header" role="banner">
+    <div class="header-left brand-group">
+      {% if principal and principal.is_admin and is_admin_screen %}
+      <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation menu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      {% endif %}
+      <a href="{{ '/admin' if principal and principal.is_admin else '/' }}" class="header-brand-link">
+        <div class="header-logo-pill">
+          <img src="{{ asset_url('img/mgm-logo.png') }}" alt="MGM University" class="header-logo mgm-logo">
+        </div>
+        <span class="header-title-sub">Convocation Management</span>
+      </a>
     </div>
-    <div class="caller-logos">
-      <div class="header-logo-pill">
-        <img src="{{ asset_url('img/mgm-logo.png') }}" alt="MGM University" class="header-logo mgm-logo">
-      </div>
-      <div class="header-logo-pill">
-        <img src="{{ asset_url('img/convocation-logo.png') }}" alt="Convocation Logo" class="header-logo convocation-logo">
-      </div>
+
+    <div class="header-center">
+      <a href="{{ '/admin' if principal and principal.is_admin else '/' }}" class="header-center-link">
+        <img src="{{ asset_url('img/convocation_white.png') }}" alt="MGM University Convocation" class="header-convocation-logo">
+      </a>
     </div>
-    <span class="who">{{ principal.username }}</span>
+
+    <div class="header-right user-group">
+      {% if principal %}
+      <div class="user-meta-line">
+        <span class="role-badge">{{ role_label[principal.role] }}</span>
+        <span class="who">{{ principal.full_name or principal.username }}</span>
+      </div>
+      <form method="post" action="/logout"><button class="link signout-link" type="submit">Sign out</button></form>
+      {% endif %}
+    </div>
   </header>
 
   <!-- Connection status bar (shown when disconnected; hidden while connected) -->
@@ -28,16 +46,30 @@
     Connecting…
   </div>
 
+  <main class="dean-main-content">
+    <div class="dean-container">
+      <!-- Prominent Page Identity Banner: Dean -->
+      <div class="station-identity-banner dean-banner">
+        <div class="station-identity-meta">
+          <span class="station-institution-label">MGM UNIVERSITY &middot; CONVOCATION 2026</span>
+          <h1>Dean</h1>
+        </div>
+        <div class="station-status-pill">
+          <span class="status-pulse-dot"></span>
+          <span class="status-pill-text">PODIUM LIVE</span>
+        </div>
+      </div>
 
-
-  <!-- ─── Queue list ─────────────────────────────────────────────────────── -->
-  <section class="cq-section" aria-label="Students in the queue">
-    <div class="cq-section-header">
-      <h2 class="cq-section-title">QUEUE — <span id="cq-count">…</span> students</h2>
+      <!-- ─── Queue list ─────────────────────────────────────────────────────── -->
+      <section class="cq-section" aria-label="Students in the queue">
+        <div class="cq-section-header">
+          <h2 class="cq-section-title">QUEUE — <span id="cq-count">…</span> students</h2>
+        </div>
+        <ul id="cq-list" class="cq-list" aria-label="Queued students"></ul>
+        <p id="cq-empty" class="cq-empty" hidden>No students in the queue.</p>
+      </section>
     </div>
-    <ul id="cq-list" class="cq-list" aria-label="Queued students"></ul>
-    <p id="cq-empty" class="cq-empty" hidden>No students in the queue.</p>
-  </section>
+  </main>
 
   <script src="{{ asset_url('caller.js') }}"></script>
 </body>
