@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 from sqlalchemy import text
 
-from backend.stage import state as stage_state
 
 from tests.test_auth import ACTIVITIES
 from tests.test_station_engine import make_student
@@ -78,7 +77,7 @@ S1, S2, S3 = "School of Engineering", "School of Law", "School of Arts"
 ORDER = list(ACTIVITIES)
 # The journey in the stages this dataset is written in: `steps=n` completes the first n stages. The robe and the
 # money move together at the Registry desk, and so do their returns (Phase R4), so each is one stage here.
-STAGES = [["REGISTRATION"], ["THOBE_ALLOCATION"], ["SEATING"], ["QUEUE"], ["STAGE"],
+STAGES = [["REGISTRATION"], ["THOBE_ALLOCATION"], ["SEATING"], ["QUEUE"],
           ["THOBE_RETURN"], ["LUNCH"]]
 assert sorted(a for stage in STAGES for a in stage) == sorted(ORDER)
 
@@ -113,7 +112,7 @@ def build_dataset(engine):
 
     def skip(reason, at="before"):
         def do(p):
-            add_event(engine, p.s, "STAGE", kind="SKIP", details={"reason": reason})
+            add_event(engine, p.s, "QUEUE", kind="SKIP", details={"reason": reason})
         return do
 
     # A: never reported (no Reporting event of any kind). Names chosen to break naive exports.
@@ -132,24 +131,22 @@ def build_dataset(engine):
     person("E2", S2, steps=3)
     person("F1", S2, steps=4)
     person("F2", S3, steps=4, flags={"QUEUE": ["MANUAL"]})
-    person("G1", S1, steps=4, then=[skip("microphone problem"), lambda p: (p.events.__setitem__("STAGE", add_event(engine, p.s, "STAGE")), p.active.add("STAGE"))])
+    person("G1", S1, steps=4)
     person("G2", S1, steps=5)
-    person("H", S3, steps=4, then=[skip("not ready")])
-    person("I", S1, steps=6, flags={"THOBE_RETURN": ["PROVISIONAL"]})
-    person("J", S2, steps=5, then=[lambda p: (add_event(engine, p.s, "THOBE_RETURN", kind="WAIVER", details={
+    person("H", S3, steps=4)
+    person("I", S1, steps=5, flags={"THOBE_RETURN": ["PROVISIONAL"]})
+    person("J", S2, steps=4, then=[lambda p: (add_event(engine, p.s, "THOBE_RETURN", kind="WAIVER", details={
         "reason": "lost robe", "thobe_allocation_on_record": True}), p.active.add("THOBE_RETURN"))])
-    person("K1", S3, steps=7)
-    person("K2", S1, steps=7)
-    person("L", S1, steps=6, then=[reversal("THOBE_RETURN", "returned to the wrong desk")])
+    person("K1", S3, steps=6)
+    person("K2", S1, steps=6)
+    person("L", S1, steps=5, then=[reversal("THOBE_RETURN", "returned to the wrong desk")])
 
     # --- things the dashboard counts from other tables (all written as raw rows) ---
     F1, F2 = people["F1"], people["F2"]
     with engine.begin() as c:
-        c.execute(text("INSERT INTO queue (student_id, status) VALUES (:a, 'QUEUED'), (:b, 'DISPLAYED')"), {"a": F1.s.id, "b": F2.s.id})
+        c.execute(text("INSERT INTO queue (student_id, status) VALUES (:a, 'QUEUED'), (:b, 'QUEUED')"), {"a": F1.s.id, "b": F2.s.id})
         c.execute(text("INSERT INTO display_snapshot (student_id, display_name, programme, school) VALUES (:s, 'Frank Two-Display', 'B.Tech', 'Arts')"),
                   {"s": F2.s.id})
-        stage_state.begin_controller_txn(c)
-        stage_state.update_state(c, current_student_id=F2.s.id, display_student_id=F2.s.id)
         for result, n in (("DUPLICATE", 3), ("REJECTED", 2), ("SUCCESS", 4)):
             for _ in range(n):
                 c.execute(text("INSERT INTO scan_log (activity, result) VALUES ('SEATING', :r)"), {"r": result})

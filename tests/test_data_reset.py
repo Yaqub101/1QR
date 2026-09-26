@@ -171,8 +171,6 @@ def data_counts(engine):
 
 def populate(engine):
     """A little of everything a live event leaves behind, written as raw rows."""
-    from backend.stage import state as stage_state
-
     people = [make_student(engine, photo_path=f"photos/p{i}.jpg") for i in range(3)]
     a, b, c = people
     for activity in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE"):
@@ -183,8 +181,6 @@ def populate(engine):
         conn.execute(text("INSERT INTO queue (student_id, status) VALUES (:s, 'DISPLAYED')"), {"s": a.id})
         conn.execute(text("INSERT INTO display_snapshot (student_id, display_name, programme, school, photo_path) "
                           "VALUES (:s, 'A', 'B.Tech', 'Eng', 'photos/p0.jpg')"), {"s": a.id})
-        stage_state.begin_controller_txn(conn)
-        stage_state.update_state(conn, current_student_id=a.id, display_student_id=a.id, previous_student_id=c.id)
         conn.execute(text("INSERT INTO scan_log (activity, result, student_id) VALUES ('SEATING', 'SUCCESS', :s)"), {"s": a.id})
         conn.execute(text("INSERT INTO exceptions (type, student_id) VALUES ('RETURN_WAIVED', :s)"), {"s": c.id})
         conn.execute(text("INSERT INTO audit_log (action, student_id) VALUES ('QR_REISSUED', :s)"), {"s": a.id})
@@ -203,7 +199,7 @@ class TestAccess:
         response = new_client(apps).request(method, path, follow_redirects=False)
         assert response.status_code == 401
 
-    @pytest.mark.parametrize("activity", ["REGISTRATION", "STAGE", "LUNCH"])
+    @pytest.mark.parametrize("activity", ["REGISTRATION", "SEATING", "LUNCH"])
     @pytest.mark.parametrize("method,path", ENDPOINTS)
     def test_an_operator_is_refused_and_nothing_is_deleted(self, apps, world, engine, activity, method, path):
         make_student(engine)
@@ -232,7 +228,7 @@ class TestConfirmation:
         make_student(engine)
         page = admin(apps).get("/admin/system").text
         assert "cannot be undone" in page and PHRASE in page and 'type="password"' in page
-        for words in ("Students", "QR codes", "Activity records", "LED display", "photo storage", "Kept:", "user accounts"):
+        for words in ("Students", "QR codes", "Activity records", "Caller display", "photo storage", "Kept:", "user accounts"):
             assert words in page
 
     @pytest.mark.parametrize("phrase", ["delete all data", "DELETE ALL", "DELETE  ALL DATA", "", "DELETE ALL DATA!",
@@ -332,8 +328,6 @@ class TestDatabase:
         path, query = location(full_reset(admin(apps)))
         assert path == "/admin/system" and query["msg"].startswith("All data was deleted")
         assert data_counts(engine) == dict.fromkeys(DATA_TABLES, 0)
-        stage = rows(engine, "SELECT * FROM stage_state")[0]
-        assert (stage["current_student_id"], stage["display_student_id"], stage["previous_student_id"]) == (None, None, None)
         assert scalar(engine, "SELECT count(*) FROM audit_log WHERE student_id IS NOT NULL") == 0
         assert scalar(engine, "SELECT count(*) FROM audit_log WHERE action IN ('QR_REISSUED','IMPORT_STUDENTS','EXPORT')") == 0
         assert scalar(engine, "SELECT count(*) FROM student_status") == 0
@@ -366,7 +360,6 @@ class TestDatabase:
         assert scalar(engine, "SELECT version_num FROM alembic_version") == revision
         assert admin(apps).get("/admin").status_code == 200                # still signed in
         assert api_login(new_client(apps), "eng-lunch").status_code == 200  # operators can still sign in
-        assert scalar(engine, "SELECT count(*) FROM stage_state") == 1
 
     def test_every_guard_trigger_is_back_on_and_history_is_append_only_again(self, apps, engine):
         populate(engine)

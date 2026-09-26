@@ -43,7 +43,7 @@
 
 <h2>Create New Operator Account</h2>
 <form method="post" action="/admin/users" class="card" data-busy="Creating…" style="max-width: 32rem; margin-top: 1rem;">
-  <label>Username <input name="username" required placeholder="e.g. stage_op_1"></label>
+  <label>Username <input name="username" required placeholder="e.g. queue_op_1"></label>
   <label>Full Operator Name <input name="full_name" placeholder="e.g. Prof. R. K. Sharma"></label>
   <label>Designated Role
     <select name="role">{% for r in operator_roles %}<option value="{{ r }}">{{ role_label[r] }}</option>{% endfor %}</select>

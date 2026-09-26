@@ -2,8 +2,7 @@
 
   A. The queue position counter. Not "positions came out right in a test run" but: a second writer genuinely WAITS on
      the counter row until the first commits (so position order can only be commit order), a rollback leaves no hole,
-     a crowd of committing and rolling-back writers still gives 1..N, and Queue confirms racing the Stage Controller's
-     DISPLAY NEXT / COMPLETE neither deadlock nor reorder anyone.
+     a crowd of committing and rolling-back writers still gives 1..N.
   B. Corrections. Every correction path is driven through the real HTTP API, and the DATABASE is asked afterwards:
      every row that existed before is byte-for-byte the same physical tuple (xmin, ctid, content hash), exactly one new
      row exists, and it points at the original. Every refusal writes nothing at all. The reason is refused server-side
@@ -59,10 +58,6 @@ def clean_slate(engine):
         c.execute(text("TRUNCATE audit_log, scan_log, exceptions, activity_events, queue CASCADE"))
         c.execute(text("UPDATE counters SET value = 0 WHERE name = 'queue_position'"))
         c.execute(text("SET session_replication_role = origin"))
-        c.execute(text("SELECT set_config('app.stage_controller', 'on', true)"))
-        c.execute(text("UPDATE stage_state SET current_student_id = NULL, display_student_id = NULL, "
-                       "previous_student_id = NULL, controller_session_id = NULL, controller_station_id = NULL, "
-                       "controller_since = NULL WHERE id = 1"))
     yield
 
 
@@ -188,61 +183,6 @@ class TestQueueCounter:
         assert [r["queue_position"] for r in q_db(engine, "SELECT queue_position FROM queue ORDER BY 1")] == committed
         eng.dispose()
 
-    def test_queue_confirms_racing_the_stage_controller_do_not_deadlock_or_reorder_anyone(self, engine, apps, world, student_pool):
-        n = 24
-        for i in range(1, n + 1):
-            seat_ready(engine, student_pool, i)
-        queue_op = operator(apps, world, "QUEUE")
-        queue_token = queue_op.cookies.get("session")
-        stage = operator(apps, world, "STAGE")
-        stage_token = stage.cookies.get("session")
-
-        def post(path, bearer, **body):
-            client = new_client(apps)
-            client.headers["Authorization"] = f"Bearer {bearer}"
-            r = client.post(path, json=body)
-            return r.status_code, r.json()
-
-        assert post("/stage/control", stage_token, station_id="STG-01")[0] == 200
-        problems, completed = [], []
-        stop = threading.Event()
-
-        def confirm_student(i):
-            status, body = post("/confirm", queue_token, activity="QUEUE", token=s_token(student_pool, i + 1))
-            if status != 200 or body.get("result") != "CONFIRMED":
-                problems.append(("confirm", i + 1, status, body))
-
-        def stage_loop():
-            # NEXT (redesign R2): records the degree for whoever is on stage and shows the next one.
-            on_stage = None
-            while len(completed) < n and not stop.is_set():
-                status, body = post("/stage/next", stage_token, station_id="STG-01", expect_current=on_stage)
-                if status == 409 and body["detail"]["code"] == "QUEUE_EMPTY":
-                    time.sleep(0.01)
-                    continue
-                if status != 200 or body.get("changed") is False:
-                    problems.append(("next", status, body))
-                    return
-                if on_stage is not None:
-                    completed.append(1)
-                current = body["state"]["current"]
-                on_stage = current["student_id"] if current else None
-
-        stager = threading.Thread(target=stage_loop)
-        stager.start()
-        with ThreadPoolExecutor(max_workers=12) as pool:
-            list(pool.map(confirm_student, range(n)))
-        stager.join(60)
-        stop.set()
-        assert not problems, problems[:3]
-        assert len(completed) == n
-        positions = [r["queue_position"] for r in q_db(engine, "SELECT queue_position FROM queue ORDER BY 1")]
-        assert positions == list(range(1, n + 1))
-        order = [r["queue_position"] for r in q_db(
-            engine, "SELECT q.queue_position FROM activity_events e JOIN queue q ON q.student_id = e.student_id "
-                   "WHERE e.activity = 'STAGE' AND e.kind = 'COMPLETE' ORDER BY e.server_time, e.event_id")]
-        assert order == sorted(order) == list(range(1, n + 1)), order
-
 
 # =============================================================================================================
 # B. CORRECTIONS, CHECKED IN THE DATABASE
@@ -266,17 +206,11 @@ def assert_history_untouched(before, after):
 
 
 def student_journey(engine, apps, world, student_pool, i=1):
-    """Student i: Reporting seeded, then robe, seating, queue and stage through the REAL API. Returns event ids."""
+    """Student i: Reporting seeded, then robe, seating and queue through the REAL API. Returns event ids."""
     raw_event(engine, student_pool, i, "REGISTRATION")
     for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE"):
         op = operator(apps, world, activity)
         assert confirm(op, activity, token=s_token(student_pool, i)).json()["result"] == "CONFIRMED", activity
-    stage = operator(apps, world, "STAGE")
-    assert stage.post("/stage/control", json={"station_id": "STG-01"}).status_code == 200
-    shown = stage.post("/stage/next", json={"station_id": "STG-01", "expect_current": None})
-    assert shown.status_code == 200
-    on_stage = shown.json()["state"]["current"]["student_id"]
-    assert stage.post("/stage/next", json={"station_id": "STG-01", "expect_current": on_stage}).status_code == 200
     return {r["activity"]: str(r["event_id"]) for r in q_db(
         engine, "SELECT activity, event_id FROM activity_events WHERE student_id = :s AND kind = 'COMPLETE'",
         s=s_id(student_pool, i))}
@@ -289,8 +223,8 @@ class TestCorrectionsAtTheDatabase:
     def test_every_reversal_writes_one_new_row_and_leaves_every_old_row_physically_untouched(self, engine, apps, world, student_pool):
         ids = student_journey(engine, apps, world, student_pool, 1)
         adm = admin(apps)
-        assert set(ids) == {"REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE"}
-        for activity in ("SEATING", "QUEUE", "STAGE"):
+        assert set(ids) == {"REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE"}
+        for activity in ("SEATING", "QUEUE"):
             before, count = snapshot(engine), scalar_db(engine, "SELECT count(*) FROM activity_events")
             response = self.reverse(adm, ids[activity])
             assert response.status_code == 200, response.text
@@ -307,7 +241,7 @@ class TestCorrectionsAtTheDatabase:
 
     def test_a_waiver_and_the_reversal_of_a_waiver_are_new_rows_too(self, engine, apps, world, student_pool):
         raw_event(engine, student_pool, 2, "REGISTRATION")
-        for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE"):
+        for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE"):
             raw_event(engine, student_pool, 2, activity)
         adm = admin(apps)
         before = snapshot(engine)
@@ -336,16 +270,17 @@ class TestCorrectionsAtTheDatabase:
 
     def test_every_other_refusal_also_writes_nothing_at_all(self, engine, apps, world, student_pool):
         ids = student_journey(engine, apps, world, student_pool, 1)
-        skip = raw_event(engine, student_pool, 3, "STAGE", kind="SKIP")
         adm = admin(apps)
-        assert self.reverse(adm, ids["SEATING"]).status_code == 200
+        reversal = self.reverse(adm, ids["SEATING"])
+        assert reversal.status_code == 200
+        reversal_id = reversal.json()["correction_event_id"]
         operator_seating = operator(apps, world, "SEATING")
         before = snapshot(engine)
         refusals = [
             (self.reverse(adm, ids["SEATING"]), 409),                    # already reversed
             (self.reverse(adm, "not-a-uuid"), 404),
             (self.reverse(adm, str(uuid.uuid4())), 404),
-            (self.reverse(adm, skip), 409),                              # a SKIP is not a completion
+            (self.reverse(adm, reversal_id), 409),                       # a REVERSAL is not a completion
             (self.reverse(adm, ids["QUEUE"], "x" * 501), 400),
             (operator_seating.post("/admin/api/corrections/reverse", json={"event_id": ids["QUEUE"], "reason": "operators must not"}), 403),
             (operator_seating.post("/admin/api/corrections/waive-return", json={"student_id": str(s_id(student_pool, 1)), "reason": "no"}), 403),

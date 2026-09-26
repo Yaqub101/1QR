@@ -23,31 +23,16 @@
   {% endfor %}
 </table>
 
-<h2>Stage Status</h2>
-<div class="card" style="border-left: 4px solid var(--gold); padding: 1.1rem 1.3rem;">
-  <div>Current graduate on stage: <b>{{ d.stage.current.name if d.stage.current else "nobody" }}</b>
-    {% if d.stage.current %}<code style="font-family: var(--font-mono); font-size: 0.9em; margin-left: 0.3rem;">({{ d.stage.current.prn }})</code>{% endif %}</div>
-  <div>Public LED audience display: <b>{{ d.stage.led_name if d.stage.led_name else "holding screen" }}</b></div>
-  <div>Graduates waiting in queue: <b>{{ d.stage.waiting }}</b>
-    {% if d.stage.next %}&middot; next: {% for n in d.stage.next %}<b>{{ n.name }}</b>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>
-</div>
 
 <h2>Outstanding robes: <span id="n-outstanding">{{ d.outstanding_thobes.count }}</span></h2>
 {% if d.outstanding_thobes.students %}
 <table class="spaced">
-  <tr><th>Name</th><th>PRN</th><th>School</th><th>Allocated At</th><th>Stage Completed</th></tr>
+  <tr><th>Name</th><th>PRN</th><th>School</th><th>Allocated At</th></tr>
   {% for s in d.outstanding_thobes.students %}
   <tr><td><a href="/admin/students/{{ s.student_id }}"><b>{{ s.name }}</b></a></td>
       <td><code style="font-family: var(--font-mono);">{{ s.prn }}</code></td>
       <td>{{ s.school }}</td>
-      <td>{{ s.allocated_at }}</td>
-      <td>
-        {% if s.stage_complete %}
-        <span class="role-badge" style="background: var(--ok); color: var(--okink); border-color: var(--okborder); font-size: 0.72rem;">Yes</span>
-        {% else %}
-        <span class="role-badge" style="background: var(--amber); color: var(--amberink); border-color: var(--amberborder); font-size: 0.72rem;">No</span>
-        {% endif %}
-      </td></tr>
+      <td>{{ s.allocated_at }}</td></tr>
   {% endfor %}
 </table>
 {% if d.outstanding_thobes.count > d.outstanding_thobes.students|length %}

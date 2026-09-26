@@ -114,7 +114,7 @@ class TestPermissions:
         assert permissions.has_permission("DEPUTY_ADMIN", perm) is True
 
         # Disallowed operator roles
-        for role in ("SEATING", "QUEUE", "STAGE", "LUNCH", "CALLER"):
+        for role in ("SEATING", "QUEUE", "LUNCH", "CALLER"):
             assert permissions.has_permission(role, perm) is False, f"{role} should NOT have {perm}"
 
 
@@ -447,10 +447,7 @@ class TestMidJourneyReissue:
             assert q_row_after["status"] == "QUEUED"
             assert q_row_after["queue_position"] == q_pos
 
-        # 5. Stage: Operator records Stage degree (seeded or driven)
-        seed_events(engine, s, ["STAGE"])
-
-        # 6. Robe Return (Registry scan):
+        # 5. The degree is handed over with no scan. 6. Robe Return (Registry scan):
         # Old token is rejected
         return_scan_old = reg_client.post("/scan", json={"activity": "REGISTRY", "token": initial_token}).json()
         assert return_scan_old["result"] == "INVALID"
@@ -485,7 +482,7 @@ class TestMidJourneyReissue:
 
         # All events completed for student
         completed_activities = [e["activity"] for e in events_of(engine, s)]
-        for act_name in ("REGISTRATION", "THOBE_ALLOCATION", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH"):
+        for act_name in ("REGISTRATION", "THOBE_ALLOCATION", "QUEUE", "THOBE_RETURN", "LUNCH"):
             assert act_name in completed_activities
 
 

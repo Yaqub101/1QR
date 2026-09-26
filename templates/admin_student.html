@@ -45,9 +45,8 @@
       ('THOBE_ALLOCATION', '2. Robe', 'Allocated'),
       ('SEATING', '3. Seating', 'Optional'),
       ('QUEUE', '4. Queue', 'In Queue'),
-      ('STAGE', '5. Stage', 'Degree Conferred'),
-      ('THOBE_RETURN', '6. Robe Return', 'Returned'),
-      ('LUNCH', '7. Lunch', 'Completed')
+      ('THOBE_RETURN', '5. Robe Return', 'Returned'),
+      ('LUNCH', '6. Lunch', 'Completed')
     ] %}
     {% for act_key, step_title, step_desc in steps %}
     {% set is_done = act_key in completed_acts or (act_key == 'THOBE_RETURN' and j.student.journey_status in ['ROBE_RETURNED', 'LUNCH_COMPLETED']) %}
@@ -88,7 +87,7 @@
 {% if j.student.frozen %}
 <h2>Master Patch</h2>
 <form method="post" action="/admin/students/{{ j.student.student_id }}/master-patch" class="card" data-busy="Applying…">
-  <p class="muted">The display data for this student has been frozen, so the LED, the printed pass and every
+  <p class="muted">The display data for this student has been frozen, so the printed pass and every
     station screen are built from what is below. Changing any of it is a logged action: give a reason, and
     the change, the reason and your name go into the audit trail together.</p>
   <p class="muted">Leave a box empty to leave that value exactly as it is. The PRN cannot be changed here:

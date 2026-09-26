@@ -82,24 +82,13 @@ def insert_audit(conn: Connection, *, action: str, principal, student_id, activi
 
 # ------------------------------------------------------------------ queue side effects of a reversal
 def _queue_effects(conn: Connection, student_id, activity: str) -> Optional[str]:
-    """Keep the Stage queue truthful. Only the `queue` table is touched: never the LED (stage_state), which
-    only the Stage Controller can move (golden rule 9, and a trigger enforces it).
-      QUEUE reversed : the student is no longer queued, so they must not be shown on stage -> drop the queue row.
-      STAGE reversed : the student never received the degree -> back to QUEUED at their old position.
-    A student who is on stage RIGHT NOW cannot have their Queue reversed (it would strand the Stage screen)."""
+    """Keep the Queue truthful. Only the `queue` table is touched.
+      QUEUE reversed : the student is no longer queued."""
     if activity == "QUEUE":
         status = conn.execute(text("SELECT status FROM queue WHERE student_id = :s FOR UPDATE"), {"s": student_id}).scalar()
-        if status == "DISPLAYED":
-            raise CorrectionError(409, "ON_STAGE_NOW", "That student is on stage right now. Send them back on the Stage screen first.")
         if status is not None:
             conn.execute(text("DELETE FROM queue WHERE student_id = :s"), {"s": student_id})
             return "queue row removed"
-    elif activity == "STAGE":
-        moved = conn.execute(
-            text("UPDATE queue SET status = 'QUEUED' WHERE student_id = :s AND status = 'DONE' RETURNING 1"), {"s": student_id}
-        ).scalar()
-        if moved:
-            return "returned to the queue"
     return None
 
 
@@ -172,24 +161,15 @@ def _reverse(conn: Connection, *, principal, event_id, reason: str) -> dict:
 # The two returns an Admin may settle without the item coming back. Each counts as done for Lunch, is flagged
 # CORRECTED, needs a reason, and opens an exception for the Admin's review list.
 _WAIVERS = {
-    "THOBE_RETURN": {"given": "THOBE_ALLOCATION", "other": "MONEY_RETURNED", "action": "RETURN_WAIVED",
+    "THOBE_RETURN": {"given": "THOBE_ALLOCATION", "action": "RETURN_WAIVED",
                      "already": ("ALREADY_RETURNED", "That robe is already recorded as returned or waived."),
-                     "done": "Return waived.", "other_name": "money"},
-    "MONEY_RETURNED": {"given": "MONEY_RECEIVED", "other": "THOBE_RETURN", "action": "MONEY_KEPT",
-                       "already": ("ALREADY_SETTLED", "That money is already recorded as returned or kept."),
-                       "done": "Money kept.", "other_name": "robe"},
+                     "done": "Return waived."},
 }
 
 
 def waive_return(engine, *, principal, student_id, reason) -> dict:
     """Admin "Return Waived / Lost": counts as the Robe Return for Lunch, flagged CORRECTED, reason mandatory."""
     return _waive_in_transaction(engine, "THOBE_RETURN", principal=principal, student_id=student_id, reason=reason)
-
-
-def waive_money(engine, *, principal, student_id, reason) -> dict:
-    """Admin "Money kept" (e.g. for a lost or damaged robe): counts as the Money Return for Lunch, flagged
-    CORRECTED, reason mandatory."""
-    return _waive_in_transaction(engine, "MONEY_RETURNED", principal=principal, student_id=student_id, reason=reason)
 
 
 def _waive_in_transaction(engine, activity: str, *, principal, student_id, reason) -> dict:
@@ -239,9 +219,7 @@ def _waive(conn: Connection, activity: str, *, principal, student_id, reason: st
         {"t": rule["action"], "s": student["id"], "e": event["event_id"],
          "d": json.dumps({"reason": reason, "waived_by": str(principal.user_id), "prn": student["prn"]}, default=str)},
     )
-    other_settled = active_completion(conn, student["id"], rule["other"]) is not None
-    message = rule["done"] + (" The student can now go to Lunch." if other_settled
-                              else " The student can go to Lunch once the " + rule["other_name"] + " is settled too.")
+    message = rule["done"] + " The student can now go to Lunch."
     return {"ok": True, "message": message, "correction_event_id": str(event["event_id"]),
             "activity": activity, "kind": "WAIVER", on_record: given is not None}
 

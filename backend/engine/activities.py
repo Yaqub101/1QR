@@ -1,4 +1,4 @@
-"""THE ONE FILE that configures the seven activities on the station engine.
+"""THE ONE FILE that configures the six activities on the station engine.
 
 Adding or changing an activity means editing ONLY this file (and its tests). Read
 docs/STATION_CONTRACT.md first: it says what every key means, what is allowed, and what to do when
@@ -8,11 +8,12 @@ Sources: SYSTEM_SPEC section 2 (journey order), 3 (what each activity shows), 5 
 14 (messages); docs/TODO.md Phases 7-12.
 
 Journey order (a prerequisite must come EARLIER in this list):
-    REGISTRATION -> THOBE_ALLOCATION -> MONEY_RECEIVED -> SEATING -> QUEUE -> STAGE -> THOBE_RETURN
-        -> MONEY_RETURNED -> LUNCH
+    REGISTRATION -> THOBE_ALLOCATION -> SEATING -> QUEUE -> THOBE_RETURN -> LUNCH
 
-Since the role/flow redesign, REGISTRATION, the robe and the money (entry) and their returns are recorded at
-the ONE Registry desk with tick boxes (backend/engine/registry.py), and SEATING is optional: nothing requires it.
+Since the role/flow redesign, REGISTRATION, the robe (entry) and its return are recorded at the ONE Registry
+desk with tick boxes (backend/engine/registry.py), and SEATING is optional: nothing requires it. There is no
+Stage step: the Caller calls the student from the Caller screen, the degree is handed over with no digital
+record, and the Queue scan is what opens the Robe Return.
 """
 from __future__ import annotations
 
@@ -54,18 +55,10 @@ ACTIVITY_CONFIGS: dict[str, ActivityConfig] = {
         duplicate_message="ALREADY IN QUEUE — POSITION {queue_position} — {time}",
         effects=("enqueue",),  # takes the next queue position in the same transaction
     ),
-    "STAGE": ActivityConfig(
-        activity="STAGE",
-        prerequisites=(Prerequisite("QUEUE", "STAGE NOT AVAILABLE — QUEUE PENDING"),),
-        display_fields=("programme", "school"),
-        # The Stage operator's NEXT records this (redesign R2: advancing IS the "degree received" record).
-        confirm_label="NEXT",
-        duplicate_message="DEGREE ALREADY RECEIVED — {time}",
-    ),
     "THOBE_RETURN": ActivityConfig(
         activity="THOBE_RETURN",
         prerequisites=(
-            Prerequisite("STAGE", "ROBE RETURN NOT AVAILABLE — STAGE PENDING"),
+            Prerequisite("QUEUE", "ROBE RETURN NOT AVAILABLE — QUEUE PENDING"),
             Prerequisite("THOBE_ALLOCATION", "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED"),
         ),
         display_fields=("prn", "thobe_issued"),

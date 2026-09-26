@@ -1,3 +1,39 @@
+## [0.25.0] - Post-Queue simplification: the Stage operator, the LED and the degree record are removed
+
+### Removed
+- **The Stage operator** (role `STAGE`), the Stage Controller screen and every `/stage/*` route
+  (`backend/stage/controller.py`, `state.py`, `static/stage.js`, `templates/stage.html`). No replacement.
+- **The public LED screen** (`/led`, `/led/state`, `/led/events`, `/led/photo/{key}`; `backend/stage/led.py`,
+  `static/led.js`, `static/led.css`, `templates/led.html`) and the sidebar links to both.
+- **The "degree received" record**: the `STAGE` activity, its `SKIP` kind, `service.record_skip`, the
+  "Stage: completed and skipped" report, the dashboard's stage view and the funnel's "Stage complete" step.
+- `/caller/state` (it read the Stage's state). The Caller screen uses `/caller/queue`, `/caller/next` and
+  `/events/queue`, all unchanged.
+- The two money-waiver routes (`/admin/api/corrections/waive-money`, `/admin/students/{id}/waive-money`): the
+  function behind them was already gone and the database has refused money waivers since `0020`.
+
+### Changed
+- **Six recorded activities**: Reporting, Robe Allocation, Seating (optional), Queue, Robe Return, Lunch.
+- **The Robe Return opens once the student is queued** (Queue scan + an issued robe; nothing else). The
+  Registry desk shows the return box after the Queue scan, and "ROBE ALLOTTED — COME BACK AFTER THE CEREMONY"
+  until then. The software can no longer tell who has walked: place the Robe Return desk after the stage.
+- **Status labels**: `DEGREE NOT RECEIVED` is gone; a queued student is `ROBE NOT RETURNED`.
+- **Migration `a9d7eb16a3e4_remove_stage_and_led`**: drops `stage_state` and `queue.staged_at`; removes `STAGE`
+  from `activity_t` and the role list, and refuses `SKIP` for every activity. These checks are `NOT VALID`, so
+  STAGE history already recorded is kept (golden rule 5), not deleted. A STAGE account becomes an inactive CALLER.
+  Downgrade restores the constraints, view and step numbers, but `stage_state` only as a bare row.
+- AGENTS.md (six activities, rules 4, 6, 8, 9, 10), SYSTEM_SPEC, ARCHITECTURE_PIVOT ("Post-Queue
+  simplification"), TODO (phase S1), STATION_CONTRACT and README describe the new flow.
+- `scripts/verify_e2e_scans.py` checks the new flow (and that `/stage` and `/led` are gone);
+  `scripts/fallback_sheets.py` prints six sheets.
+
+### Tests
+- New: the Robe Return opens right after the Queue scan; the migration keeps existing STAGE history and refuses
+  new STAGE rows; `STAGE` is refused as an activity and as a role; `SKIP` is refused everywhere; no route under
+  `/stage` or `/led` exists.
+- Stage/LED tests removed (`test_stage.py`, `test_queue_caller_stage.py`, `test_caller.py`, `tests/js/stage.test.js`,
+  `tests/js/led.test.js`); the rest updated for six activities and seven roles.
+
 ## [0.24.0] - Zero programmatic input focus, document keydown scanner buffer, and mobile cache-control
 
 ### Fixed

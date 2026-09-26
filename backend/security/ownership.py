@@ -14,7 +14,6 @@ ACTIVITIES = (
     "THOBE_ALLOCATION",
     "SEATING",
     "QUEUE",
-    "STAGE",
     "THOBE_RETURN",
     "LUNCH",
 )
@@ -24,7 +23,6 @@ ACTIVITY_LABEL = {
     "THOBE_ALLOCATION": "Robe Allocation",
     "SEATING": "Seating",
     "QUEUE": "Queue",
-    "STAGE": "Stage",
     "THOBE_RETURN": "Robe Return",
     "LUNCH": "Lunch",
 }

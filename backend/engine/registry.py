@@ -5,15 +5,16 @@ journey status from the student_status view) and a pair of tick boxes. The desk 
 student's own record, so the operator never chooses the activity (golden rule 2):
 
     step     when                                          boxes
-    ENTRY    robe or money not yet recorded                 Robe allotted (THOBE_ALLOCATION),
-                                                            Money received (MONEY_RECEIVED)
-    -        both recorded, degree not yet                  none: "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY"
-    RETURN   degree recorded, a return still pending        Robe returned (THOBE_RETURN),
-                                                            Money returned (MONEY_RETURNED)
-    -        both returned (or waived by the Admin)         none: "ROBE AND MONEY ALREADY RETURNED — time"
+    ENTRY    robe not yet recorded                          Robe allotted (THOBE_ALLOCATION)
+    -        robe recorded, not yet queued                  none: "ROBE ALLOTTED — COME BACK AFTER THE CEREMONY"
+    RETURN   queued, the return still pending               Robe returned (THOBE_RETURN)
+    -        returned (or waived by the Admin)              none: "ROBE ALREADY RETURNED — time"
+
+The Queue scan is what opens the return: the degree itself is handed over with no digital record, so the
+software cannot tell who has walked. Keeping early returns out is a matter of where the desk stands.
 
 The first ENTRY confirm always records Reporting (REGISTRATION), with or without a box ticked, so a student can be
-registered before the robe or the money is sorted out. After that a confirm must tick at least one box.
+registered before the robe is sorted out. After that a confirm must tick at least one box.
 
 Nothing here records an activity itself. Each write is the station engine's own service.confirm_in_transaction(),
 once per activity, inside ONE transaction this module owns: so every event keeps its audit row, its scan_log row,
@@ -114,7 +115,7 @@ def _earlier(completion: dict, settings) -> dict:
 def decide(conn: Connection, settings, principal, student: dict) -> Decision:
     """Where the student is and which boxes the desk offers. Reads only."""
     sid = student["id"]
-    done = {a: active_completion(conn, sid, a) for a in (*ACTIVITIES, "STAGE")}
+    done = {a: active_completion(conn, sid, a) for a in (*ACTIVITIES, "QUEUE")}
     state = _state(conn, sid)
     if student["status"] != "ACTIVE":
         ctx = _ctx(settings, principal, "REGISTRATION")
@@ -126,11 +127,11 @@ def decide(conn: Connection, settings, principal, student: dict) -> Decision:
         return Decision("ENTRY", Outcome("READY", READY_ENTRY, None, student=student),
                         _ctx(settings, principal, activity), done, state)
 
-    if done["STAGE"] is None:
+    if done["QUEUE"] is None:
         latest = done["THOBE_ALLOCATION"]
         return Decision(None, Outcome("DUPLICATE", RECEIVED_WAIT, "DUPLICATE", student=student,
                                       earlier=_earlier(latest, settings), rule="already_completed",
-                                      detail="robe received; degree not yet recorded"),
+                                      detail="robe received; not yet queued"),
                         _ctx(settings, principal, "REGISTRATION"), done, state)
 
     if done["THOBE_RETURN"] is None:
@@ -149,7 +150,7 @@ def _markers(decision: Decision, settings) -> list:
     """The boxes to show: this step's pair, or (with nothing to tick) the pair the student last completed."""
     if decision.step is not None:
         pair = MARKERS[decision.step]
-    elif decision.done.get("STAGE") is not None:
+    elif decision.done.get("QUEUE") is not None:
         pair = MARKERS["RETURN"]
     elif decision.done.get("REGISTRATION") is not None:
         pair = MARKERS["ENTRY"]

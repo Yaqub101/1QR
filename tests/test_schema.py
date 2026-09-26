@@ -41,7 +41,6 @@ ACTIVITIES = [
     "THOBE_ALLOCATION",
     "SEATING",
     "QUEUE",
-    "STAGE",
     "THOBE_RETURN",
     "LUNCH",
 ]
@@ -53,7 +52,6 @@ STATUS_AFTER_STEP = [
     "REPORTED / ROBE PENDING",
     "ROBE RECEIVED / NOT QUEUED",
     "SEATED / NOT QUEUED",
-    "DEGREE NOT RECEIVED",
     "ROBE NOT RETURNED",
     "LUNCH ELIGIBLE",
     "EXITED",
@@ -365,7 +363,7 @@ class TestActivityEventDuplicatePrevention:
             {"s": s, "a": activity}).scalar_one()
         assert n == 1
 
-    def test_one_student_can_complete_all_seven_activities(self, conn):
+    def test_one_student_can_complete_all_six_activities(self, conn):
         s = new_student(conn)
         for activity in ACTIVITIES:
             add_event(conn, s, activity)
@@ -391,11 +389,10 @@ class TestActivityEventDuplicatePrevention:
         with db_error(conn, UNIQUE_VIOLATION):
             add_event(conn, s, "THOBE_RETURN", kind="COMPLETE")
 
-    def test_stage_skips_do_not_use_up_the_completion_slot(self, conn):
+    def test_stage_is_no_longer_an_activity(self, conn):
         s = new_student(conn)
-        add_event(conn, s, "STAGE", kind="SKIP")
-        add_event(conn, s, "STAGE", kind="SKIP", details={"reason": "not ready"})
-        add_event(conn, s, "STAGE", kind="COMPLETE")
+        with db_error(conn, CHECK_VIOLATION):
+            add_event(conn, s, "STAGE")
 
 
 class TestActivityEventShape:
@@ -427,17 +424,16 @@ class TestActivityEventShape:
         with db_error(conn, FK_VIOLATION):
             add_event(conn, uuid.uuid4(), "REGISTRATION")
 
-    def test_skip_is_stage_only_and_waiver_is_thobe_return_only(self, conn):
+    def test_skip_is_refused_everywhere_and_waiver_is_thobe_return_only(self, conn):
         s = new_student(conn)
-        with db_error(conn, CHECK_VIOLATION):
-            add_event(conn, s, "SEATING", kind="SKIP")
+        for activity in ("SEATING", "QUEUE"):
+            with db_error(conn, CHECK_VIOLATION):
+                add_event(conn, s, activity, kind="SKIP", details={"reason": "not ready"})
         with db_error(conn, CHECK_VIOLATION):
             add_event(conn, s, "LUNCH", kind="WAIVER")
 
     def test_skip_waiver_and_reversal_require_a_reason(self, conn):
         s = new_student(conn)
-        with db_error(conn, CHECK_VIOLATION):
-            add_event(conn, s, "STAGE", kind="SKIP", details={})
         with db_error(conn, CHECK_VIOLATION):
             add_event(conn, s, "THOBE_RETURN", kind="WAIVER", details={"reason": "   "})
         eid = add_event(conn, s, "SEATING")
@@ -462,9 +458,9 @@ class TestReversals:
 
     def test_reversal_then_new_completion_is_allowed(self, conn):
         s = new_student(conn)
-        first = add_event(conn, s, "STAGE")
-        add_event(conn, s, "STAGE", kind="REVERSAL", corrects=first, cycle=1)
-        add_event(conn, s, "STAGE", cycle=2)  # accidental COMPLETE undone, then done properly
+        first = add_event(conn, s, "SEATING")
+        add_event(conn, s, "SEATING", kind="REVERSAL", corrects=first, cycle=1)
+        add_event(conn, s, "SEATING", cycle=2)  # accidental COMPLETE undone, then done properly
         rows = conn.execute(
             text("SELECT kind, completion_cycle FROM activity_events WHERE student_id=:s ORDER BY server_time"),
             {"s": s}).all()
@@ -472,9 +468,9 @@ class TestReversals:
 
     def test_second_completion_without_a_reversal_is_rejected(self, conn):
         s = new_student(conn)
-        add_event(conn, s, "STAGE")
+        add_event(conn, s, "SEATING")
         with db_error(conn, CHECK_VIOLATION, match="reversed"):
-            add_event(conn, s, "STAGE", cycle=2)  # cannot skip the duplicate guard by bumping the cycle
+            add_event(conn, s, "SEATING", cycle=2)  # cannot skip the duplicate guard by bumping the cycle
 
     def test_reversal_must_point_at_a_real_completion_of_the_same_student_and_activity(self, conn):
         s, other = new_student(conn), new_student(conn)
@@ -722,18 +718,19 @@ class TestSmallTables:
         with db_error(conn, UNIQUE_VIOLATION):
             conn.execute(text("INSERT INTO settings (id) VALUES (1)"))
 
-    @pytest.mark.parametrize("role", ["ADMIN", "DEPUTY_ADMIN", "REGISTRY", "SEATING", "QUEUE", "STAGE", "LUNCH", "CALLER"])
+    @pytest.mark.parametrize("role", ["ADMIN", "DEPUTY_ADMIN", "REGISTRY", "SEATING", "QUEUE", "LUNCH", "CALLER"])
     def test_every_spec_role_is_accepted(self, conn, role):
         new_user(conn, role=role)
 
     def test_users_reject_unknown_role_and_case_insensitive_duplicate_usernames(self, conn):
-        with db_error(conn, CHECK_VIOLATION):
-            new_user(conn, role="SUPERUSER")
+        for retired in ("SUPERUSER", "STAGE"):
+            with db_error(conn, CHECK_VIOLATION):
+                new_user(conn, role=retired)
         new_user(conn, username="Deputy.Admin")
         with db_error(conn, UNIQUE_VIOLATION):
             new_user(conn, username="deputy.admin")
 
-    def test_display_snapshot_holds_only_led_fields_and_one_row_per_student(self, conn):
+    def test_display_snapshot_holds_only_display_fields_and_one_row_per_student(self, conn):
         s = new_student(conn)
         conn.execute(text("INSERT INTO display_snapshot (student_id, display_name, programme, school) "
                           "VALUES (:s, 'A. Student', 'B.Tech', 'Engineering')"), {"s": s})
@@ -754,7 +751,7 @@ class TestStudentStatus:
         row = conn.execute(text("SELECT step, status FROM student_status WHERE student_id=:s"), {"s": s}).one()
         assert (row.step, row.status) == (0, STATUS_AFTER_STEP[0])
 
-    @pytest.mark.parametrize("n_done", range(8), ids=[f"after_{n}_steps" for n in range(8)])
+    @pytest.mark.parametrize("n_done", range(7), ids=[f"after_{n}_steps" for n in range(7)])
     def test_label_at_every_stage_of_the_journey(self, conn, n_done):
         s = new_student(conn)
         complete_steps(conn, s, n_done)
@@ -790,16 +787,10 @@ class TestStudentStatus:
         view = conn.execute(text("SELECT pg_get_viewdef('student_status'::regclass)")).scalar_one()
         assert "NOT SEATED" not in view and "ROBE RECEIVED / NOT QUEUED" in view
 
-    def test_queue_moves_to_degree_not_received(self, conn):
+    def test_queue_moves_to_robe_not_returned(self, conn):
         s = new_student(conn)
         complete_before(conn, s, "QUEUE")
         add_event(conn, s, "QUEUE")
-        assert status_of(conn, s) == "DEGREE NOT RECEIVED"
-
-    def test_stage_complete_moves_to_robe_not_returned(self, conn):
-        s = new_student(conn)
-        complete_before(conn, s, "STAGE")
-        add_event(conn, s, "STAGE")
         assert status_of(conn, s) == "ROBE NOT RETURNED"
 
     def test_robe_return_makes_lunch_eligible(self, conn):
@@ -814,31 +805,19 @@ class TestStudentStatus:
         add_event(conn, s, "LUNCH")
         assert status_of(conn, s) == "EXITED"
 
-    def test_stage_skip_does_not_count_as_degree_received(self, conn):
-        s = new_student(conn)
-        complete_before(conn, s, "STAGE")
-        add_event(conn, s, "STAGE", kind="SKIP")
-        assert status_of(conn, s) == "DEGREE NOT RECEIVED"
-
-    def test_admin_waivers_count_as_the_returns(self, conn):
-        s = new_student(conn)
-        complete_before(conn, s, "THOBE_RETURN")
-        add_event(conn, s, "THOBE_RETURN", kind="WAIVER")
-        assert status_of(conn, s) == "LUNCH ELIGIBLE"
-
     def test_reversal_steps_the_status_back_and_recompletion_restores_it(self, conn):
         s = new_student(conn)
-        complete_before(conn, s, "STAGE")
-        stage = add_event(conn, s, "STAGE")
+        complete_before(conn, s, "QUEUE")
+        q = add_event(conn, s, "QUEUE")
         assert status_of(conn, s) == "ROBE NOT RETURNED"
-        add_event(conn, s, "STAGE", kind="REVERSAL", corrects=stage, cycle=1)
-        assert status_of(conn, s) == "DEGREE NOT RECEIVED"
-        add_event(conn, s, "STAGE", cycle=2)
+        add_event(conn, s, "QUEUE", kind="REVERSAL", corrects=q, cycle=1)
+        assert status_of(conn, s) == "SEATED / NOT QUEUED"   # SEATING was completed in complete_before
+        add_event(conn, s, "QUEUE", cycle=2)
         assert status_of(conn, s) == "ROBE NOT RETURNED"
 
     def test_status_is_identical_whatever_order_events_arrive_in(self, conn):
         rng = random.Random(20261015)
-        for n_done in (4, 7):
+        for n_done in (4, 6):
             for _ in range(6):
                 s = new_student(conn)
                 order = ACTIVITIES[:n_done][:]

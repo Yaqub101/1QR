@@ -1,8 +1,8 @@
 """backend/photo_storage.py — where student photo files live, and the ONE way to read one back.
 
 Every screen that shows a student photo goes through `load_photo` / `photo_response` below: the
-operator card and Admin → Students (`/photo/{id}`), the Stage slots (same route), the public LED
-(`/led/photo/{key}`) and the printed pass (`passes._prepare_photo`). There is no second
+operator card, Admin → Students and the Caller screen (`/photo/{id}`), and the printed pass
+(`passes._prepare_photo`). There is no second
 path-building rule anywhere else.
 
 THE DATABASE KEY IS THE SAME EVERYWHERE
@@ -21,7 +21,7 @@ TWO STORES, ONE INTERFACE (`PHOTO_STORAGE`)
     public ID is a hash of the key, so no student name or PRN appears in Cloudinary and the same
     photo always lands on the same public ID (a re-run never makes a copy). The browser never
     sees a Cloudinary URL: the server fetches the image with a signed URL and serves it from the
-    app's own routes, so the existing sign-in rule on `/photo` and the opaque LED key still hold,
+    app's own routes, so the existing sign-in rule on `/photo` still holds,
     and no credential or asset ID reaches a page.
 
 PURGE (the Admin data reset only, backend/admin/reset.py)

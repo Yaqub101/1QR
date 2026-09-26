@@ -1,8 +1,8 @@
 # Convocation System — Implementation TODO (v3)
 
-**One student → one QR → seven recorded activities → three QR scan points (Registry, Queue, Lunch) → one server.**
+**One student → one QR → six recorded activities → three QR scan points (Registry, Queue, Lunch) → one server.**
 Source of truth for behaviour: `docs/SYSTEM_SPEC.md` as amended by `docs/ARCHITECTURE_PIVOT.md` (single server, and the
-role/flow redesign R1–R3). This file is the build order. If they disagree, stop and ask the project owner.
+role/flow redesign R1–R3, and the Post-Queue simplification that removed the Stage and the LED). This file is the build order. If they disagree, stop and ask the project owner.
 
 ---
 
@@ -26,20 +26,20 @@ role/flow redesign R1–R3). This file is the build order. If they disagree, sto
 |---|---|
 | Stack | Python FastAPI + PostgreSQL (+ SQLAlchemy, Alembic, Jinja2 + HTMX, SSE), Docker Compose. **Not** Firebase, **not** the Admitto codebase. (The custom outbox sync was dropped by the pivot.) |
 | Architecture | **Superseded by the pivot:** ONE server and database, plus one hot standby for hardware failure. No per-venue servers, no offline mode |
-| Activity ownership | **Superseded:** no venue ownership. The operator's role decides: REGISTRY, SEATING, QUEUE, STAGE, LUNCH, CALLER, ADMIN, DEPUTY_ADMIN |
+| Activity ownership | **Superseded:** no venue ownership. The operator's role decides: REGISTRY, SEATING, QUEUE, LUNCH, CALLER, ADMIN, DEPUTY_ADMIN |
 | QR | One opaque random token per student, used at the three scan points (Registry, Queue, Lunch) and the optional Seating page |
 | Scan points (redesign R1) | Registry desk: ONE confirm records Reporting + Robe Allocation; later the same desk records the Robe Return. Then Queue and Lunch |
 | Seating (redesign R1) | Optional checkpoint; never a prerequisite. The Queue requires the robe |
-| Stage (redesign R2) | NEXT records the degree for the student on stage and shows the next one in one transaction; the Stage sees the next 15 waiting |
-| Caller screen (redesign R3) | Read-only CALLER role; shows the LED's student (name + programme) from the LED's own payload |
+| Stage (redesign R2) | **Removed (S1):** the Stage and the LED are gone; see the Post-Queue simplification in `docs/ARCHITECTURE_PIVOT.md`. The degree is handed over with no digital record |
+| Caller screen (redesign R3, S1) | The only live display: queued students in first-come order, faculty colours, NEXT per student (CALLER and the Admins) |
 | Cross-location stale data | **Dropped by the pivot** (one server: every prerequisite is a hard block) |
 | "Not Attended" | Never registered. Registered-but-incomplete goes in a separate exceptions report |
-| Stage order | First come, first shown (order of queue confirmation). **Superseded: the university supplies no Convocation Sequence Number at all**, so nothing shows, sorts by or validates against one |
+| Calling order | First come, first called (order of queue confirmation). **Superseded: the university supplies no Convocation Sequence Number at all**, so nothing shows, sorts by or validates against one |
 | Manual fallback | PRN-only search with photo check, at every scan screen |
 | Robes | Identical, unnumbered. Allocation and Return are simple confirmations |
 | Lost/unreturned robe | Admin approves "Return Waived / Lost" with reason; unlocks Lunch |
 | Admin | One Admin plus a named deputy (identical powers) |
-| LED on server loss | Keep current student up to 10 s, then holding screen |
+| LED on server loss | **Removed (S1):** the Stage and the LED are gone; see the Post-Queue simplification in `docs/ARCHITECTURE_PIVOT.md`. |
 | Central account owner | The university |
 | Student count | 1,000–3,000 (plan for 3,000) |
 | Data | About half the list available now; import must be incremental; master freeze ~24 h before event |
@@ -53,6 +53,8 @@ role/flow redesign R1–R3). This file is the build order. If they disagree, sto
 > **Architecture Pivot Note:** Per `docs/ARCHITECTURE_PIVOT.md`, the 3-venue distributed sync system was superseded by a single-server, role-based architecture. Phases 14 and 15 are **DROPPED**. Phases 5, 6, 17, and 18 are **SIMPLIFIED**.
 >
 > **Role/flow redesign:** Phases R1–R3 below cut the QR scan points from 7 to 3 (see `docs/ARCHITECTURE_PIVOT.md`, "Role/flow redesign"). The pre-existing QUEUE concurrency deadlock was fixed in R1 (a per-student lock before taking a queue place).
+>
+> **Post-Queue simplification (S1):** the Stage operator, the Stage Controller, the public LED and the STAGE activity are removed; six activities remain and the Robe Return needs only the Queue scan. Phase 11 and R2 are superseded, and every Stage or LED item in later phases no longer applies.
 
 | # | Phase | Milestone | Status |
 |---|---|---|---|
@@ -66,7 +68,7 @@ role/flow redesign R1–R3). This file is the build order. If they disagree, sto
 | 8 | Robe Allocation | M1 | Completed |
 | 9 | Seating | M1 | Completed |
 | 10 | Queue | M2 | Completed |
-| 11 | Stage Controller and public LED | M2 | Completed |
+| 11 | Stage Controller and public LED | M2 | REMOVED (S1) |
 | 12 | Robe Return and Lunch | M3 | Completed |
 | 13 | Admin: dashboard, corrections, exceptions, audit | M3 | Completed |
 | 14 | Sync engine (outbox, push/pull, status) | M4 | DROPPED (per ARCHITECTURE_PIVOT.md) |
@@ -78,8 +80,9 @@ role/flow redesign R1–R3). This file is the build order. If they disagree, sto
 | 20 | Rehearsal, freeze, handover | M5 | Pending |
 | 21 | Go/No-Go acceptance and sign-off | — | Pending |
 | R1 | Redesign: Registry desk (REGISTRY role, one entry confirm, robe return), Seating optional | — | Built and tested; awaiting the project owner's commit approval |
-| R2 | Redesign: Stage NEXT (records the degree and advances), 15-student waiting list | — | Built and tested; awaiting the project owner's commit approval |
+| R2 | Redesign: Stage NEXT (records the degree and advances), 15-student waiting list | — | REMOVED (S1) |
 | R3 | Redesign: Caller screen and CALLER role | — | Built and tested; awaiting the project owner's commit approval |
+| S1 | Post-Queue simplification: Stage, LED and the STAGE activity removed; Robe Return gated on the Queue scan | — | Built and tested; awaiting the project owner's commit approval |
 
 ---
 
@@ -385,7 +388,9 @@ in, and nothing else.
 
 ---
 
-## Phase 11 — Stage Controller and Public LED (Stadium)
+## Phase 11 — Stage Controller and Public LED (Stadium) — REMOVED
+
+> **Removed (S1):** the Stage and the LED are gone; see the Post-Queue simplification in `docs/ARCHITECTURE_PIVOT.md`. Kept below for the record only.
 
 **Antigravity prompt:** "Build the Stage Controller (CURRENT / NEXT / AFTER NEXT; DISPLAY NEXT, HOLD/HOME, PREVIOUS, SEARCH, SKIP, COMPLETE) and the 16:9 public LED page fed by SSE from `display_snapshot` only. The LED keeps the current student for 10 seconds after losing the server, then shows the holding screen."
 
@@ -416,7 +421,7 @@ in, and nothing else.
 
 ## Phase 12 — Robe Return and Lunch (Hall)
 
-**Antigravity prompt:** "Configure Robe Return (simple confirmation, requires Stage completed and Robe Allocation) and Lunch (requires Robe Return or Admin waiver). Lunch completion sets EXITED."
+**Antigravity prompt:** "Configure Robe Return (simple confirmation, requires the Queue scan and Robe Allocation) and Lunch (requires Robe Return or Admin waiver). Lunch completion sets EXITED."
 
 - [ ] Robe Return: SCAN → VERIFY → CONFIRM RETURN; duplicate → "ALREADY RETURNED — time"
 - [ ] Lunch: SCAN → VERIFY → CONFIRM; "LUNCH NOT AVAILABLE — ROBE RETURN PENDING" if needed; duplicate → "LUNCH ALREADY CLAIMED — time"

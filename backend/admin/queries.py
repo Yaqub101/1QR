@@ -35,7 +35,6 @@ FUNNEL_LABELS = {
     "THOBE_ALLOCATION": "Robe received",
     "SEATING": "Seated (optional)",
     "QUEUE": "Queued",
-    "STAGE": "Stage complete",
     "THOBE_RETURN": "Robe returned",
     "LUNCH": "Lunch / Exited",
 }

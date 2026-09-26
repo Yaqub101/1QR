@@ -24,7 +24,7 @@ from backend.photos import link_photos_by_prn
 from backend.snapshot import freeze_display_data
 from backend.master_pack import export_master_pack, import_master_pack
 from backend.engine.routes import router as engine_router
-from backend.stage.routes import router as stage_router
+from backend.stage.routes import router as caller_router
 from backend.security.deps import require_admin
 from backend.security.sessions import Principal
 from backend.admin.routes import router as admin_console_router
@@ -145,7 +145,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     from backend.admin.faculties import router as faculties_router
     app.include_router(faculties_router)
     app.include_router(engine_router)  # /scan /search /confirm /photo (Phase 6)
-    app.include_router(stage_router)   # /stage/* controller and the public /led/* (Phase 11)
+    app.include_router(caller_router)  # /caller/* and the /events/queue SSE
     app.include_router(system_router)  # /admin/system data-reset screen
 
     # ── Admin: import (Admin / Deputy only) ───────────────────────────────────
@@ -251,7 +251,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         if "text/html" in request.headers.get("accept", "") and request.headers.get("hx-request") != "true":
             from backend.web import redirect as web_redirect
             return web_redirect("/admin/system#freeze-card",
-                                msg=f"Display data frozen successfully. {summary.frozen_count} student record(s) approved for the LED screen.")
+                                msg=f"Display data frozen successfully. {summary.frozen_count} student record(s) approved for display.")
         return {"frozen_count": summary.frozen_count}
 
     # ── Admin: master pack ────────────────────────────────────────────────────

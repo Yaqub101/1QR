@@ -46,7 +46,7 @@ PASSWORD = "Test-Pass-2026!"  # test-only constant, never a real credential
 SESSION_COOKIE = "session"
 
 ACTIVITIES = [
-    "REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH",
+    "REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "THOBE_RETURN", "LUNCH",
 ]
 
 # key -> role. The approved role/flow redesign: ONE merged Registry operator role covers Reporting,
@@ -58,15 +58,14 @@ IDENTITIES = {
     "registry": "REGISTRY",
     "seating": "SEATING",
     "queue": "QUEUE",
-    "stage": "STAGE",
     "lunch": "LUNCH",
     "caller": "CALLER",
 }
 ADMIN_ROLES = {"ADMIN", "DEPUTY_ADMIN"}
-OPERATOR_ROLES = {"REGISTRY", "SEATING", "QUEUE", "STAGE", "LUNCH", "CALLER"}
+OPERATOR_ROLES = {"REGISTRY", "SEATING", "QUEUE", "LUNCH", "CALLER"}
 CALLER_VIEW = "view:caller"
-# Who may open the read-only Caller screen (/caller): the Caller, the Stage operator and the Admins.
-SPEC_CALLER_SCREEN = {"CALLER", "STAGE", "ADMIN", "DEPUTY_ADMIN"}
+# Who may open the read-only Caller screen (/caller): the Caller and the Admins.
+SPEC_CALLER_SCREEN = {"CALLER", "ADMIN", "DEPUTY_ADMIN"}
 RETIRED_ROLES = ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN")  # merged into REGISTRY
 
 # Which operator role performs each activity, written out by hand (not imported from the code).
@@ -75,7 +74,6 @@ OPERATOR_ROLE_FOR = {
     "THOBE_ALLOCATION": "REGISTRY",
     "SEATING": "SEATING",
     "QUEUE": "QUEUE",
-    "STAGE": "STAGE",
     "THOBE_RETURN": "REGISTRY",
     "LUNCH": "LUNCH",
 }
@@ -85,10 +83,9 @@ SPEC_ACTIVITY_PAGES = {
     "REGISTRY": {"REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"},
     "SEATING": {"SEATING"},
     "QUEUE": {"QUEUE"},
-    "STAGE": {"STAGE"},
     "LUNCH": {"LUNCH"},
     "CALLER": set(),                 # read-only: no activity at all
-    "ADMIN": set(ACTIVITIES),        # "All seven pages"
+    "ADMIN": set(ACTIVITIES),        # "All pages"
     "DEPUTY_ADMIN": set(ACTIVITIES),  # "identical powers"
 }
 # The Registry desk screen (/station/registry): the Registry operator and the Admins.
@@ -248,7 +245,7 @@ class TestPasswordHashing:
 class TestRoleModel:
     def test_there_is_one_role_per_spec_row_plus_the_deputy(self):
         assert set(permissions.ALL_ROLES) == set(IDENTITIES.values())
-        assert len(permissions.ALL_ROLES) == 8
+        assert len(permissions.ALL_ROLES) == 7
 
     @pytest.mark.parametrize("role", RETIRED_ROLES)
     def test_the_three_merged_roles_no_longer_exist(self, role):
@@ -266,7 +263,7 @@ class TestRoleModel:
         assert not permissions.has_permission(role, permissions.ADMIN_PERMISSION)
 
     @pytest.mark.parametrize("role", sorted(IDENTITIES.values()))
-    def test_only_the_caller_stage_and_admins_may_view_the_caller_screen(self, role):
+    def test_only_the_caller_and_admins_may_view_the_caller_screen(self, role):
         assert permissions.has_permission(role, CALLER_VIEW) == (role in SPEC_CALLER_SCREEN)
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
@@ -443,10 +440,10 @@ class TestSessions:
 
 
 # --------------------------------------------------------------------------- #
-# The role matrix: 9 identities x every protected endpoint
+# The role matrix: 8 identities x every protected endpoint
 # --------------------------------------------------------------------------- #
 STATION_PAGES = [("GET", f"/station/{slug(a)}") for a in ACTIVITIES] + [("GET", "/station/registry")]
-CALLER_PAGES = [("GET", "/caller"), ("GET", "/caller/state"), ("GET", "/caller/queue")]
+CALLER_PAGES = [("GET", "/caller"), ("GET", "/caller/queue")]
 ADMIN_ENDPOINTS = [
     ("GET", "/admin"), ("GET", "/admin/users"),
     ("POST", "/admin/users"),
@@ -531,11 +528,16 @@ class TestRoleMatrix:
         assert client.post("/admin/snapshot/freeze").status_code == 200
         assert client.post("/admin/photos/link").status_code == 422  # reached the handler: form is empty
 
+    def test_the_stage_controller_and_the_led_screen_are_gone(self, engine, world):
+        """The Stage operator and the public LED were removed: no route under /stage or /led, no STAGE role."""
+        app = build_app()
+        paths = set(app.openapi()["paths"])
+        assert not {p for p in paths if p == "/led" or p.startswith(("/led/", "/stage/"))}, paths
+        assert "STAGE" not in permissions.ALL_ROLES
+
     def test_every_route_is_protected_unless_deliberately_public(self, engine, world):
         app = build_app()
-        public = {("GET", "/"), ("GET", "/login"), ("POST", "/login"), ("POST", "/api/login"), ("GET", "/health"),
-                  # Phase 11: the audience screen. Deliberately public; serves only the approved LED payload.
-                  ("GET", "/led"), ("GET", "/led/state"), ("GET", "/led/events"), ("GET", "/led/photo/{key}")}
+        public = {("GET", "/"), ("GET", "/login"), ("POST", "/login"), ("POST", "/api/login"), ("GET", "/health")}
         visited = set()
         # OpenAPI lists every route however it was mounted (included routers are nested objects).
         for template, operations in app.openapi()["paths"].items():
@@ -632,7 +634,7 @@ class TestUserManagement:
         assert api_login(new_client(apps), username, "brand-new-pass-1").status_code == 200
 
     def test_user_actions_are_audited_under_the_individuals_own_login(self, apps, world, engine):
-        username, uid = fresh_user(engine, role="STAGE")
+        username, uid = fresh_user(engine, role="SEATING")
         self._admin(apps, "deputy").post(f"/admin/users/{uid}/active", data={"active": "0"}, follow_redirects=False)
         with engine.connect() as c:
             row = c.execute(text("SELECT operator_id, details FROM audit_log WHERE action='USER_DEACTIVATED' "

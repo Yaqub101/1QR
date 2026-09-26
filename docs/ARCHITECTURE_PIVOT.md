@@ -70,7 +70,8 @@ Delete or disable entirely — do not leave dead code half-wired in:
 
 Approved by the project owner to cut QR scan points from 7 to 3 and bring the turnover
 between two students on stage down to 1–5 seconds. This section wins over SYSTEM_SPEC
-wherever they disagree.
+wherever they disagree. **The Stage, LED and Caller parts below are superseded by the next
+section, "Post-Queue simplification".**
 
 - **Three QR scan points: Registry, Queue, Lunch.** All seven activities are still recorded
   as separate append-only events, each with its own per-activity unique constraint.
@@ -101,6 +102,35 @@ wherever they disagree.
   5 seconds without contact it hides the name and warns the caller not to call.
 - **Lunch (role LUNCH)** unchanged: needs the robe back (or the Admin's waiver).
 - Migrations: `0014_registry_role`, `0015_caller_role`, `0016_optional_seating_labels`.
+
+## Post-Queue simplification: Stage and LED removed (2026-09-25)
+
+Approved by the project owner. This section wins over SYSTEM_SPEC and over every section
+above wherever they disagree.
+
+- **Removed entirely, with no replacement:** the Stage operator (role STAGE, the Stage
+  Controller screen and every `/stage/*` route), the public LED screen (`/led/*`), and the
+  "degree / certificate received" record (the STAGE activity). The degree is handed over with
+  no digital confirmation step.
+- **Six recorded activities**, in this order: Reporting, Robe Allocation, Seating (optional),
+  Queue, Robe Return, Lunch. Still three QR scan points: Registry, Queue, Lunch.
+- **Student flow:** report at the Registry desk (robe given) → scan at the Queue, which puts
+  the student on the Caller screen → the Caller calls the name and presses NEXT → the student
+  receives the degree physically → Robe Return at the Registry desk → Lunch.
+- **The Caller screen is the only live display.** It lists queued students in first-come
+  order, colour-coded by faculty, with a NEXT button per student (roles CALLER, ADMIN,
+  DEPUTY_ADMIN). NEXT only takes the name off the list; it records no activity.
+- **Robe Return needs the Queue scan (and an issued robe), nothing else.** The software can
+  no longer tell whether a student has walked, so keeping early returns out is an
+  operational control: place the Robe Return desk so it is only reachable after the stage.
+- **History is kept.** Migration `a9d7eb16a3e4_remove_stage_and_led` refuses new STAGE rows
+  and SKIP events (the Stage's own kind) with `NOT VALID` checks, so any STAGE events,
+  scan-log rows and exceptions already recorded stay untouched (golden rule 5). The
+  `student_status` view ignores them. `stage_state` and `queue.staged_at` are dropped; a
+  STAGE account becomes an inactive CALLER.
+- **Status labels** after this change: `REGISTERED / NOT REPORTED`, `REPORTED / ROBE PENDING`,
+  `ROBE RECEIVED / NOT QUEUED`, `SEATED / NOT QUEUED`, `ROBE NOT RETURNED` (queued),
+  `LUNCH ELIGIBLE`, `EXITED`. `DEGREE NOT RECEIVED` no longer exists.
 
 ## Updated TODO.md phase status (informal — Antigravity should reconcile this
    properly against the real TODO.md structure as part of the migration work)

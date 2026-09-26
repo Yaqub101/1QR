@@ -40,7 +40,7 @@ class Prerequisite:
 
 @dataclass(frozen=True)
 class ActivityConfig:
-    activity: str                        # the activity this configures (one of the seven)
+    activity: str                        # the activity this configures (one of the six)
     prerequisites: tuple[Prerequisite, ...]
     display_fields: tuple[str, ...]      # extra card fields, chosen from extensions.DISPLAY_FIELDS
     confirm_label: str                   # text of the big confirm button

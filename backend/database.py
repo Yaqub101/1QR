@@ -25,7 +25,6 @@ REQUIRED_TABLES = (
     "exceptions",
     "audit_log",
     "settings",
-    "stage_state",
     "programme_faculty",
 )
 

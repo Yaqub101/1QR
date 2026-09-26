@@ -4,8 +4,8 @@ SYSTEM_SPEC 18 ("Last resort"): each station keeps a printed sheet so the event 
 entries typed in later. This reads the CURRENT master list from the database and writes one printable page per
 activity (open it in a browser and print, landscape).
 
-    python scripts/fallback_sheets.py                              # all seven sheets into exports/fallback-sheets/
-    python scripts/fallback_sheets.py --venue stadium              # only the Stadium's four sheets
+    python scripts/fallback_sheets.py                              # all six sheets into exports/fallback-sheets/
+    python scripts/fallback_sheets.py --activity QUEUE             # only the Queue sheet
     python scripts/fallback_sheets.py --database-url postgresql://user:password@host:5432/db --out D:/sheets
 
 Rules it keeps:
@@ -34,12 +34,11 @@ from backend.security.ownership import ACTIVITIES, ACTIVITY_LABEL  # noqa: E402
 
 DEFAULT_OUT = "exports/fallback-sheets"
 
-# The stage follows the ORDER OF QUEUE CONFIRMATION, never the sequence number (SYSTEM_SPEC 11 C4), so paper needs it.
+# The Caller calls in the ORDER OF QUEUE CONFIRMATION, never the sequence number (SYSTEM_SPEC 11 C4), so paper needs it.
 EXTRA_COLUMN = {"QUEUE": "Queue no.<br>(write, in order of arrival)"}
 NOTE = {
-    "QUEUE": "Number students 1, 2, 3 in the order they join the queue. The stage follows this order, "
+    "QUEUE": "Number students 1, 2, 3 in the order they join the queue. The Caller calls names in this order, "
              "not the sequence number.",
-    "STAGE": "Call students in the order written on the Queue sheet, not in sequence-number order.",
 }
 
 CSS = """

@@ -1,24 +1,23 @@
 """scripts/verify_e2e_scans.py — live end-to-end check of the redesigned flow against a RUNNING server.
 
-The redesigned journey has THREE QR scan points: Registry (entry: Reporting + Robe in one confirm; later the
-robe return), Queue, and Lunch. Stage is driven by the Stage operator's NEXT (no scan), and the Caller screen
-shows the same student as the LED. This script checks, over real HTTP plus direct database reads:
+The journey has THREE QR scan points: Registry (entry: Reporting + Robe in one confirm; later the robe return),
+Queue, and Lunch. A Queue scan puts the student on the Caller screen; the Caller calls the name and presses NEXT.
+The degree is handed over with no digital record, and the robe return opens as soon as the student is queued.
+This script checks, over real HTTP plus direct database reads:
 
   1. a printed pass's QR decodes to the student's token (pass PDF from the server);
-  2. role gating for every role: REGISTRY, QUEUE, STAGE, LUNCH, CALLER, ADMIN;
+  2. role gating for every role: REGISTRY, QUEUE, LUNCH, CALLER, ADMIN (and that /stage and /led are gone);
   3. prerequisites: the Queue needs the robe (not a seat); Lunch needs the robe back;
   4. duplicates at the Registry desk and the Queue;
-  5. one student's whole journey through the three scan points and Stage NEXT, with the status after each step;
-  6. Stage / LED / Caller: a queue scan changes neither screen; after NEXT both show the same student; the LED
-     and the Caller carry only their approved fields.
+  5. one student's whole journey through the three scan points, with the status after each step;
+  6. the Caller list: a queue scan adds the student; NEXT removes them; no QR token in the list.
 
-IT WRITES REAL EVENTS (reporting, robe, queue, degrees, returns, lunch) for three fresh students, and to reach
-them on stage it records degrees for anyone queued ahead of them. It refuses to run unless
-VERIFY_ALLOW_WRITES=1. Never point it at an event database that is in use.
+IT WRITES REAL EVENTS (reporting, robe, queue, returns, lunch, caller NEXT) for three fresh students. It refuses
+to run unless VERIFY_ALLOW_WRITES=1. Never point it at an event database that is in use.
 
 Accounts come from the environment, never from this file:
     VERIFY_BASE_URL                     default http://127.0.0.1:8000
-    VERIFY_<ROLE>_USER / _PASSWORD      for ROLE in ADMIN, REGISTRY, QUEUE, STAGE, LUNCH, CALLER
+    VERIFY_<ROLE>_USER / _PASSWORD      for ROLE in ADMIN, REGISTRY, QUEUE, LUNCH, CALLER
     DATABASE_URL                        the same database the server uses (for picking students, statuses)
 """
 from __future__ import annotations
@@ -38,10 +37,7 @@ from backend.config import get_settings
 from backend.database import get_engine
 
 BASE_URL = os.environ.get("VERIFY_BASE_URL", "http://127.0.0.1:8000")
-ROLES = ("ADMIN", "REGISTRY", "QUEUE", "STAGE", "LUNCH", "CALLER")
-LED_FIELDS = {"name", "photo_url", "programme", "school", "award"}
-CALLER_FIELDS = {"name", "programme"}
-PROHIBITED = ("prn", "phone", "email", "mobile", "student_id", "id", "sequence_no", "seat", "seat_no", "token")
+ROLES = ("ADMIN", "REGISTRY", "QUEUE", "LUNCH", "CALLER")
 
 
 def http_req(path: str, method: str = "GET", body: Optional[dict] = None, token: Optional[str] = None,
@@ -117,23 +113,10 @@ def main() -> None:
         with engine.connect() as conn:
             return conn.execute(text("SELECT status FROM student_status WHERE student_id = :s"), {"s": sid}).scalar_one()
 
-    def stage_state() -> dict:
-        status, body, _ = http_req("/stage/state", token=login("STAGE"))
+    def caller_ids() -> list:
+        status, body, _ = http_req("/caller/queue", token=login("CALLER"))
         assert status == 200, (status, body)
-        return body
-
-    def advance_until(sid: str) -> dict:
-        """Press NEXT (naming who is on stage) until `sid` is on stage. Records degrees for anyone ahead."""
-        http_req("/stage/takeover", "POST", {}, token=login("STAGE"))
-        while True:
-            current = stage_state()["current"]
-            if current and current["student_id"] == sid:
-                return current
-            status, body, _ = http_req("/stage/next", "POST",
-                                       {"expect_current": current and current["student_id"]}, token=login("STAGE"))
-            print(f"  NEXT -> HTTP {status}: {body.get('message') or body.get('detail')}")
-            if status != 200:
-                raise RuntimeError(f"could not reach the student on stage: {body}")
+        return [row["student_id"] for row in body["students"]]
 
     def section(title: str) -> None:
         print("\n" + "=" * 80 + f"\n{title}\n" + "=" * 80)
@@ -152,7 +135,7 @@ def main() -> None:
     assert decoded and decoded.text == sample["token"]
 
     # --------------------------------------------------------------------------------------------- 2
-    section("TASK 2: role gating (REGISTRY, QUEUE, STAGE, LUNCH, CALLER, ADMIN)")
+    section("TASK 2: role gating (REGISTRY, QUEUE, LUNCH, CALLER, ADMIN)")
     tok = sample["token"]
     checks = [  # (role, method, path, body, expected status)
         ("REGISTRY", "POST", "/scan", {"token": tok, "activity": "REGISTRY"}, 200),
@@ -160,19 +143,16 @@ def main() -> None:
         ("REGISTRY", "POST", "/scan", {"token": tok, "activity": "LUNCH"}, 403),
         ("QUEUE", "POST", "/scan", {"token": tok, "activity": "QUEUE"}, 200),
         ("QUEUE", "POST", "/scan", {"token": tok, "activity": "REGISTRY"}, 403),
-        ("QUEUE", "GET", "/stage/state", None, 403),
-        ("STAGE", "GET", "/stage/state", None, 200),
-        ("STAGE", "GET", "/caller/state", None, 200),
-        ("STAGE", "POST", "/scan", {"token": tok, "activity": "REGISTRY"}, 403),
+        ("QUEUE", "GET", "/caller/queue", None, 403),
         ("LUNCH", "POST", "/scan", {"token": tok, "activity": "LUNCH"}, 200),
         ("LUNCH", "POST", "/scan", {"token": tok, "activity": "REGISTRY"}, 403),
-        ("CALLER", "GET", "/caller/state", None, 200),
+        ("CALLER", "GET", "/caller/queue", None, 200),
         ("CALLER", "POST", "/scan", {"token": tok, "activity": "QUEUE"}, 403),
-        ("CALLER", "POST", "/stage/next", {"expect_current": None}, 403),
-        ("CALLER", "GET", "/stage/state", None, 403),
-        ("REGISTRY", "GET", "/caller/state", None, 403),
+        ("REGISTRY", "GET", "/caller/queue", None, 403),
         ("REGISTRY", "GET", "/admin/api/dashboard", None, 403),
         ("ADMIN", "GET", "/admin/api/dashboard", None, 200),
+        ("ADMIN", "GET", "/stage/state", None, 404),   # the Stage Controller is gone
+        ("ADMIN", "GET", "/led/state", None, 404),     # and so is the public LED
         ("ADMIN", "POST", "/scan", {"token": tok, "activity": "NON_EXISTENT_ACTIVITY"}, 404),
     ]
     for role, method, path, body, expected in checks:
@@ -187,15 +167,13 @@ def main() -> None:
     status, body, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "QUEUE"}, token=login("QUEUE"))
     show("Queue before the Registry desk", status, body)
     assert body["result"] == "REJECTED" and body["message"] == "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED"
-    status, entry, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "REGISTRY", "step": "ENTRY", "marks": ["THOBE_ALLOCATION", "MONEY_RECEIVED"]},
-                                token=login("REGISTRY"))
-    show("Registry entry (Reporting + both boxes ticked, one confirm)", status, entry)
-    assert entry["result"] == "CONFIRMED" and [e["activity"] for e in entry["events"]] == [
-        "REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED"]
+    status, entry, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "REGISTRY", "step": "ENTRY",
+                                                     "marks": ["THOBE_ALLOCATION"]}, token=login("REGISTRY"))
+    show("Registry entry (Reporting + robe ticked, one confirm)", status, entry)
+    assert entry["result"] == "CONFIRMED" and [e["activity"] for e in entry["events"]] == ["REGISTRATION", "THOBE_ALLOCATION"]
     status, again, _ = http_req("/scan", "POST", {"token": a["token"], "activity": "REGISTRY"}, token=login("REGISTRY"))
-    show("Registry scan again", status, again)
-    assert again["result"] == "DUPLICATE" and again["colour"] == "amber"
-    assert again["message"] == "ROBE AND MONEY RECEIVED — COME BACK AFTER THE CEREMONY"
+    show("Registry scan again (not yet queued)", status, again)
+    assert again["result"] == "DUPLICATE" and again["message"] == "ROBE ALLOTTED — COME BACK AFTER THE CEREMONY"
     status, body, _ = http_req("/confirm", "POST", {"token": a["token"], "activity": "QUEUE"}, token=login("QUEUE"))
     show("Queue with the robe and no seat", status, body)
     assert body["result"] == "CONFIRMED"
@@ -207,25 +185,20 @@ def main() -> None:
     assert body["result"] == "REJECTED" and body["message"] == "LUNCH NOT AVAILABLE — ROBE RETURN PENDING"
 
     # --------------------------------------------------------------------------------------------- 5
-    section("TASK 5: one student through the three scan points and Stage NEXT")
+    section("TASK 5: one student through the three scan points")
     b = fresh_student("Student B")
     print(f"  start: {status_of(b['id'])}")
     assert status_of(b["id"]) == "REGISTERED / NOT REPORTED"
-    steps = [("REGISTRY", {"activity": "REGISTRY", "step": "ENTRY", "marks": ["THOBE_ALLOCATION", "MONEY_RECEIVED"]}, "ROBE AND MONEY RECEIVED / NOT QUEUED"),
-             ("QUEUE", {"activity": "QUEUE"}, "DEGREE NOT RECEIVED")]
+    steps = [("REGISTRY", {"activity": "REGISTRY", "step": "ENTRY", "marks": ["THOBE_ALLOCATION"]}, "ROBE RECEIVED / NOT QUEUED"),
+             ("QUEUE", {"activity": "QUEUE"}, "ROBE NOT RETURNED")]
     for role, body, expected in steps:
         status, reply, _ = http_req("/confirm", "POST", {"token": b["token"], **body}, token=login(role))
         print(f"  {role} confirm -> HTTP {status} {reply['result']}; status now {status_of(b['id'])!r}")
         assert reply["result"] == "CONFIRMED" and status_of(b["id"]) == expected
-    advance_until(b["id"])
-    status, reply, _ = http_req("/stage/next", "POST", {"expect_current": b["id"]}, token=login("STAGE"))
-    print(f"  Stage NEXT -> HTTP {status} {reply['message']!r}; status now {status_of(b['id'])!r}")
-    assert status == 200 and status_of(b["id"]) == "ROBE AND MONEY NOT RETURNED"
     status, reply, _ = http_req("/scan", "POST", {"token": b["token"], "activity": "REGISTRY"}, token=login("REGISTRY"))
-    assert reply["step"] == "RETURN" and [m["key"] for m in reply["markers"]] == ["THOBE_RETURN", "MONEY_RETURNED"], reply
+    assert reply["step"] == "RETURN" and [m["key"] for m in reply["markers"]] == ["THOBE_RETURN"], reply
     status, reply, _ = http_req("/confirm", "POST", {"token": b["token"], "activity": "REGISTRY", "step": "RETURN",
-                                                     "marks": ["THOBE_RETURN", "MONEY_RETURNED"]},
-                                token=login("REGISTRY"))
+                                                     "marks": ["THOBE_RETURN"]}, token=login("REGISTRY"))
     print(f"  REGISTRY return -> HTTP {status} {reply['result']}; status now {status_of(b['id'])!r}")
     assert reply["result"] == "CONFIRMED" and status_of(b["id"]) == "LUNCH ELIGIBLE"
     status, reply, _ = http_req("/confirm", "POST", {"token": b["token"], "activity": "LUNCH"}, token=login("LUNCH"))
@@ -233,37 +206,21 @@ def main() -> None:
     assert reply["result"] == "CONFIRMED" and status_of(b["id"]) == "EXITED"
 
     # --------------------------------------------------------------------------------------------- 6
-    section("TASK 6: Stage / LED / Caller")
+    section("TASK 6: the Caller list")
     c = fresh_student("Student C")
-    http_req("/confirm", "POST", {"token": c["token"], "activity": "REGISTRY", "step": "ENTRY", "marks": ["THOBE_ALLOCATION", "MONEY_RECEIVED"]}, token=login("REGISTRY"))
-    led_before = http_req("/led/state")[1]
-    caller_before = http_req("/caller/state", token=login("CALLER"))[1]
+    http_req("/confirm", "POST", {"token": c["token"], "activity": "REGISTRY", "step": "ENTRY",
+                                  "marks": ["THOBE_ALLOCATION"]}, token=login("REGISTRY"))
+    assert c["id"] not in caller_ids()
     status, reply, _ = http_req("/confirm", "POST", {"token": c["token"], "activity": "QUEUE"}, token=login("QUEUE"))
     assert reply["result"] == "CONFIRMED"
-    led_after, caller_after = http_req("/led/state")[1], http_req("/caller/state", token=login("CALLER"))[1]
-    # What the LED SHOWS is mode + student (+ the version that signals a change). Its `preload` list (photo
-    # addresses fetched ahead of time, never displayed) is meant to grow as students join the queue.
-    shows = lambda p: (p["mode"], p["version"], p["student"])  # noqa: E731
-    print(f"  queue scan: LED display unchanged {shows(led_after) == shows(led_before)}; "
-          f"Caller unchanged {caller_after == caller_before}")
-    assert shows(led_after) == shows(led_before) and caller_after == caller_before
-    advance_until(c["id"])
-    led = http_req("/led/state")[1]
-    caller = http_req("/caller/state", token=login("CALLER"))[1]
-    show("LED", 200, led)
-    show("Caller", 200, caller)
-    assert led["mode"] == caller["mode"] == "SHOWING" and led["version"] == caller["version"]
-    assert set(led["student"]) == LED_FIELDS and set(caller["student"]) == CALLER_FIELDS
-    assert caller["student"] == {"name": led["student"]["name"], "programme": led["student"]["programme"]}
-    for payload in (led, caller):
-        raw = json.dumps(payload)
-        assert c["prn"] not in raw and c["id"] not in raw and c["token"] not in raw
-        for field in PROHIBITED:
-            assert field not in payload and field not in payload["student"], field
-    assert led["student"]["photo_url"].startswith("/led/photo/")
-    print("  LED and Caller show the same student; approved fields only; no PRN, id or token")
-    status, reply, _ = http_req("/stage/next", "POST", {"expect_current": c["id"]}, token=login("STAGE"))
-    print(f"  clean-up NEXT (degree for Student C) -> HTTP {status} {reply.get('message')!r}")
+    assert c["id"] in caller_ids(), "a queue scan must put the student on the Caller list"
+    status, listing, _ = http_req("/caller/queue", token=login("CALLER"))
+    assert c["token"] not in json.dumps(listing), "the Caller list must never carry a QR token"
+    status, reply, _ = http_req("/caller/next", "POST", {"student_id": c["id"]}, token=login("CALLER"))
+    print(f"  Caller NEXT -> HTTP {status} {reply}")
+    assert status == 200 and reply["updated"] is True
+    assert c["id"] not in caller_ids(), "NEXT must take the student off the Caller list"
+    print("  queue scan adds the student to the Caller list; NEXT removes them; no QR token in the list")
     print("\nAll 6 verification tasks completed successfully.")
 
 

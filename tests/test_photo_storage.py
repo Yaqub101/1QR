@@ -284,7 +284,7 @@ def test_load_photo_uses_the_current_store_when_none_is_given(tmp_path):
 def test_no_other_module_builds_photo_paths_itself():
     """The resolver is the only place that turns a photo key into a file: the old copies are gone."""
     root = pathlib.Path(__file__).resolve().parents[1] / "backend"
-    for name in ("engine/routes.py", "stage/routes.py", "passes.py"):
+    for name in ("engine/routes.py", "passes.py"):
         source = (root / name).read_text(encoding="utf-8")
         assert "photo_storage.photo_response(" in source or "photo_storage.load_photo(" in source, name
         assert "pathlib.Path(row[" not in source and "_PROJECT_ROOT / source" not in source, name

@@ -90,7 +90,7 @@ def _context(settings, principal, activity: str) -> EngineContext:
     return EngineContext(settings=settings, principal=principal, activity=activity, config=ACTIVITY_CONFIGS[activity])
 
 
-authorize_station = _context  # public name for trusted in-process callers (the Stage Controller)
+authorize_station = _context  # public name for trusted in-process callers (the Registry desk)
 
 
 # ------------------------------------------------------------------ helpers
@@ -248,12 +248,12 @@ def confirm_in_transaction(conn: Connection, *, settings, principal, activity: s
                            manual: Optional[bool] = None, started: Optional[float] = None,
                            seen: Optional[dict] = None) -> EngineResult:
     """The whole confirm, inside a transaction the CALLER owns and commits. The engine's own confirm() and
-    the Stage Controller (which must commit COMPLETE and its state change together) both use this, so
-    there is still exactly one place an activity is recorded.
+    the Registry desk (which must commit Reporting and the robe together) both use this, so there is still
+    exactly one place an activity is recorded.
 
     Identify by QR `token`, or by `student_id`. A `student_id` from the HTTP API is a manual PRN search and
-    is always flagged MANUAL; only trusted in-process callers (the Stage Controller, which picked the
-    student from the queue itself) pass manual=False.
+    is always flagged MANUAL; only trusted in-process callers (the Registry desk, which already knows how
+    the student was identified) pass `manual` themselves.
     """
     started = time.perf_counter() if started is None else started
     seen = {} if seen is None else seen
@@ -298,14 +298,6 @@ def confirm_in_transaction(conn: Connection, *, settings, principal, activity: s
         event={"event_id": str(event["event_id"]),
                "time": clock_text(event["server_time"], settings.event_utc_offset_minutes)},
     )
-
-
-def record_skip(conn: Connection, ctx: EngineContext, student: dict, reason: str) -> dict:
-    """A Stage SKIP (SYSTEM_SPEC 13): a SKIP event with its reason and its audit row, in the caller's
-    transaction. It is not a completion, so the student can still be completed later."""
-    event = insert_event(conn, ctx, student, flags=[], details={"reason": reason}, kind="SKIP")
-    insert_audit(conn, ctx, student, event, [], action="STAGE_SKIPPED", details={"reason": reason})
-    return event
 
 
 def confirm(engine, *, settings, principal, activity: str, token: Optional[str] = None,

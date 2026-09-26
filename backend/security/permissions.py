@@ -8,7 +8,7 @@ keeping two lists in step. Endpoints never test a role name directly; they ask
 The redesign merged the Reporting, Robe Allocation and Robe Return operators into ONE
 Registry operator (REGISTRY), who meets the student at entry and again for the robe return.
 The other operator roles stay one per activity. CALLER (Phase R3) performs no activity at all:
-it may only view the read-only Caller screen, which the Stage operator and the Admins may view too.
+it views the Caller screen and presses NEXT there; the Admins may do the same.
 """
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ OPERATOR_ROLE_ACTIVITIES: dict[str, tuple[str, ...]] = {
     "REGISTRY": ("REGISTRATION", "THOBE_ALLOCATION", "THOBE_RETURN"),
     "SEATING": ("SEATING",),
     "QUEUE": ("QUEUE",),
-    "STAGE": ("STAGE",),
     "LUNCH": ("LUNCH",),
     "CALLER": (),  # read-only: the Caller screen and nothing else
 }
@@ -35,7 +34,6 @@ PASS_MANAGEMENT_PERMISSION = "station:pass_management"
 # Screens a role may VIEW on top of its activities.
 _VIEW_PERMISSIONS: dict[str, frozenset[str]] = {
     "CALLER": frozenset({CALLER_VIEW_PERMISSION}),
-    "STAGE": frozenset({CALLER_VIEW_PERMISSION}),
 }
 
 

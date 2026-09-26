@@ -8,7 +8,6 @@ from sqlalchemy.engine import Connection
 
 from backend.admin.queries import ACTIVE_CTE, FUNNEL_LABELS, NEVER_REGISTERED, iso_local, percent
 from backend.security.ownership import ACTIVITIES, ACTIVITY_LABEL
-from backend.stage import state as stage_state
 
 OUTSTANDING_SHOWN = 50
 
@@ -55,25 +54,9 @@ def funnel(conn: Connection) -> list[dict]:
              **({"of_which_waived": waived} if a == "THOBE_RETURN" else {})} for a in ACTIVITIES]
 
 
-def stage_view(conn: Connection) -> dict:
-    st = stage_state.read_state(conn)
-    led = None
-    if st["display_student_id"] is not None:
-        led = conn.execute(text("SELECT display_name FROM display_snapshot WHERE student_id = :s"),
-                           {"s": st["display_student_id"]}).scalar()
-    return {
-        "current": stage_state.card_for(conn, st["current_student_id"]),
-        "led_mode": "SHOWING" if st["display_student_id"] is not None else "HOME",
-        "led_name": led,
-        "next": stage_state.waiting(conn, 3),
-        "waiting": int(conn.execute(text("SELECT count(*) FROM queue WHERE status = 'QUEUED'")).scalar_one()),
-    }
-
-
 OUTSTANDING_FROM = f"""
     WITH {ACTIVE_CTE}
-    SELECT s.id AS student_id, s.prn, s.name, s.school, s.programme, al.server_time AS allocated_at,
-           EXISTS (SELECT 1 FROM active st WHERE st.student_id = s.id AND st.activity = 'STAGE') AS stage_complete
+    SELECT s.id AS student_id, s.prn, s.name, s.school, s.programme, al.server_time AS allocated_at
     FROM active al
     JOIN students s ON s.id = al.student_id
     WHERE al.activity = 'THOBE_ALLOCATION'
@@ -86,7 +69,7 @@ def outstanding_thobes(conn: Connection, offset_minutes: int, limit: int = OUTST
     rows = conn.execute(text(OUTSTANDING_FROM + " ORDER BY al.server_time, s.sequence_no NULLS LAST, s.name LIMIT :n"), {"n": limit}).mappings()
     return {"count": total, "shown": limit, "students": [
         {"student_id": str(r["student_id"]), "prn": r["prn"], "name": r["name"], "school": r["school"],
-         "allocated_at": iso_local(r["allocated_at"], offset_minutes), "stage_complete": bool(r["stage_complete"])} for r in rows]}
+         "allocated_at": iso_local(r["allocated_at"], offset_minutes)} for r in rows]}
 
 
 def exception_counters(conn: Connection) -> dict:
@@ -126,7 +109,7 @@ def snapshot(conn: Connection, settings) -> dict:
     conn.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
     return {
         "as_of": iso_local(datetime.now(timezone.utc), settings.event_utc_offset_minutes),
-        "counts": counts(conn), "school_wise": school_wise(conn), "funnel": funnel(conn), "stage": stage_view(conn),
+        "counts": counts(conn), "school_wise": school_wise(conn), "funnel": funnel(conn),
         "outstanding_thobes": outstanding_thobes(conn, settings.event_utc_offset_minutes),
         "exceptions": exception_counters(conn), "health": server_health(conn, settings),
         "activity_labels": ACTIVITY_LABEL,

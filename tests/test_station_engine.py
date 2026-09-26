@@ -1,4 +1,4 @@
-"""Phase 6 - the station engine (scan -> verify -> confirm), all seven activities.
+"""Phase 6 - the station engine (scan -> verify -> confirm), all six activities.
 
 Golden rules under test (AGENTS.md, as amended by docs/ARCHITECTURE_PIVOT.md): 2 the
 operator's ROLE decides the activity, 3 duplicates per activity, 5 append-only, 6 event
@@ -6,7 +6,7 @@ operator's ROLE decides the activity, 3 duplicates per activity, 5 append-only, 
 a hard block, 11 plain one-sentence operator messages.
 
 Everything an activity does is *configuration*; these tests drive one generic engine
-through a table of the seven activities. The expected prerequisites, messages and
+through a table of the six activities. The expected prerequisites, messages and
 labels below are written out by hand from SYSTEM_SPEC sections 3, 5, 14 and TODO.md, so
 the engine's configuration is checked against the spec rather than against itself.
 
@@ -46,8 +46,8 @@ PREREQ = {
     "THOBE_ALLOCATION": ["REGISTRATION"],
     "SEATING": ["THOBE_ALLOCATION"],
     "QUEUE": ["THOBE_ALLOCATION"],  # Seating is optional; the Queue needs the robe
-    "STAGE": ["QUEUE"],
-    "THOBE_RETURN": ["STAGE", "THOBE_ALLOCATION"],  # section 14: "NO ROBE WAS ISSUED" needs the allocation too
+    # No Stage step any more: the Queue scan opens the return. Section 14: "NO ROBE WAS ISSUED" needs the allocation.
+    "THOBE_RETURN": ["QUEUE", "THOBE_ALLOCATION"],
     "LUNCH": ["THOBE_RETURN"],
 }
 # Every prerequisite is a hard block now (docs/ARCHITECTURE_PIVOT.md): one shared server,
@@ -56,13 +56,12 @@ HARD_BLOCK_MESSAGE = {
     "THOBE_ALLOCATION": "ROBE NOT AVAILABLE — REPORTING PENDING",
     "SEATING": "SEATING NOT AVAILABLE — ROBE NOT RECEIVED",
     "QUEUE": "QUEUE NOT AVAILABLE — ROBE NOT RECEIVED",
-    "STAGE": "STAGE NOT AVAILABLE — QUEUE PENDING",
-    "THOBE_RETURN": "ROBE RETURN NOT AVAILABLE — STAGE PENDING",
+    "THOBE_RETURN": "ROBE RETURN NOT AVAILABLE — QUEUE PENDING",
     "LUNCH": "LUNCH NOT AVAILABLE — ROBE RETURN PENDING",
 }
 CONFIRM_LABEL = {
     "REGISTRATION": "CONFIRM REPORTING", "THOBE_ALLOCATION": "CONFIRM ROBE GIVEN",
-    "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE", "STAGE": "NEXT",
+    "SEATING": "CONFIRM SEATED", "QUEUE": "CONFIRM QUEUE",
     "THOBE_RETURN": "CONFIRM RETURN", "LUNCH": "CONFIRM LUNCH",
 }
 DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are always shown).
@@ -73,7 +72,6 @@ DISPLAY_KEYS = {  # SYSTEM_SPEC section 3, "Operator sees" (photo and name are a
     "THOBE_ALLOCATION": ["prn", "programme", "school"],
     "SEATING": ["prn", "programme", "school"],
     "QUEUE": ["prn", "queue_position"],
-    "STAGE": ["programme", "school"],
     "THOBE_RETURN": ["prn", "thobe_issued"],
     "LUNCH": ["prn", "eligibility"],
 }
@@ -88,7 +86,6 @@ def duplicate_message(activity, *, time, position=None):
         "THOBE_ALLOCATION": f"ROBE ALREADY ALLOCATED — {time}",
         "SEATING": f"SEATING ALREADY CONFIRMED — {time}",
         "QUEUE": f"ALREADY IN QUEUE — POSITION {position} — {time}",
-        "STAGE": f"DEGREE ALREADY RECEIVED — {time}",
         "THOBE_RETURN": f"ALREADY RETURNED — {time}",
         "LUNCH": f"LUNCH ALREADY CLAIMED — {time}",
     }[activity]
@@ -260,7 +257,7 @@ def field(card, key):
 # The configuration itself
 # --------------------------------------------------------------------------- #
 class TestRegistry:
-    def test_exactly_the_seven_activities_are_configured(self):
+    def test_exactly_the_six_activities_are_configured(self):
         assert sorted(ACTIVITY_CONFIGS) == sorted(ACTIVITIES)
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
@@ -459,7 +456,7 @@ class TestPipelineTable:
 # Generic behaviour across activities
 # --------------------------------------------------------------------------- #
 class TestJourney:
-    def test_the_same_qr_passes_all_seven_activities_in_order_with_no_false_duplicates(self, apps, world, engine):
+    def test_the_same_qr_passes_all_six_activities_in_order_with_no_false_duplicates(self, apps, world, engine):
         s = make_student(engine, seat_no="C-3")
         seen = []
         for i, activity in enumerate(ACTIVITIES):
@@ -468,10 +465,10 @@ class TestJourney:
             assert confirm(client, activity, token=s.token).json()["result"] == "CONFIRMED", activity
             seen.append(q(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id)[0]["status"])
         assert seen == STATUS_AFTER_STEP[1:]
-        assert [e["activity"] for e in events_of(engine, s)] != [] and len(events_of(engine, s)) == len(ACTIVITIES) == 7
+        assert [e["activity"] for e in events_of(engine, s)] != [] and len(events_of(engine, s)) == len(ACTIVITIES) == 6
         assert sorted(e["activity"] for e in events_of(engine, s)) == sorted(ACTIVITIES)
         results = [r["result"] for r in log_of(engine, s)]
-        assert results == ["READY", "SUCCESS"] * 7 and "DUPLICATE" not in results   # each step: the scan, then the confirm
+        assert results == ["READY", "SUCCESS"] * 6 and "DUPLICATE" not in results   # each step: the scan, then the confirm
 
     @pytest.mark.parametrize("activity", ACTIVITIES)
     def test_same_activity_twice_gives_one_success_and_one_duplicate_log_row(self, apps, world, engine, activity):
@@ -749,8 +746,8 @@ class TestConfiguredBehaviours:
         assert "Position" in field(card, "queue_position")
         assert field(card, "sequence_no") is None, "the ceremony no longer has sequence numbers"
 
-    def test_a_queue_scan_never_touches_the_led_or_the_display_snapshot(self, apps, world, engine):
-        # Golden rule 9: only the Stage operator changes the public LED. The engine has no LED state at all.
+    def test_a_queue_scan_never_touches_the_display_snapshot(self, apps, world, engine):
+        # Golden rule 9: a queue scan only adds the student to the Caller list; it never rewrites display data.
         before = q(engine, "SELECT count(*) AS n FROM display_snapshot")[0]["n"]
         s = ready_student(engine, "QUEUE")
         confirm(operator(apps, world, "QUEUE"), "QUEUE", token=s.token)
@@ -920,9 +917,6 @@ class TestStationScreen:
     def test_the_screen_has_an_autofocused_scan_box_and_the_configured_button(self, apps, world, activity):
         page = operator(apps, world, activity).get(f"/station/{slug(activity)}")
         assert page.status_code == 200
-        if activity == "STAGE":  # Phase 11: the Stage operator runs the Stage Controller, not a scan box
-            assert 'id="stage-root"' in page.text and CONFIRM_LABEL["STAGE"] in page.text
-            return
         assert "autofocus" not in page.text
         assert CONFIRM_LABEL[activity] in page.text
         assert f'data-activity="{activity}"' in page.text

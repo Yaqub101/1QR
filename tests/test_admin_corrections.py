@@ -111,11 +111,11 @@ class TestReversalNeverMutatesHistory:
         assert a[0]["student_id"] == s.id and a[0]["activity"] == "SEATING" and "CORRECTED" in a[0]["flags"]
 
     def test_the_derived_status_changes_because_a_row_was_added_not_because_one_was_edited(self, apps, engine):
-        s, ids = journey_upto(engine, "THOBE_RETURN")               # Reporting .. Stage done
+        s, ids = journey_upto(engine, "THOBE_RETURN")               # Reporting .. Queue done
         status = lambda: scalar(engine, "SELECT status FROM student_status WHERE student_id = :s", s=s.id)  # noqa: E731
         assert status() == "ROBE NOT RETURNED"
-        assert reverse(apps, "stadium", ids["STAGE"], "pressed COMPLETE by accident").status_code == 200
-        assert status() == "DEGREE NOT RECEIVED"                    # status went BACK
+        assert reverse(apps, "stadium", ids["QUEUE"], "pressed COMPLETE by accident").status_code == 200
+        assert status() == "SEATED / NOT QUEUED"                    # status went BACK
         assert scalar(engine, "SELECT count(*) FROM activity_events WHERE student_id = :s", s=s.id) == len(ids) + 1  # originals + 1 reversal
 
     def test_reason_is_mandatory_and_checked_on_the_server(self, apps, engine):
@@ -180,8 +180,6 @@ class TestReversalNeverMutatesHistory:
         again = reverse(apps, "stadium", ids["SEATING"])
         assert again.status_code == 409 and error_code(again) == "ALREADY_REVERSED"
         assert reverse(apps, "stadium", first.json()["correction_event_id"]).status_code == 409   # a reversal cannot be reversed
-        skip = add_event(engine, s, "STAGE", kind="SKIP", details={"reason": "later"})
-        assert error_code(reverse(apps, "stadium", skip)) == "NOT_REVERSIBLE"
         assert reverse(apps, "stadium", "00000000-0000-0000-0000-000000000000").status_code == 404
         assert reverse(apps, "stadium", "not-a-uuid").status_code == 404
         assert reverse(apps, "stadium", ids["THOBE_ALLOCATION"], "still works after the bad ids").status_code == 200  # no poisoned state
@@ -231,34 +229,18 @@ class TestReversalNeverMutatesHistory:
         assert r.status_code == 200
         assert counts(engine)["activity_events"] == before["activity_events"] + 1
 
-    def test_the_stage_queue_follows_a_reversal_but_the_led_is_never_touched(self, apps, engine):
-        # Stage reversed: back to QUEUED at the old position.
+    def test_the_queue_follows_a_reversal(self, apps, engine):
+        # Queue reversed: the student must not be shown on caller screen any more.
         s, ids = journey_upto(engine, "THOBE_RETURN")
         with engine.begin() as c:
             c.execute(text("INSERT INTO queue (student_id, status) VALUES (:s, 'DONE')"), {"s": s.id})
-        position = scalar(engine, "SELECT queue_position FROM queue WHERE student_id = :s", s=s.id)
-        led_before = table_fingerprint(engine, "stage_state", "id")
-        assert reverse(apps, "stadium", ids["STAGE"]).status_code == 200
-        assert rows(engine, "SELECT status, queue_position FROM queue WHERE student_id = :s", s=s.id) == [{"status": "QUEUED", "queue_position": position}]
-        assert table_fingerprint(engine, "stage_state", "id") == led_before               # golden rule 9
-        # Queue reversed: the student must not be shown on stage any more.
         assert reverse(apps, "stadium", ids["QUEUE"]).status_code == 200
         assert scalar(engine, "SELECT count(*) FROM queue WHERE student_id = :s", s=s.id) == 0
-        assert table_fingerprint(engine, "stage_state", "id") == led_before
-
-    def test_a_student_on_stage_right_now_cannot_have_their_queue_reversed(self, apps, engine):
-        s, ids = journey_upto(engine, "STAGE")
-        with engine.begin() as c:
-            c.execute(text("INSERT INTO queue (student_id, status) VALUES (:s, 'DISPLAYED')"), {"s": s.id})
-        before = counts(engine)
-        r = reverse(apps, "stadium", ids["QUEUE"])
-        assert r.status_code == 409 and error_code(r) == "ON_STAGE_NOW" and counts(engine) == before
-        assert scalar(engine, "SELECT status FROM queue WHERE student_id = :s", s=s.id) == "DISPLAYED"
 
     def test_it_reports_later_activities_that_are_still_recorded(self, apps, engine):
         s, ids = journey_upto(engine, "LUNCH")
         r = reverse(apps, "stadium", ids["THOBE_ALLOCATION"], "issued to the wrong person").json()
-        assert r["later_activities_still_recorded"] == ["QUEUE", "SEATING", "STAGE", "THOBE_RETURN"]
+        assert r["later_activities_still_recorded"] == ["QUEUE", "SEATING", "THOBE_RETURN"]
 
 
 class TestHistoryCannotBeChangedByAnyPath:
@@ -309,7 +291,7 @@ class TestReturnWaived:
     def make(self, engine):
         s = make_student(engine)
         from tests.test_station_engine import seed_events
-        seed_events(engine, s, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")] + ["MONEY_RETURNED"])  # through Stage; money back, robe never returned
+        seed_events(engine, s, ACTIVITIES[:ACTIVITIES.index("THOBE_RETURN")])
         return s
 
     def test_the_waiver_unlocks_lunch_is_flagged_and_fully_audited(self, apps, engine, world):
@@ -513,17 +495,17 @@ class TestSearchAndJourney:
 
     def test_the_journey_timeline_shows_every_event_with_its_state(self, apps, engine, world):
         s, ids = journey_upto(engine, "THOBE_RETURN")
-        reverse(apps, "stadium", ids["STAGE"], "pressed by accident")
+        reverse(apps, "stadium", ids["QUEUE"], "pressed by accident")
         j = admin(apps, "stadium").get(f"/admin/api/students/{s.id}").json()
-        assert j["student"]["prn"] == s.prn and j["student"]["journey_status"] == "Degree not received"
+        assert j["student"]["prn"] == s.prn and j["student"]["journey_status"] == "Seated / not queued"
         by_activity = [(e["activity"], e["kind"], e["state"]) for e in j["events"]]
         assert by_activity == [("REGISTRATION", "COMPLETE", "ACTIVE"), ("THOBE_ALLOCATION", "COMPLETE", "ACTIVE"),
                                ("SEATING", "COMPLETE", "ACTIVE"),
-                               ("QUEUE", "COMPLETE", "ACTIVE"), ("STAGE", "COMPLETE", "REVERSED"), ("STAGE", "REVERSAL", "CORRECTION")]
-        stage, correction = j["events"][4], j["events"][5]
-        assert stage["reversed_by_event_id"] == correction["event_id"] and correction["corrects_event_id"] == stage["event_id"]
+                               ("QUEUE", "COMPLETE", "REVERSED"), ("QUEUE", "REVERSAL", "CORRECTION")]
+        queue, correction = j["events"][3], j["events"][4]
+        assert queue["reversed_by_event_id"] == correction["event_id"] and correction["corrects_event_id"] == queue["event_id"]
         assert correction["reason"] == "pressed by accident" and correction["operator"] == "eng-admin"
-        assert j["events"][0]["can_reverse"] and not stage["can_reverse"]
+        assert j["events"][0]["can_reverse"] and not queue["can_reverse"]
         assert j["can_waive_return"] is True
 
     def test_the_journey_page_and_unknown_students(self, apps, engine):

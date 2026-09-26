@@ -329,22 +329,18 @@ def test_1199_clean_matches_one_unmatched_student_and_241_orphans(engine, tmp_pa
 
 
 # --------------------------------------------------------------------------- every screen serves the stored photo
-def test_admin_station_and_led_show_the_cloudinary_photo(apps, world, engine, store_on):
+def test_admin_and_station_show_the_cloudinary_photo(apps, world, engine, store_on):
     fake = FakeCloudinary()
     store = store_on(fake.store())
     picture = jpeg_bytes((5, 200, 5))
-    key = store.save("led-face.jpg", picture)
+    key = store.save("face.jpg", picture)
     s = make_student(engine, photo_path=key)
-    with engine.begin() as c:
-        led_key = c.execute(text("INSERT INTO display_snapshot (student_id, display_name, programme, school, photo_path) "
-                                 "VALUES (:s, 'N', 'P', 'S', :k) RETURNING led_key"), {"s": s.id, "k": key}).scalar_one()
 
     listing = admin(apps).get("/admin/students", params={"q": s.prn})
     assert f'src="/photo/{s.id}"' in listing.text and "cloudinary" not in listing.text.lower()
-    for client, url in ((admin(apps), f"/photo/{s.id}"), (operator(apps, world, "REGISTRATION"), f"/photo/{s.id}"),
-                        (new_client(apps), f"/led/photo/{led_key}")):
-        response = client.get(url)
-        assert response.status_code == 200 and response.content == picture, url
+    for client in (admin(apps), operator(apps, world, "REGISTRATION")):
+        response = client.get(f"/photo/{s.id}")
+        assert response.status_code == 200 and response.content == picture
         assert response.headers["content-type"] == "image/jpeg"
     assert new_client(apps).get(f"/photo/{s.id}").status_code == 401          # sign-in rule unchanged
 

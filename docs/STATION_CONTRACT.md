@@ -1,6 +1,6 @@
 # Station Contract — configuring an activity on the station engine
 
-**Audience:** whoever builds Phases 7–12 (Reporting, Robe Allocation, Seating, Queue, Stage, Robe Return, Lunch).
+**Audience:** whoever builds Phases 7–12 (Reporting, Robe Allocation, Seating, Queue, Robe Return, Lunch). The Stage (Phase 11) was removed.
 **You need to have read:** `AGENTS.md`, `docs/ARCHITECTURE_PIVOT.md` and this file. Nothing else about the codebase is assumed.
 **Authority:** `docs/SYSTEM_SPEC.md` decides behaviour, as amended by `docs/ARCHITECTURE_PIVOT.md`; this file decides *how you express it*. If they disagree, stop and ask the project owner.
 
@@ -8,7 +8,7 @@
 
 ## 1. The one idea
 
-There is **one** station engine (`backend/engine/`). All seven activities run through it. An activity is **not code — it is one entry in one dictionary**: `ACTIVITY_CONFIGS` in `backend/engine/activities.py`.
+There is **one** station engine (`backend/engine/`). All six activities run through it. An activity is **not code — it is one entry in one dictionary**: `ACTIVITY_CONFIGS` in `backend/engine/activities.py`.
 
 You add or change an activity by editing that entry (and adding test rows). You do **not** write endpoints, SQL, JavaScript, templates or `if activity == ...` anywhere.
 
@@ -37,7 +37,7 @@ Result vocabulary on the wire: `READY` (blue) · `CONFIRMED` (green) · `DUPLICA
 
 | **STOP and ask** before touching | Why |
 |---|---|
-| `backend/engine/{model,pipeline,service,routes,extensions,queries,context,messages}.py` | The engine. One change here changes all seven activities. |
+| `backend/engine/{model,pipeline,service,routes,extensions,queries,context,messages}.py` | The engine. One change here changes all six activities. |
 | `backend/security/*`, `alembic/versions/*`, `static/station*.js`, `templates/station.html` | Auth, schema, screen. |
 | `AGENTS.md`, `docs/SYSTEM_SPEC.md`, `docs/ARCHITECTURE_PIVOT.md` | Not yours to change. |
 
@@ -51,7 +51,7 @@ Every entry is an `ActivityConfig(...)`. Startup **fails** with a `RegistryError
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `activity` | str | yes | One of `REGISTRATION THOBE_ALLOCATION SEATING QUEUE STAGE THOBE_RETURN LUNCH`. Must equal the dictionary key. |
+| `activity` | str | yes | One of `REGISTRATION THOBE_ALLOCATION SEATING QUEUE THOBE_RETURN LUNCH`. Must equal the dictionary key. |
 | `prerequisites` | tuple of `Prerequisite(activity, missing_message)` | yes (may be `()`) | Activities that must already be **completed** (an Admin "Return Waived" counts as completing Robe Return). Each must come **earlier** in the journey, and every one is a hard block (§4) — with one shared server there is no other server's stale copy of the data to be lenient about. |
 | `display_fields` | tuple of names | yes | Extra lines on the operator's card, in order. Photo and name are **always** shown. Choose only from the table below. |
 | `confirm_label` | str | yes | Text on the big confirm button. UPPERCASE, e.g. `"CONFIRM ROBE GIVEN"`. |
@@ -84,16 +84,16 @@ Any other `{name}` stops startup.
 
 ## 4. Prerequisites: how to decide them
 
-1. Read SYSTEM_SPEC §5 (status chain) and §14 (messages). The chain is linear: each step needs the one before it. A step may have **more than one** prerequisite when §14 names a separate reason (Robe Return needs Stage **and** Robe Allocation — "NO ROBE WAS ISSUED").
+1. Read SYSTEM_SPEC §5 (status chain) and §14 (messages). The chain is linear: each step needs the one before it. A step may have **more than one** prerequisite when §14 names a separate reason (Robe Return needs the Queue scan **and** Robe Allocation — "NO ROBE WAS ISSUED").
 2. List them as `Prerequisite(<earlier activity>, "<message shown when it is missing>")`.
 3. Every prerequisite is a **hard block**: missing → `REJECTED` with your `missing_message`, always (docs/ARCHITECTURE_PIVOT.md removed the old cross-venue freshness rule — one shared server means the data is always local and current).
 4. Only list **direct** predecessors. Do not list the whole chain.
 
 ---
 
-## 5. The seven activities as configured today
+## 5. The six activities as configured today
 
-All seven are already in `activities.py` (the engine's own test-suite needs all seven to run, so they were configured with the engine). Your phase **verifies each against the spec, adds its phase tests, and builds only what the engine cannot** (last column). Sources: SYSTEM_SPEC §2, 3, 5, 14; TODO Phases 7–12.
+All six are already in `activities.py` (the engine's own test-suite needs all six to run, so they were configured with the engine). Your phase **verifies each against the spec, adds its phase tests, and builds only what the engine cannot** (last column). Sources: SYSTEM_SPEC §2, 3, 5, 14; TODO Phases 7–12.
 
 | Activity (phase) | Prerequisites → message when missing | Card fields | Confirm label | Already-done message | Extras in config | Not covered by the engine (ask / build separately) |
 |---|---|---|---|---|---|---|
@@ -101,8 +101,7 @@ All seven are already in `activities.py` (the engine's own test-suite needs all 
 | **THOBE_ALLOCATION** (8) | REGISTRATION → `ROBE NOT AVAILABLE — REPORTING PENDING` | prn, programme, school | CONFIRM ROBE GIVEN | `ROBE ALREADY ALLOCATED — {time}` | — | — |
 | **SEATING** (9) | THOBE_ALLOCATION → `SEATING NOT AVAILABLE — ROBE NOT RECEIVED` | prn, seat_no | CONFIRM SEATING | `SEATING ALREADY COMPLETED — SEAT {seat_no} — {time}` | record `seat_no` | — |
 | **QUEUE** (10) | SEATING → `QUEUE NOT AVAILABLE — SEATING PENDING` | sequence_no, queue_position | CONFIRM QUEUE | `ALREADY IN QUEUE — POSITION {queue_position} — {time}` | effect `enqueue` | queue-depth indicator; out-of-sequence report |
-| **STAGE** (11) | QUEUE → `STAGE NOT AVAILABLE — QUEUE PENDING` | programme, school | COMPLETE | `DEGREE ALREADY RECEIVED — {time}` | — | *Built in Phase 11* (`backend/stage/`): the Stage Controller and public LED. It records COMPLETE through `service.confirm_in_transaction` and SKIP through `service.record_skip`; never write Stage events by hand. |
-| **THOBE_RETURN** (12) | STAGE → `ROBE RETURN NOT AVAILABLE — STAGE PENDING`; THOBE_ALLOCATION → `ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED` | prn, thobe_issued | CONFIRM RETURN | `ALREADY RETURNED — {time}` | — | Admin "Return Waived / Lost" action (Phase 12/13) |
+| **THOBE_RETURN** (12) | QUEUE → `ROBE RETURN NOT AVAILABLE — QUEUE PENDING`; THOBE_ALLOCATION → `ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED` | prn, thobe_issued | CONFIRM RETURN | `ALREADY RETURNED — {time}` | — | Admin "Return Waived / Lost" action (Phase 12/13) |
 | **LUNCH** (12) | THOBE_RETURN → `LUNCH NOT AVAILABLE — ROBE RETURN PENDING` (an Admin waiver counts) | prn, eligibility | CONFIRM LUNCH | `LUNCH ALREADY CLAIMED — {time}` | — | — |
 
 ---
@@ -112,15 +111,15 @@ All seven are already in `activities.py` (the engine's own test-suite needs all 
 Pretend the entry did not exist. This is exactly how it is derived, so you can do the same for any activity.
 
 **Step 1 — read the spec.**
-* §2/§3: Robe Return is step 6; the operator "sees student + confirmation that a robe was issued" and confirms the return; data recorded: time, operator.
-* §5: after Stage → `ROBE NOT RETURNED`; after Return → `LUNCH ELIGIBLE`.
+* §2/§3: Robe Return is step 5; the operator "sees student + confirmation that a robe was issued" and confirms the return; data recorded: time, operator.
+* §5: after Queue → `ROBE NOT RETURNED`; after Return → `LUNCH ELIGIBLE`.
 * §14: "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED" when no robe was issued; already done → "ALREADY RETURNED — time" (TODO Phase 12).
 
 **Step 2 — fill in the checklist.**
 
 | Question | Answer | Source |
 |---|---|---|
-| Direct predecessors | `STAGE` (degree received) and `THOBE_ALLOCATION` (a robe was issued) | §5, §14 |
+| Direct predecessors | `QUEUE` (queued; the degree itself has no record) and `THOBE_ALLOCATION` (a robe was issued) | §5, §14 |
 | Card fields | `prn`, `thobe_issued` (the "confirmation a robe was issued") | §3 |
 | Confirm label | `CONFIRM RETURN` | TODO Phase 12 |
 | Duplicate message | `ALREADY RETURNED — {time}` | TODO Phase 12 |
@@ -132,7 +131,7 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 "THOBE_RETURN": ActivityConfig(
     activity="THOBE_RETURN",
     prerequisites=(
-        Prerequisite("STAGE", "ROBE RETURN NOT AVAILABLE — STAGE PENDING"),
+        Prerequisite("QUEUE", "ROBE RETURN NOT AVAILABLE — QUEUE PENDING"),
         Prerequisite("THOBE_ALLOCATION", "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED"),
     ),
     display_fields=("prn", "thobe_issued"),
@@ -149,7 +148,7 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 .venv/Scripts/python.exe -m pytest tests/test_station_engine.py -q
 ```
 
-`TestRegistry` fails immediately if the entry breaks a rule (unknown placeholder, prerequisite that is not earlier in the journey…). The seven-activity table then runs the pending / already-done / blocked / inactive / unknown-QR cases against your entry with no extra code.
+`TestRegistry` fails immediately if the entry breaks a rule (unknown placeholder, prerequisite that is not earlier in the journey…). The six-activity table then runs the pending / already-done / blocked / inactive / unknown-QR cases against your entry with no extra code.
 
 **What NOT to do:** add a `/thobe-return/scan` endpoint; test `activity == "THOBE_RETURN"` anywhere; write to `activity_events` directly; copy a message from memory instead of the spec.
 
@@ -159,10 +158,10 @@ Pretend the entry did not exist. This is exactly how it is derived, so you can d
 
 * a display field, effect or flag rule that is not in the lists in §3 (they live in `engine/extensions.py`);
 * a prerequisite that is "A **or** B" (the engine only does "A **and** B");
-* an activity to write anything other than one `COMPLETE` event (waivers, skips, reversals are separate Admin/Stage actions);
+* an activity to write anything other than one `COMPLETE` event (waivers and reversals are separate Admin actions);
 * a new message placeholder, a new result colour, or a new operator screen layout;
 * to change what "already completed" means, or the order of the journey;
-* to touch the LED, the Stage Controller state, or `display_snapshot` from a scan (golden rule 9: a queue scan never changes the LED).
+* to touch `display_snapshot` from a scan (golden rule 9: a queue scan only adds the student to the Caller list).
 
 ---
 

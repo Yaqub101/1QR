@@ -1,8 +1,7 @@
 """backend/snapshot.py — Phase 3 display_snapshot management.
 
-SYSTEM_SPEC.md golden rule 10:
-  "The LED reads only the display snapshot. Never expose PRN, phone, email
-  or internal fields."
+AGENTS.md golden rule 10: display data comes only from the approved snapshot, and never
+exposes phone, email or internal fields.
 
 After freeze_display_data() runs, subsequent changes to the students table do
 NOT alter display_snapshot. Only another explicit call to freeze_display_data()

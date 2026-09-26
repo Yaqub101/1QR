@@ -18,7 +18,7 @@ import pytest
 from openpyxl import load_workbook
 from sqlalchemy import text
 
-from backend.stage import state as stage_state
+
 from tests.admin_support import ORDER, S1, S2, S3, add_event, add_student, build_dataset, parse_csv, rows, scalar
 from tests.test_auth import ACTIVITIES
 from tests.test_station_engine import (  # noqa: F401  (engine / world / apps are pytest fixtures)
@@ -81,8 +81,8 @@ class TestDashboardCounts:
         assert c["reporting_percent"] == 77.3  # 17 / 22
         funnel = {f["activity"]: f["count"] for f in dash(apps)["funnel"]}
         assert funnel == {"REGISTRATION": 17, "THOBE_ALLOCATION": 14, "SEATING": 12, "QUEUE": 10,
-                          "STAGE": 7, "THOBE_RETURN": 4, "LUNCH": 2}
-        assert dash(apps)["outstanding_thobes"]["count"] == 10
+                          "THOBE_RETURN": 5, "LUNCH": 2}
+        assert dash(apps)["outstanding_thobes"]["count"] == 9
 
     def test_every_count_matches_a_direct_database_query(self, apps, engine, data):
         d = dash(apps)
@@ -127,23 +127,17 @@ class TestDashboardCounts:
 
     def test_funnel_marks_the_waived_returns(self, apps):
         returned = next(f for f in dash(apps)["funnel"] if f["activity"] == "THOBE_RETURN")
-        assert returned["count"] == 4 and returned["of_which_waived"] == 1
+        assert returned["count"] == 5 and returned["of_which_waived"] == 1
 
     def test_outstanding_thobes_are_exactly_allocated_and_not_returned(self, apps, engine, data):
         out = dash(apps)["outstanding_thobes"]
         expected = {p.prn for p in data.all if "THOBE_ALLOCATION" in p.active and "THOBE_RETURN" not in p.active}
         via_sql = sql_active(engine, "THOBE_ALLOCATION") - sql_active(engine, "THOBE_RETURN")
-        assert expected == via_sql and len(expected) == out["count"] == 10
+        assert expected == via_sql and len(expected) == out["count"] == 9
         assert {s["prn"] for s in out["students"]} == expected
         assert data.people["L"].prn in expected      # a reversed return is outstanding again
         assert data.people["J"].prn not in expected  # a waiver is not outstanding
         assert data.people["I"].prn not in expected and data.people["K1"].prn not in expected
-
-    def test_stage_view_shows_current_led_and_the_waiting_queue(self, apps, data):
-        st = dash(apps)["stage"]
-        assert st["current"]["name"] == data.people["F2"].name
-        assert st["led_mode"] == "SHOWING" and st["led_name"] == "Frank Two-Display"
-        assert st["waiting"] == 1 and [n["name"] for n in st["next"]] == [data.people["F1"].name]
 
     def test_exception_counters_and_breakdown(self, apps):
         e = dash(apps)["exceptions"]
@@ -162,7 +156,7 @@ class TestDashboardCounts:
         assert page.status_code == live.status_code == 200
         for html in (page.text, live.text):
             assert '<b id="n-registered">22</b>' in html and '<b id="n-reported">17</b>' in html
-            assert '<b id="n-not-attended">4</b>' in html and 'id="n-outstanding">10<' in html
+            assert '<b id="n-not-attended">4</b>' in html and 'id="n-outstanding">9<' in html
         assert "<html" in page.text and "<html" not in live.text  # the refresh returns only the swappable body
 
 
@@ -202,9 +196,6 @@ class TestPerActivityReports:
     def test_a_not_completed_row_says_why(self, apps, data):
         reg = {r["prn"]: r for r in report(apps, slug("REGISTRATION"))["rows"]}
         assert reg[data.people["B"].prn]["note"] == "Reversed by Admin: wrong student scanned"
-        stage = {r["prn"]: r for r in report(apps, slug("STAGE"))["rows"]}
-        assert stage[data.people["H"].prn]["note"] == "Skipped: not ready"
-        assert stage[data.people["G1"].prn]["state"] == "Completed" and stage[data.people["G1"].prn]["note"] == ""  # skipped, then completed
 
     def test_a_waiver_counts_as_a_completed_thobe_return(self, apps, data):
         rows_ = {r["prn"]: r for r in report(apps, slug("THOBE_RETURN"))["rows"]}
@@ -233,22 +224,16 @@ class TestAttendanceAndJourneyReports:
         assert {r["prn"] for r in body["rows"]} == expected and body["totals"]["incomplete"] == len(expected) == 15
         by = {r["prn"]: r for r in body["rows"]}
         # Seating is optional, so it is never listed as not done (Phase R4)
-        assert by[data.people["C3"].prn]["not_yet_done"].startswith("Robe Allocation, Queue, Stage")
-        assert by[data.people["L"].prn]["journey_status"] in ("Robe not returned", "Robe and money not returned")  # stage done, return reversed
+        assert by[data.people["C3"].prn]["not_yet_done"].startswith("Robe Allocation, Queue")
+        assert by[data.people["L"].prn]["journey_status"] in ("Robe not returned", "Robe and money not returned")  # return reversed
         assert data.people["K1"].prn not in by and data.people["A1"].prn not in by and data.people["B"].prn not in by
-
-    def test_stage_completed_and_skipped_with_reasons(self, apps, data):
-        body = report(apps, "stage-outcomes")
-        skipped = {r["prn"]: r["reason"] for r in body["rows"] if r["outcome"] == "Skipped"}
-        assert skipped == {data.people["G1"].prn: "microphone problem", data.people["H"].prn: "not ready"}
-        assert body["totals"] == {"completed": 7, "skipped": 2}
 
 
 class TestThobeReports:
     def test_outstanding_thobes_list(self, apps, data):
         body = report(apps, "outstanding-robes")
         expected = {p.prn for p in data.all if "THOBE_ALLOCATION" in p.active and "THOBE_RETURN" not in p.active}
-        assert {r["prn"] for r in body["rows"]} == expected and body["totals"]["outstanding"] == 10
+        assert {r["prn"] for r in body["rows"]} == expected and body["totals"]["outstanding"] == 9
 
     def test_waived_or_lost_list(self, apps, data):
         body = report(apps, "waived-robes")
@@ -257,7 +242,7 @@ class TestThobeReports:
 
     def test_thobe_stock_check(self, apps):
         t = report(apps, "robe-count")["totals"]
-        assert t == {"issued": 14, "returned": 3, "waived": 1, "outstanding": 10}  # 14 out; 3 back; 1 written off; 10 still out
+        assert t == {"issued": 14, "returned": 4, "waived": 1, "outstanding": 9}  # 14 out; 4 back; 1 written off; 9 still out
         assert t["issued"] == t["returned"] + t["waived"] + t["outstanding"]
 
 
@@ -288,7 +273,7 @@ class TestSummaries:
         got = {r["school"]: r for r in body["rows"]}
         assert set(got) == {S1, S2, S3}
         names = {"reported": "REGISTRATION", "thobe_received": "THOBE_ALLOCATION",
-                 "seated": "SEATING", "queued": "QUEUE", "stage_complete": "STAGE", "thobe_returned": "THOBE_RETURN",
+                 "seated": "SEATING", "queued": "QUEUE", "thobe_returned": "THOBE_RETURN",
                  "exited": "LUNCH"}
         for school in (S1, S2, S3):
             members = [p for p in data.all if p.school == school]
@@ -350,7 +335,7 @@ class TestExports:
         catalogue = get(apps, "hall", "/admin/api/reports").json()["reports"]
         keys = {c["key"] for c in catalogue}
         assert {"not-attended", "incomplete-journey", "outstanding-robes", "waived-robes", "robe-count", "late-reporting",
-                "provisional", "manual", "corrections", "exceptions", "school-summary", "programme-summary", "stage-outcomes",
+                "provisional", "manual", "corrections", "exceptions", "school-summary", "programme-summary",
                 "audit", "student-history"} <= keys
         assert {slug(a) for a in ORDER} <= keys
         sid = str(data.people["J"].s.id)

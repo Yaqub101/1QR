@@ -2,8 +2,7 @@
 
 WHAT GOES, WHAT STAYS (every table is in exactly one list; tests/test_data_reset.py fails if a new table is not)
   cleared   students, qr_tokens, activity_events, scan_log, queue, exceptions, display_snapshot, counters
-            (the queue-position counter restarts at 1), the Stage pointers (the stage_state row itself stays),
-            every staged import batch, and every student photo in the configured photo store
+            (the queue-position counter restarts at 1), every staged import batch, and every student photo in the configured photo store
   audit     event, import, export, pass and correction rows go; sign-in, account-management and EVERY
             data-reset row (KEPT_AUDIT_ACTIONS) stay, so the log still says who reset what and when
   kept      users, sessions, settings, alembic_version, the schema, the configuration, the credentials
@@ -60,7 +59,6 @@ from backend.audit import write_audit
 from backend.photo_storage import PhotoStore, PurgeResult
 from backend.security import passwords
 from backend.security.sessions import Principal
-from backend.stage import state as stage_state
 
 logger = logging.getLogger("backend.admin")
 
@@ -76,7 +74,7 @@ DATA_LOCK_KEY = 0x1C0_0DA7A
 CLEARED_TABLES = ("exceptions", "scan_log", "queue", "caller_dismissals", "activity_events", "qr_tokens", "display_snapshot",
                   "students", "counters")
 # Emptied in part: see _delete_all.
-PARTLY_CLEARED_TABLES = ("audit_log", "stage_state")
+PARTLY_CLEARED_TABLES = ("audit_log",)
 # Never touched.
 KEPT_TABLES = ("users", "sessions", "settings", "alembic_version", "programme_faculty")
 
@@ -102,11 +100,11 @@ KEPT_AUDIT_ACTIONS = ("LOGIN", "LOGIN_FAILED", "USER_SEEDED", "USER_CREATED", "U
 COUNT_LABELS = (
     ("students", "Students"),
     ("qr_tokens", "QR codes"),
-    ("activity_events", "Activity records (reporting, robe, seating, queue, stage, return, lunch)"),
+    ("activity_events", "Activity records (reporting, robe, seating, queue, return, lunch)"),
     ("scan_log", "Scan attempts"),
     ("queue", "Queue entries"),
     ("exceptions", "Exceptions"),
-    ("display_snapshot", "LED display records"),
+    ("display_snapshot", "Caller display records"),
     ("photos", "Students with a photo"),
     ("audit_log", "Audit rows about students, imports, exports and corrections"),
 )
@@ -276,9 +274,6 @@ def _lower_guards(conn) -> None:
 
 def _delete_all(conn) -> dict:
     deleted: dict = {}
-    stage_state.begin_controller_txn(conn)   # the LED goes blank: nobody is on stage any more
-    stage_state.update_state(conn, current_student_id=None, display_student_id=None, previous_student_id=None)
-
     deleted["audit_log"] = conn.execute(text(
         "DELETE FROM audit_log WHERE student_id IS NOT NULL OR action <> ALL(CAST(:keep AS text[]))"),
         {"keep": list(KEPT_AUDIT_ACTIONS)}).rowcount

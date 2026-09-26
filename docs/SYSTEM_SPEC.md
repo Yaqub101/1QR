@@ -7,6 +7,8 @@
 
 Items marked **OPEN DECISION** need the project owner. Items marked **ASSUMPTION** are my recommended reading of an ambiguity; change them if wrong.
 
+> **STAGE AND LED REMOVED (2026-09-25):** The Stage operator, the Stage Controller, the public LED and the "degree received" record (the STAGE activity) are gone, with no replacement. **Six activities** are recorded. A Queue scan puts the student on the Caller screen, now the only live display; the Caller calls the name and presses NEXT; the degree is handed over with no digital record; the Robe Return opens once the student is queued. Sections 2, 3, 4, 5, 12 and 13 below are updated; any other mention of Stage or the LED in this file is historical. Full detail: [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md), "Post-Queue simplification".
+
 > **ROLE/FLOW REDESIGN NOTICE (R1–R3):** The system now runs on ONE server (see the pivot notices below) with **three QR scan points: Registry, Queue, Lunch**. The Registry desk records Reporting + Robe Allocation in one confirm at entry and the Robe Return later; Seating is optional and never blocks anything; the Stage operator's NEXT records the degree and shows the next student in one step; an internal read-only Caller screen shows the same student as the LED. Sections 2, 3, 4, 5 and 13 below are updated. Full detail: [`docs/ARCHITECTURE_PIVOT.md`](ARCHITECTURE_PIVOT.md), "Role/flow redesign".
 
 ---
@@ -45,7 +47,7 @@ Three design ideas make this simple and safe:
 
 ```
 REGISTERED → REPORTED → ROBE RECEIVED / NOT QUEUED → (optional: SEATED / NOT QUEUED)
-   → DEGREE NOT RECEIVED → ROBE NOT RETURNED → LUNCH ELIGIBLE → EXITED
+   → ROBE NOT RETURNED → LUNCH ELIGIBLE → EXITED
 ```
 
 | Step | Activity | Where it is recorded | Student status *after* completing it |
@@ -53,23 +55,25 @@ REGISTERED → REPORTED → ROBE RECEIVED / NOT QUEUED → (optional: SEATED / N
 | 1 | Reporting | Registry desk (scan 1: one confirm records steps 1 and 2) | REPORTED / ROBE NOT RECEIVED |
 | 2 | Robe Allocation | Registry desk (same confirm as step 1) | ROBE RECEIVED / NOT QUEUED |
 | 3 | Seating (**optional**, never required) | Seating page, if used | SEATED / NOT QUEUED |
-| 4 | Queue | Queue (scan 2) | DEGREE NOT RECEIVED |
-| 5 | Stage / Degree Receiving | Stage operator's NEXT (no scan) | ROBE NOT RETURNED |
-| 6 | Robe Return | Registry desk (scan 1 again, later) | LUNCH ELIGIBLE |
-| 7 | Lunch | Lunch (scan 3) | EXITED |
+| 4 | Queue | Queue (scan 2); the student appears on the Caller screen | ROBE NOT RETURNED |
+| 5 | Robe Return | Registry desk (scan 1 again, after the degree is handed over) | LUNCH ELIGIBLE |
+| 6 | Lunch | Lunch (scan 3) | EXITED |
+
+Between steps 4 and 5 the Caller calls the student's name from the Caller screen and the student receives the
+degree physically. Nothing is recorded for that: there is no Stage step. The Robe Return opens as soon as the
+student is queued, so place the Robe Return desk where it can only be reached after the stage.
 
 There is no Exit station. Lunch completion = EXITED. The locations in earlier versions of this table (College, Stadium, Hall) no longer apply: there is one server and any station can be anywhere.
 
 ---
 
-## 3. The Seven Activities (what each one does)
+## 3. The Six Activities (what each one does)
 
 | Activity | Operator sees | Operator does | Data recorded |
 |---|---|---|---|
 | Reporting + Robe Allocation (Registry desk, entry) | Photo, name, PRN, programme, school | Visually verifies, hands over one robe, presses ONE confirm (`CONFIRM REPORTING + ROBE`) | Two events (Reporting, Robe Allocation) in one transaction: time, operator |
 | Seating (optional) | Student details | Confirms seated, if the event uses this checkpoint; nothing depends on it | Time, operator |
 | Queue | Student, current queue position | Confirms queue | Queue confirm time, position at that time |
-| Stage | CURRENT and the next 15 WAITING | NEXT (records the degree for the student on stage and shows the next), SEND a listed student, SHOW AGAIN, HOME, PREVIOUS, SEARCH, SKIP | Displayed time, degree time, skip reason |
 | Robe Return (Registry desk, later) | Student + confirmation that a robe was issued | Receives the robe and confirms (`CONFIRM ROBE RETURN`) | Time, operator |
 | Lunch | Student + eligibility | Confirms lunch | Time, operator |
 
@@ -88,9 +92,8 @@ There is no Exit station. Lunch completion = EXITED. The locations in earlier ve
 | Registry Operator (`REGISTRY`) | per desk | The Registry desk: Reporting + Robe Allocation at entry, Robe Return later |
 | Seating Operator (`SEATING`) | 0+ (optional) | Seating page only |
 | Queue Operator (`QUEUE`) | 1+ | Queue page only |
-| Stage Operator (`STAGE`) | 1 (+ backup) | Stage page, LED control, and viewing the Caller screen |
 | Lunch Operator (`LUNCH`) | 1+ | Lunch page only |
-| Caller (`CALLER`) | 1+ | The read-only Caller screen only; records nothing |
+| Caller (`CALLER`) | 1+ | The Caller screen and its NEXT button only; records no activity |
 | Central Event Admin (`ADMIN`) | 1 + a named deputy (`DEPUTY_ADMIN`, identical powers) | Every page, dashboard, search, history, corrections, reversals, audit |
 
 Rules:
@@ -109,13 +112,12 @@ No Reporting event                  → REGISTERED / NOT REPORTED
 Reporting done                      → REPORTED / ROBE NOT RECEIVED
 + Robe Allocation                     → ROBE RECEIVED / NOT QUEUED
 + Seating (optional)                   → SEATED / NOT QUEUED
-+ Queue                                → DEGREE NOT RECEIVED
-+ Stage COMPLETE                       → ROBE NOT RETURNED
++ Queue                                → ROBE NOT RETURNED
 + Robe Return                         → LUNCH ELIGIBLE
 + Lunch                                → EXITED
 ```
 
-Flags that can sit on any event: `PROVISIONAL` (accepted while data from another location was stale, Section 11), `MANUAL` (entered via fallback), `CORRECTED` (touched by Admin), `SKIPPED` (stage only).
+Flags that can sit on any event: `PROVISIONAL` (accepted while data from another location was stale, Section 11), `MANUAL` (entered via fallback), `CORRECTED` (touched by Admin).
 
 Deriving the status from events means the same student always ends up in the same status no matter what order sync delivers events in.
 
@@ -292,8 +294,7 @@ Central continuously checks: duplicate (student, activity) pairs, provisional ev
 ## 12. Live Admin Dashboard
 
 - **Counts:** Registered, Reported, Yet to Report, Reporting %, and school-wise reporting.
-- **Funnel:** Reported → Robe → Seated → Queued → Stage complete → Robe returned → Lunch/Exited.
-- **Stage view:** current student on LED, next queued.
+- **Funnel:** Reported → Robe → Seated → Queued → Robe returned → Lunch/Exited.
 - **Venue health:** online/offline/syncing, pending records, last sync time, server status (primary/standby), sync failures.
 - **Exceptions needing attention:** provisional events, conflicts, robe mismatches, out-of-order attempts, duplicate attempts, manual entries.
 - **Outstanding robes:** allocated but not returned.
@@ -314,11 +315,10 @@ Design rules:
 - One clear sentence for any problem. No codes or technical words.
 - The screen name and operator name are displayed in a corner.
 
-**Stage screen** (private): CURRENT with photo and programme, and the next 15 WAITING in queue order, each with SEND. **NEXT** (also Page Down / Right arrow on a presenter clicker) records the degree for the student on stage and shows the next one in one step; SHOW AGAIN, HOME (one-key Escape), PREVIOUS, SEARCH, SKIP (with a reason), TAKE OVER.
-
-**Public LED page:** shows only branding, approved name, photo, degree/programme, school, medal. No controls. A holding screen between students. Queue scans never change it.
-
-**Caller screen** (internal, read-only): the name and programme of the student on the LED, very large, built from the LED's own payload so the name called aloud always matches the screen. No PRN, phone, email, photo or id, and no controls. If contact is lost for 5 seconds it removes the name and says not to call until it comes back.
+**Caller screen** (internal; the only live display): every queued student not yet called, in first-come
+(queue) order, colour-coded by faculty, updating live as Queue scans arrive. The Caller calls the name aloud and
+presses **NEXT** on that student, which takes them off the list for every Caller screen at once. NEXT records no
+activity. There is no Stage screen and no public LED page.
 
 ---
 

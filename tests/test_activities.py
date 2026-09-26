@@ -55,7 +55,7 @@ def tokens(engine, world, apps):
         client = new_client(apps)
         assert api_login(client, f"act-{sid.lower()}").status_code == 200
         out[sid] = (client, activity)
-    for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE", "THOBE_RETURN", "LUNCH"):
+    for activity in ("THOBE_ALLOCATION", "SEATING", "QUEUE", "THOBE_RETURN", "LUNCH"):
         out[f"{activity[:3]}-01"] = (operator(apps, world, activity), activity)
     return out
 
@@ -186,7 +186,7 @@ class TestQueue:
 
     def test_not_blocked_without_seating(self, apps, world, engine):
         s = make_student(engine)
-        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED"])  # robe + money, never seated
+        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION"])  # robe, never seated
         client = operator(apps, world, "QUEUE")
         assert confirm(client, "QUEUE", token=s.token).json()["result"] == "CONFIRMED"
         assert q(engine, "SELECT count(*) AS n FROM queue WHERE student_id = :s", s=s.id)[0]["n"] == 1
@@ -289,19 +289,18 @@ class TestThobeReturn:
         assert confirm(client, "THOBE_RETURN", token=s.token).json()["result"] == "DUPLICATE"
         assert len(events_of(engine, s, "THOBE_RETURN")) == 1
 
-    def test_it_is_configured_to_require_stage_complete_and_the_thobe_allocation(self, apps, world, engine):
+    def test_it_is_configured_to_require_queue_and_the_thobe_allocation(self, apps, world, engine):
         client = operator(apps, world, "THOBE_RETURN")
         nothing = make_student(engine)
-        assert scan(client, "THOBE_RETURN", nothing.token).json()["message"] == "ROBE RETURN NOT AVAILABLE — STAGE PENDING"
+        assert scan(client, "THOBE_RETURN", nothing.token).json()["message"] == "ROBE RETURN NOT AVAILABLE — QUEUE PENDING"
 
-        skipped = make_student(engine)
-        seed_at(engine, skipped, "THOBE_ALLOCATION", hours_ago=1)
-        seed_at(engine, skipped, "STAGE", kind="SKIP", hours_ago=1)
-        assert scan(client, "THOBE_RETURN", skipped.token).json()["message"] == "ROBE RETURN NOT AVAILABLE — STAGE PENDING"
+        allocated_but_not_queued = make_student(engine)
+        seed_at(engine, allocated_but_not_queued, "THOBE_ALLOCATION", hours_ago=1)
+        assert scan(client, "THOBE_RETURN", allocated_but_not_queued.token).json()["message"] == "ROBE RETURN NOT AVAILABLE — QUEUE PENDING"
 
         no_thobe = make_student(engine)
         seed_events(engine, no_thobe, ["REGISTRATION"])
-        seed_at(engine, no_thobe, "STAGE", hours_ago=1)
+        seed_at(engine, no_thobe, "QUEUE", hours_ago=1)
         body = scan(client, "THOBE_RETURN", no_thobe.token).json()
         assert body["result"] == "REJECTED" and body["message"] == "ROBE RETURN NOT AVAILABLE — NO ROBE WAS ISSUED"
         assert confirm(client, "THOBE_RETURN", token=no_thobe.token).json()["result"] == "REJECTED"
@@ -380,9 +379,9 @@ class TestFullJourney:
     def test_registration_to_lunch_ends_exited(self, apps, world, engine):
         s, seen = self._walk(apps, world, engine, waive_return=False)
         assert seen[-1] == "EXITED"
-        assert len(events_of(engine, s)) == len(ACTIVITIES) == 7
-        # Each of the seven steps: the scan the operator was shown, then the confirm. No false duplicate anywhere.
-        assert [r["result"] for r in log_of(engine, s)] == ["READY", "SUCCESS"] * 7
+        assert len(events_of(engine, s)) == len(ACTIVITIES) == 6
+        # Each of the six steps: the scan the operator was shown, then the confirm. No false duplicate anywhere.
+        assert [r["result"] for r in log_of(engine, s)] == ["READY", "SUCCESS"] * 6
 
     def test_the_same_journey_with_an_admin_waived_return_also_ends_exited(self, apps, world, engine):
         s, seen = self._walk(apps, world, engine, waive_return=True)

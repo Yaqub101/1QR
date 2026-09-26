@@ -6,7 +6,7 @@ the CSV and the XLSX are all produced from that one object.
 
 Per-activity report: EVERY student appears exactly once, as `Completed` (an active COMPLETE or WAIVER) or
 `Not Completed`, so Total = Completed + Not Completed by construction and the row count is checked against the
-master count. A Not Completed row says why when the record shows one (skipped at Stage / reversed by the Admin).
+master count. A Not Completed row says why when the record shows one (reversed by the Admin).
 """
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ def outstanding_thobes(conn, settings, params) -> Report:
     rows = _rows(conn, dashboard.OUTSTANDING_FROM + " ORDER BY al.server_time, s.sequence_no NULLS LAST, s.name", {}, settings.event_utc_offset_minutes)
     return Report("outstanding-robes", "Robes allocated but not returned",
                   [("prn", "PRN"), ("name", "Name"), ("school", "School"), ("programme", "Programme"),
-                   ("allocated_at", "Allocated at"), ("stage_complete", "Stage complete")], rows, {"outstanding": len(rows)})
+                   ("allocated_at", "Allocated at")], rows, {"outstanding": len(rows)})
 
 
 def waived_thobes(conn, settings, params) -> Report:
@@ -168,23 +168,6 @@ def thobe_count(conn, settings, params) -> Report:
                   {"issued": int(row["issued"]), "returned": int(row["returned"]), "waived": int(row["waived"]),
                    "outstanding": int(row["outstanding"])},
                   "Compare the physical count with 'Returned'. Any difference is a robe not accounted for.")
-
-
-# ------------------------------------------------------------------ Stage
-def stage_outcomes(conn, settings, params) -> Report:
-    rows = _rows(conn, """
-        SELECT e.server_time AS at, s.prn, s.name, s.school, s.programme,
-               CASE e.kind WHEN 'SKIP' THEN 'Skipped' ELSE 'Completed' END AS outcome,
-               e.details->>'reason' AS reason,
-               CASE WHEN e.kind = 'COMPLETE' AND EXISTS (SELECT 1 FROM activity_events r WHERE r.kind = 'REVERSAL'
-                        AND r.student_id = e.student_id AND r.activity = e.activity AND r.completion_cycle = e.completion_cycle)
-                    THEN 'Reversed by Admin' ELSE '' END AS note
-        FROM activity_events e JOIN students s ON s.id = e.student_id
-        WHERE e.activity = 'STAGE' AND e.kind IN ('COMPLETE','SKIP') ORDER BY e.server_time""", {}, settings.event_utc_offset_minutes)
-    return Report("stage-outcomes", "Stage: completed and skipped (with reasons)",
-                  [("at", "Time"), ("prn", "PRN"), ("name", "Name"), ("school", "School"), ("programme", "Programme"),
-                   ("outcome", "Outcome"), ("reason", "Skip reason"), ("note", "Note")], rows,
-                  {"completed": sum(1 for r in rows if r["outcome"] == "Completed"), "skipped": sum(1 for r in rows if r["outcome"] == "Skipped")})
 
 
 # ------------------------------------------------------------------ flagged events, corrections
@@ -243,7 +226,6 @@ SUMMARY_COLUMNS = [
     ("thobe_received", "THOBE_ALLOCATION", "Robe received"),
     ("seated", "SEATING", "Seated (optional)"),
     ("queued", "QUEUE", "Queued"),
-    ("stage_complete", "STAGE", "Stage complete"),
     ("thobe_returned", "THOBE_RETURN", "Robe returned"),
     ("exited", "LUNCH", "Lunch / exited"),
 ]
@@ -332,7 +314,6 @@ REPORTS: dict[str, tuple[str, str, Callable]] = {  # key -> (group, description,
     "incomplete-journey": ("Attendance", "Reported but not yet exited, and what each still has to do.", incomplete_journey),
     **{f"activity-{a.lower().replace('_', '-')}": ("Per activity", f"Everyone, completed or not, for {ACTIVITY_LABEL[a]}.", activity_report(a))
        for a in ACTIVITIES},
-    "stage-outcomes": ("Stage", "Who completed and who was skipped, with the reasons.", stage_outcomes),
     "outstanding-robes": ("Robes", "Robe allocated but not returned or waived.", outstanding_thobes),
     "waived-robes": ("Robes", "Return Waived / Lost approvals, with reasons.", waived_thobes),
     "robe-count": ("Robes", "Issued, returned, waived and outstanding, for the physical stock check.", thobe_count),

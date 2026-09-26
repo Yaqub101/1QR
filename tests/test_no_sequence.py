@@ -25,7 +25,6 @@ from backend.engine import extensions
 from backend.engine.activities import ACTIVITY_CONFIGS
 from backend.engine.model import DUPLICATE_PLACEHOLDERS, RECORDABLE_STUDENT_FIELDS
 from backend.importer import commit_import, detect_column_mapping, parse_file, validate_import
-from backend.stage import state as stage_state
 from tests.admin_support import rows, scalar
 from tests.test_station_engine import (  # noqa: F401  (engine / world / apps are pytest fixtures)
     _CLIENTS,
@@ -50,7 +49,6 @@ DISPLAY_KEYS_AFTER = {
     "THOBE_ALLOCATION": ["prn", "programme", "school"],
     "SEATING": ["prn", "programme", "school"],
     "QUEUE": ["prn", "queue_position"],
-    "STAGE": ["programme", "school"],
     "THOBE_RETURN": ["prn", "thobe_issued"],
     "LUNCH": ["prn", "eligibility"],
 }
@@ -209,7 +207,7 @@ class TestStationScreens:
         s = make_student(engine)
         with engine.begin() as c:
             c.execute(text("UPDATE students SET sequence_no = NULL, seat_no = NULL WHERE id = :i"), {"i": s.id})
-        for activity in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE", "STAGE"):
+        for activity in ("REGISTRATION", "THOBE_ALLOCATION", "SEATING", "QUEUE"):
             body = confirm(operator(apps, world, activity), activity, token=s.token).json()
             assert body["result"] == "CONFIRMED", (activity, body)
 
@@ -233,29 +231,21 @@ class TestOrdering:
                     offenders.append(f"{path.name}: {match.group(0)}")
         assert offenders == [], offenders
 
-    def test_the_stage_queue_is_ordered_purely_by_confirmation_order(self, apps, world, engine):
+    def test_the_queue_is_ordered_purely_by_confirmation_order(self, apps, world, engine):
         made = []
         for _ in range(3):
             s = make_student(engine)
             with engine.begin() as c:
                 c.execute(text("UPDATE students SET sequence_no = NULL WHERE id = :i"), {"i": s.id})
-            seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION", "MONEY_RECEIVED", "SEATING"])
+            seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION", "SEATING"])
             made.append(s)
         # Confirm the queue in the REVERSE of the order the students were created in.
         for s in reversed(made):
             assert confirm(operator(apps, world, "QUEUE"), "QUEUE", token=s.token).json()["result"] == "CONFIRMED"
         mine = {str(s.id) for s in made}
         with engine.connect() as c:
-            waiting = [w["student_id"] for w in stage_state.waiting(c, 500) if w["student_id"] in mine]
+            waiting = [str(r["student_id"]) for r in c.execute(text("SELECT student_id FROM queue WHERE status = 'QUEUED' ORDER BY queue_position")).mappings() if str(r["student_id"]) in mine]
         assert waiting == [str(s.id) for s in reversed(made)]
-
-    def test_the_stage_card_carries_no_sequence_number(self, apps, world, engine):
-        s = make_student(engine)
-        seed_events(engine, s, ["REGISTRATION", "THOBE_ALLOCATION", "SEATING"])
-        confirm(operator(apps, world, "QUEUE"), "QUEUE", token=s.token)
-        with engine.connect() as c:
-            card = stage_state.card_for(c, s.id)
-        assert "sequence_no" not in card and "seat_no" not in card
 
     def test_passes_still_load_when_nobody_has_a_number(self, engine):
         mine = {insert_student(engine)[1] for _ in range(3)}
